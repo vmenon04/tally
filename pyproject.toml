@@ -4,7 +4,10 @@ version = "0.1.0"
 description = "Personal finance tracker: imports transactions, categorizes them, and updates a Google Sheet budget."
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "google-auth>=2.62.0",
+    "requests>=2.34.2",
+]
 
 [project.scripts]
 tally = "tally.cli:main"

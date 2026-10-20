@@ -26,6 +26,16 @@ balances that don't add up, a gap in BofA history) is not stored and stays in th
 
 `TALLY_DATA_DIR` sets the data folder (default: `data` in the current directory).
 
+## Reports and the Google Sheet
+
+`data/rules.toml` sorts transactions into categories (the format is described at the top of
+`src/tally/rules.py`). `uv run tally report 2026-10` shows a month's spending per category.
+
+`uv run tally sync --dry-run` reads the Budget tab of the Sheet named in `data/config.toml`
+(`sheet_id = "..."`) and lists the cells it would fill in. It signs in as a Google service
+account whose key is `secrets/google-service-account.json`; share only the Sheet with that
+account. `TALLY_SECRETS_DIR` sets the secrets folder (default: `secrets`).
+
 ## Layout
 
 | Path | What | In git |
