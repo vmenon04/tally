@@ -60,6 +60,20 @@ password (never your account password). The mailbox is opened read-only, so noth
 marked, moved or deleted. Each email read is kept in `data/alerts/gmail/`, so it's never
 fetched twice; a refused email isn't kept, so it's reported on every run.
 
+### Notifications
+
+```sh
+uv run tally ntfy-setup           # once: makes a random topic in secrets/ntfy-topic
+uv run tally notify-test          # check your phone gets it
+```
+
+Subscribe to the printed topic in the ntfy app. After each `tally alerts --gmail` run (not a
+dry run), tally sends headlines only, never merchants or amounts: new card alerts, refused
+alert emails, purchases missing from the bank export, and a mailbox it can't read. Each is
+sent once (a mailbox failure again every 6 hours while it lasts); one that fails to send is
+retried on the next run. `ntfy_server` in `config.toml` changes the server (default
+`https://ntfy.sh`). Anyone with the topic can read the notifications, so keep it private.
+
 ## Reports and the Google Sheet
 
 `data/rules.toml` sorts transactions into categories (the format is described at the top of

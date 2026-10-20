@@ -10,11 +10,12 @@ Gmail's IMAP extensions give each message the same ID the Gmail web app and API 
 
 import contextlib
 import imaplib
-import os
 import re
 import ssl
 from pathlib import Path
 from typing import Any, Protocol, Self
+
+from tally import config
 
 HOST = "imap.gmail.com"
 # Google shows app passwords as four groups of four letters.
@@ -123,15 +124,7 @@ def load_password(path: Path) -> str:
 
 
 def save_password(path: Path, password: str) -> None:
-    """Write the password in one step, readable only by you, in a folder only you can open."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.parent.chmod(0o700)
-    temporary = path.with_name(path.name + ".tmp")
-    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        f.write(password + "\n")
-    temporary.chmod(0o600)
-    os.replace(temporary, path)
+    config.write_secret(path, password + "\n")
 
 
 def _ok(reply: tuple[str, list[Any]], doing: str) -> list[Any]:

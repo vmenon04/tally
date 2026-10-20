@@ -13,6 +13,7 @@ from tally import (
     corrections,
     gmail,
     importing,
+    notify,
     report,
     rules,
     sheet,
@@ -57,6 +58,20 @@ def main(argv: list[str] | None = None) -> int:
         description="Save the alerts mailbox's app password, after checking Gmail accepts it.",
     )
 
+    ntfy_parser = commands.add_parser(
+        "ntfy-setup",
+        help="turn on push notifications",
+        description="Make a random ntfy topic, save it to secrets/, and show how to subscribe.",
+    )
+    ntfy_parser.add_argument(
+        "--new-topic", action="store_true", help="replace the topic with a new one"
+    )
+    commands.add_parser(
+        "notify-test",
+        help="send a test notification",
+        description="Send a test notification to the ntfy topic.",
+    )
+
     report_parser = commands.add_parser(
         "report",
         help="show a month's spending per category",
@@ -86,6 +101,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if ok else 1
     if args.command == "gmail-login":
         return _gmail_login()
+    if args.command == "ntfy-setup":
+        return _ntfy_setup(args.new_topic)
+    if args.command == "notify-test":
+        return _notify_test()
     if args.command == "report":
         return _report(*args.month)
     if args.command == "sync":
@@ -141,16 +160,95 @@ def _gmail_login() -> int:
 def _alerts_from_gmail(dry_run: bool) -> int:
     try:
         account = _gmail_account()
-        password = gmail.load_password(gmail_password_file())
-        mailbox = gmail.ImapMailbox.connect(account, password)
-    except (config.ConfigError, gmail.GmailError) as e:
+    except config.ConfigError as e:
         print(f"alerts: {e}", file=sys.stderr)
         return 1
+    try:
+        password = gmail.load_password(gmail_password_file())
+        mailbox = gmail.ImapMailbox.connect(account, password)
+    except gmail.GmailError as e:
+        print(f"alerts: {e}", file=sys.stderr)
+        if not dry_run:
+            _notify([notify.Event("mailbox", notify.MAILBOX_FAILURE)], recovered=False)
+        return 1
     with mailbox:
-        ok = alert_reading.run_gmail(
+        run = alert_reading.run_gmail(
             data_dir(), mailbox, account, dry_run=dry_run, out=sys.stdout, err=sys.stderr
         )
-    return 0 if ok else 1
+    if not dry_run:
+        events = [notify.Event("new", f"new:{a.message_id}") for a in run.added]
+        events += [notify.Event("refused", f"refused:{i}") for i in run.refused]
+        events += [notify.Event("not_found", f"not-found:{a.message_id}") for a in run.not_found]
+        if run.failure is not None:
+            events.append(notify.Event("mailbox", notify.MAILBOX_FAILURE))
+        _notify(events, recovered=run.failure is None)
+    return 0 if run.ok else 1
+
+
+def ntfy_topic_file() -> Path:
+    return config.secrets_dir() / "ntfy-topic"
+
+
+def _sender() -> notify.NtfySender:
+    """The ntfy sender from config.toml and the saved topic. Raises NotifyError or ConfigError."""
+    settings = config.load(data_dir() / "config.toml")
+    return notify.NtfySender(settings.ntfy_server, notify.load_topic(ntfy_topic_file()))
+
+
+def _notify(events: list[notify.Event], *, recovered: bool) -> None:
+    """Announce the events not announced before. Never fails the command."""
+    try:
+        sender = _sender()
+    except notify.NotifyError:
+        print("\nNotifications are off: run `tally ntfy-setup` to turn them on.")
+        return
+    except config.ConfigError as e:
+        print(f"notify: {e}", file=sys.stderr)
+        return
+    importing.private_dir(data_dir())
+    conn = store.connect(data_dir() / "tally.db")
+    try:
+        if recovered:
+            store.forget_notification(conn, notify.MAILBOX_FAILURE)
+        now = datetime.datetime.now(datetime.UTC)
+        for message in notify.send_new(conn, sender, events, now, sys.stderr):
+            print(f"Notified: {message}")
+    finally:
+        conn.close()
+
+
+def _ntfy_setup(new_topic: bool) -> int:
+    path = ntfy_topic_file()
+    try:
+        server = config.load(data_dir() / "config.toml").ntfy_server
+        topic = notify.load_topic(path) if path.exists() and not new_topic else None
+    except (config.ConfigError, notify.NotifyError) as e:
+        print(f"ntfy-setup: {e}", file=sys.stderr)
+        return 1
+    if topic is None:
+        topic = notify.new_topic()
+        notify.save_topic(path, topic)
+        print(f"Saved a new topic to {path} (readable only by you).")
+    else:
+        print(f"Already set up ({path}); `tally ntfy-setup --new-topic` replaces the topic.")
+    print(
+        "\nIn the ntfy app: + (subscribe to topic), then\n"
+        f"  topic:  {topic}\n"
+        f"  server: {server}\n"
+        "Treat the topic like a password: anyone who has it can read your notifications.\n"
+        "Then run `tally notify-test`."
+    )
+    return 0
+
+
+def _notify_test() -> int:
+    try:
+        _sender().send("test notification", "default")
+    except (config.ConfigError, notify.NotifyError) as e:
+        print(f"notify-test: {e}", file=sys.stderr)
+        return 1
+    print("Sent. It should be on your phone within a few seconds.")
+    return 0
 
 
 def _report(year: int, month: int) -> int:

@@ -9,6 +9,7 @@ import datetime
 import sqlite3
 from collections import Counter
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
 
@@ -45,11 +46,23 @@ def run(data_dir: Path, *, dry_run: bool, out: TextIO, err: TextIO) -> bool:
                 print(f"{path.name}: refused: {e}", file=err)
                 counts["refused"] += 1
                 continue
-            counts[_read_one(conn, path.name, raw, out, err)] += 1
+            counts[_read_one(conn, path.name, raw, out, err)[0]] += 1
         _summary(conn, counts, out)
     finally:
         conn.close()
     return counts["refused"] == 0
+
+
+@dataclass(frozen=True, slots=True)
+class GmailRun:
+    added: list[Alert]
+    refused: list[str]  # Gmail IDs of emails refused this run
+    not_found: list[Alert]  # every stored alert the CSVs should show by now but don't
+    failure: str | None = None  # why the mailbox couldn't be read, if it couldn't
+
+    @property
+    def ok(self) -> bool:
+        return not self.refused and self.failure is None
 
 
 def run_gmail(
@@ -60,42 +73,47 @@ def run_gmail(
     dry_run: bool,
     out: TextIO,
     err: TextIO,
-) -> bool:
+) -> GmailRun:
     """Fetch the bank emails tally hasn't read yet from the alerts mailbox, and store them.
 
     Each email read is kept in data_dir/alerts/gmail/<Gmail ID>.eml, which is also how the
     next run knows not to fetch it again. A refused email isn't kept, so every run reports
-    it until it's dealt with, like a CSV that stays in the inbox. Returns False if any email
-    was refused or Gmail failed.
+    it until it's dealt with, like a CSV that stays in the inbox.
     """
     archive = data_dir / "alerts" / "gmail"
     try:
         ids = mailbox.message_ids(QUERY)
     except gmail.GmailError as e:
         print(f"alerts: {e}", file=err)
-        return False
+        return GmailRun([], [], [], failure=str(e))
     unread = [i for i in reversed(ids) if not (archive / f"{i}.eml").exists()]
     print(f"Gmail {address}: {len(ids)} bank emails, {len(unread)} not read before.", file=out)
 
     conn = _connect(data_dir, dry_run, out)
     try:
         counts: Counter[str] = Counter()
-        failed = False
+        added: list[Alert] = []
+        refused: list[str] = []
+        failure = None
         for message_id in unread:
             try:
                 raw = mailbox.raw(message_id)
             except gmail.GmailError as e:
                 print(f"alerts: {e}", file=err)
-                failed = True
+                failure = str(e)
                 break
-            outcome = _read_one(conn, f"gmail {message_id}", raw, out, err)
+            outcome, alert = _read_one(conn, f"gmail {message_id}", raw, out, err)
             counts[outcome] += 1
-            if not dry_run and outcome != "refused":
+            if outcome == "added" and alert is not None:
+                added.append(alert)
+            if outcome == "refused":
+                refused.append(message_id)
+            elif not dry_run:
                 _keep(data_dir, message_id, raw)
-        _summary(conn, counts, out)
+        result = _summary(conn, counts, out)
     finally:
         conn.close()
-    return counts["refused"] == 0 and not failed
+    return GmailRun(added, refused, result.not_found, failure)
 
 
 def _connect(data_dir: Path, dry_run: bool, out: TextIO) -> sqlite3.Connection:
@@ -113,13 +131,15 @@ def _keep(data_dir: Path, message_id: str, raw: bytes) -> None:
     path.chmod(0o600)
 
 
-def _summary(conn: sqlite3.Connection, counts: Counter[str], out: TextIO) -> None:
+def _summary(conn: sqlite3.Connection, counts: Counter[str], out: TextIO) -> matching.Result:
     print(
         f"\n{counts['added']} added, {counts['already stored']} already stored, "
         f"{counts['skipped']} skipped, {counts['refused']} refused.",
         file=out,
     )
-    _print_matching(matching.match(store.alerts(conn), store.transactions(conn)), out)
+    result = matching.match(store.alerts(conn), store.transactions(conn))
+    _print_matching(result, out)
+    return result
 
 
 def _print_matching(result: matching.Result, out: TextIO) -> None:
@@ -150,24 +170,27 @@ def _alert_line(a: Alert) -> str:
     return f"{a.date}  {a.account:13}  {a.amount:>8}  {a.merchant}"
 
 
-def _read_one(conn: sqlite3.Connection, name: str, raw: bytes, out: TextIO, err: TextIO) -> str:
+def _read_one(
+    conn: sqlite3.Connection, name: str, raw: bytes, out: TextIO, err: TextIO
+) -> tuple[str, Alert | None]:
+    """What happened to one email, and the alert in it if one was stored or already stored."""
     message = read(raw)
     parse = next((p for domain, p in _PARSERS.items() if is_from(message, domain)), None)
     if parse is None:
         print(f"{name}: skipped, not from Discover or Bank of America", file=out)
-        return "skipped"
+        return "skipped", None
     try:
         alert = parse(raw)
     except AlertError as e:
         print(f"{name}: refused: {e}", file=err)
-        return "refused"
+        return "refused", None
     if alert is None:
         print(f"{name}: skipped, not a transaction alert", file=out)
-        return "skipped"
+        return "skipped", None
     new = store.save_alert(conn, alert, now=datetime.datetime.now(datetime.UTC))
     outcome = "added" if new else "already stored"
     print(
         f"{name}: {outcome}  {alert.account}  {alert.date}  {alert.amount}  {alert.merchant}",
         file=out,
     )
-    return outcome
+    return outcome, alert

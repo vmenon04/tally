@@ -174,7 +174,7 @@ def test_unknown_schema_version_is_rejected(tmp_path: Path) -> None:
     conn = sqlite3.connect(path)
     conn.execute("PRAGMA user_version = 99")
     conn.close()
-    with pytest.raises(store.StoreError, match="schema version 99, expected 4"):
+    with pytest.raises(store.StoreError, match="schema version 99, expected 5"):
         store.connect(path)
 
 
@@ -257,6 +257,7 @@ def test_version_1_database_is_migrated(tmp_path: Path) -> None:
     assert store.sheet_writes(conn, "s") == {}
     assert store.sheet_categories(conn, "s") == {}
     assert store.alerts(conn) == []
+    assert store.notifications(conn) == {}
     conn.close()
 
 
@@ -309,3 +310,12 @@ def test_alerts_oldest_purchase_first(db: sqlite3.Connection) -> None:
     store.save_alert(db, alert("<late@example.com>", day=14), now=NOW)
     store.save_alert(db, alert("<early@example.com>", day=2), now=NOW)
     assert [a.message_id for a in store.alerts(db)] == ["<early@example.com>", "<late@example.com>"]
+
+
+def test_notifications_are_remembered_and_forgotten(db: sqlite3.Connection) -> None:
+    later = NOW + datetime.timedelta(hours=1)
+    store.record_notifications(db, ["a", "b"], NOW)
+    store.record_notifications(db, ["b"], later)
+    assert store.notifications(db) == {"a": NOW, "b": later}
+    store.forget_notification(db, "a")
+    assert store.notifications(db) == {"b": later}

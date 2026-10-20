@@ -167,8 +167,8 @@ class FakeMailbox:
 
 def run(data: Path, mailbox: FakeMailbox, dry_run: bool = False) -> tuple[bool, str, str]:
     out, err = io.StringIO(), io.StringIO()
-    ok = alert_reading.run_gmail(data, mailbox, ADDRESS, dry_run=dry_run, out=out, err=err)
-    return ok, out.getvalue(), err.getvalue()
+    result = alert_reading.run_gmail(data, mailbox, ADDRESS, dry_run=dry_run, out=out, err=err)
+    return result.ok, out.getvalue(), err.getvalue()
 
 
 def stored_count(data: Path) -> int:
@@ -318,3 +318,26 @@ def test_login_refused_by_gmail_saves_nothing(
     assert main(["gmail-login"]) == 1
     assert "Gmail refused the app password" in capsys.readouterr().err
     assert not (dirs / "secrets" / "gmail-app-password").exists()
+
+
+def test_run_reports_what_happened(tmp_path: Path) -> None:
+    forged = BOFA.replace(b"dkim=pass", b"dkim=fail")
+    out, err = io.StringIO(), io.StringIO()
+    mailbox = FakeMailbox({"m1": DISCOVER, "m2": forged})
+    result = alert_reading.run_gmail(tmp_path, mailbox, ADDRESS, dry_run=False, out=out, err=err)
+    assert [a.merchant for a in result.added] == ["MAPLE MARKET #0412"]
+    assert result.refused == ["m2"]
+    assert result.not_found == []
+    assert result.failure is None
+    assert not result.ok
+
+
+def test_search_failure_is_reported(tmp_path: Path) -> None:
+    class Down(FakeMailbox):
+        def message_ids(self, query: str) -> list[str]:
+            raise gmail.GmailError("searching the mailbox: socket error")
+
+    out, err = io.StringIO(), io.StringIO()
+    result = alert_reading.run_gmail(tmp_path, Down({}), ADDRESS, dry_run=False, out=out, err=err)
+    assert result.failure == "searching the mailbox: socket error"
+    assert not result.ok

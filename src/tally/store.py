@@ -16,7 +16,7 @@ from pathlib import Path
 from tally.alerts import Alert
 from tally.transaction import Transaction
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 # Version 1. Later versions are reached by the migrations below, in order.
 _SCHEMA = """
@@ -77,6 +77,12 @@ CREATE TABLE alerts (
     amount_cents INTEGER NOT NULL,
     received_at TEXT NOT NULL,
     read_at TEXT NOT NULL
+);
+""",
+    4: """
+CREATE TABLE notifications (
+    key TEXT PRIMARY KEY,
+    sent_at TEXT NOT NULL
 );
 """,
 }
@@ -299,6 +305,30 @@ def alerts(conn: sqlite3.Connection) -> list[Alert]:
         )
         for row in rows
     ]
+
+
+def notifications(conn: sqlite3.Connection) -> dict[str, datetime.datetime]:
+    """When each notification (by its key) was last sent."""
+    rows = conn.execute("SELECT key, sent_at FROM notifications").fetchall()
+    return {key: datetime.datetime.fromisoformat(sent_at) for key, sent_at in rows}
+
+
+def record_notifications(
+    conn: sqlite3.Connection, keys: Sequence[str], now: datetime.datetime
+) -> None:
+    sent_at = now.isoformat(timespec="seconds")
+    with conn:
+        conn.executemany(
+            "INSERT INTO notifications (key, sent_at) VALUES (?, ?)"
+            " ON CONFLICT (key) DO UPDATE SET sent_at = excluded.sent_at",
+            [(key, sent_at) for key in keys],
+        )
+
+
+def forget_notification(conn: sqlite3.Connection, key: str) -> None:
+    """Allow a notification to be sent again straight away (the problem was fixed)."""
+    with conn:
+        conn.execute("DELETE FROM notifications WHERE key = ?", (key,))
 
 
 def _identity(t: Transaction) -> _Identity:
