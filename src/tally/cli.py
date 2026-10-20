@@ -8,6 +8,7 @@ from pathlib import Path
 from tally import (
     budget,
     config,
+    corrections,
     importing,
     report,
     rules,
@@ -99,7 +100,8 @@ def _sync(dry_run: bool) -> int:
         return 1
     try:
         settings = config.load(folder / "config.toml")
-        month_rules = rules.load(folder / "rules.toml")
+        rules_path = folder / "rules.toml"
+        month_rules = rules.load(rules_path)
         target = sheet.GoogleSheet(
             settings.sheet_id,
             config.secrets_dir() / "google-service-account.json",
@@ -119,16 +121,34 @@ def _sync(dry_run: bool) -> int:
     conn = store.connect(db_path)
     try:
         pairs = store.transactions_with_ids(conn)
-        stored = [t for _, t in pairs]
-        months = sorted({(t.date.year, t.date.month) for t in stored})
-        reports = [report.build(stored, month_rules, year, month) for year, month in months]
+        by_id = dict(pairs)
         today = datetime.datetime.now().astimezone().date()
         try:
-            result = budget.plan(grid, reports, month_rules.categories, (today.year, today.month))
             edits = transactions_tab.find_edits(
                 tab_grid, store.sheet_categories(conn, settings.sheet_id)
             )
-        except (budget.BudgetError, transactions_tab.TransactionsTabError) as e:
+        except transactions_tab.TransactionsTabError as e:
+            print(f"sync: {e}", file=sys.stderr)
+            return 1
+        added = [e for e in edits if not (isinstance(e.id, int) and e.id in by_id and e.was)]
+        changed = [
+            (by_id[e.id], str(e.now)) for e in edits if e not in added and isinstance(e.id, int)
+        ]
+        fixes = None
+        if changed and not added:
+            try:
+                fixes = corrections.apply(rules_path.read_text(encoding="utf-8"), changed, today)
+                month_rules = rules.parse(fixes.text)
+            except rules.RulesError as e:
+                print(f"sync: correcting rules.toml: {e}", file=sys.stderr)
+                return 1
+
+        stored = [t for _, t in pairs]
+        months = sorted({(t.date.year, t.date.month) for t in stored})
+        reports = [report.build(stored, month_rules, year, month) for year, month in months]
+        try:
+            result = budget.plan(grid, reports, month_rules.categories, (today.year, today.month))
+        except budget.BudgetError as e:
             print(f"sync: {e}", file=sys.stderr)
             return 1
         conflicts = budget.find_conflicts(result, store.sheet_writes(conn, settings.sheet_id))
@@ -136,6 +156,12 @@ def _sync(dry_run: bool) -> int:
 
         heading = "Dry run: nothing will be changed." if dry_run else "Syncing."
         print(f"{heading} Sheet: {settings.sheet_id}")
+        if fixes:
+            saved = "not saved, dry run" if dry_run else "saved to rules.toml"
+            print(f"\nCorrections from the Transactions tab ({saved}):")
+            print("\n".join(f"  {message}" for message in fixes.messages))
+            for suggestion in fixes.suggestions:
+                print(f"\n{suggestion}")
         print()
         print(budget.format_plan(result, conflicts))
         uncategorized = sum(r.category == rules.UNCATEGORIZED for r in tab_rows)
@@ -143,10 +169,10 @@ def _sync(dry_run: bool) -> int:
             f"\nTransactions tab: {'rewrite' if has_tab else 'create'} with {len(tab_rows)} "
             f"rows ({uncategorized} uncategorized)"
         )
-        if edits:
+        if added:
             print()
-            print(transactions_tab.format_edits(edits))
-        if conflicts or edits:
+            print(transactions_tab.format_edits(added))
+        if conflicts or added:
             return 1
         if dry_run:
             return 0
@@ -154,6 +180,8 @@ def _sync(dry_run: bool) -> int:
             print("\nNothing written: the Budget tab is missing rows or columns.", file=sys.stderr)
             return 1
 
+        if fixes:
+            corrections.save(rules_path, fixes.text)
         requests = [sheet.number_cell(tabs[budget.TAB], c.cell, c.new) for c in result.changes]
         requests += transactions_tab.requests(
             tabs.get(transactions_tab.TAB), _unused_tab_id(tabs), tab_rows, month_rules

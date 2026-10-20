@@ -178,15 +178,63 @@ def test_rule_change_updates_tab_and_budget(
     assert groceries[4] == "Uncategorized"
 
 
-def test_edited_category_stops_the_sync(ready: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_edited_category_becomes_a_rule(ready: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert sync(capsys)[0] == 0
-    row = next(r for r in tab() if r[2] == "VENMO")
+    row = next(r for r in tab() if r[2] == "Zelle payment to SAM PLACEHOLDER")
     row[4] = "Groceries"
+
+    code, out, _ = sync(capsys, "--dry-run")
+    assert code == 0
+    assert "Corrections from the Transactions tab (not saved, dry run):" in out
+    assert "Added rule: Zelle payment to SAM PLACEHOLDER (03/11/2026, -30.00) → Groceries" in out
+    assert "C6   Groceries · Mar 2026  42.1 → 72.10" in out
+    assert "[[rule]]  # corrected" not in (ready / "rules.toml").read_text()
+
     code, out, _ = sync(capsys)
-    assert code == 1
-    assert "VENMO: Uncategorized → Groceries" in out
-    assert "won't rewrite the tab" in out
-    assert len(FakeSheet.batches) == 1
+    assert code == 0
+    assert "(saved to rules.toml)" in out
+    assert budget_cell("C6") == 72.1
+    text = (ready / "rules.toml").read_text()
+    assert 'merchant = "Zelle payment to SAM PLACEHOLDER"' in text
+    assert text.index("Corrections from the Sheet") < text.index('match = "MAPLE MARKET"')
+
+    code, out, _ = sync(capsys)
+    assert code == 0
+    assert "Corrections" not in out
+
+
+def test_clearing_a_correction_undoes_it(ready: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert sync(capsys)[0] == 0
+    next(r for r in tab() if r[2] == "VENMO")[4] = "Groceries"
+    assert sync(capsys)[0] == 0
+    venmo = next(r for r in tab() if r[2] == "VENMO" and r[4] == "Groceries")
+    venmo[4] = ""
+    code, out, _ = sync(capsys)
+    assert code == 0
+    assert "Removed correction: VENMO" in out
+    assert "Groceries" not in [r[4] for r in tab() if r[2] == "VENMO"]
+    assert "[[rule]]  # corrected" not in (ready / "rules.toml").read_text()
+
+
+def test_nudge_after_two_corrections(ready: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert sync(capsys)[0] == 0
+    for row in [r for r in tab() if r[2] == "VENMO"]:
+        row[4] = "Groceries"
+    code, out, _ = sync(capsys)
+    assert code == 0
+    assert "You've corrected VENMO to Groceries 2 times" in out
+    assert '  merchant = "VENMO"\n  category = "Groceries"' in out
+
+
+def test_correction_blocked_by_budget_conflict_saves_nothing(
+    ready: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert sync(capsys)[0] == 0
+    next(r for r in tab() if r[2] == "VENMO")[4] = "Groceries"
+    FakeSheet.grids[BUDGET_ID][4][2] = 99  # Rent, Mar: typed by hand
+    rules_before = (ready / "rules.toml").read_text()
+    assert sync(capsys)[0] == 1
+    assert (ready / "rules.toml").read_text() == rules_before
 
 
 def test_sorting_the_tab_is_not_an_edit(ready: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -201,7 +249,8 @@ def test_row_added_by_hand_stops_the_sync(ready: Path, capsys: pytest.CaptureFix
     tab().append([46100, "Cash", "LEMONADE", -3, "Groceries", ""])
     code, out, _ = sync(capsys)
     assert code == 1
-    assert "LEMONADE: not written by tally" in out
+    assert "row 15: LEMONADE" in out
+    assert "tally didn't write" in out
 
 
 def test_rearranged_tab_is_refused(ready: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -219,7 +268,7 @@ def test_existing_tab_tally_did_not_write_is_refused(
     FakeSheet.grids[222] = [list(transactions_tab.HEADER), [46100, "x", "MINE", 1, "Groceries", 7]]
     code, out, _ = sync(capsys, "--dry-run")
     assert code == 1
-    assert "MINE: not written by tally" in out
+    assert "row 2: MINE" in out
 
 
 def test_budget_conflict_blocks_everything(ready: Path, capsys: pytest.CaptureFixture[str]) -> None:

@@ -70,15 +70,12 @@ def find_edits(grid: Grid, written: dict[int, str]) -> list[Edit]:
 
 
 def format_edits(edits: list[Edit]) -> str:
-    lines = [f"Transactions tab: {len(edits)} row(s) changed since tally wrote them:"]
-    for e in edits:
-        if e.was is None:
-            lines.append(f"  row {e.row_number}: {e.merchant!s}: not written by tally")
-        else:
-            lines.append(f"  row {e.row_number}: {e.merchant!s}: {e.was} → {e.now or '(empty)'}")
+    """Describe rows tally can't turn into corrections: added by hand, or unknown IDs."""
+    lines = [f"Transactions tab: {len(edits)} row(s) tally didn't write:"]
+    lines += [f"  row {e.row_number}: {e.merchant!s}" for e in edits]
     lines.append(
-        "tally won't rewrite the tab and lose these. Put the change in data/rules.toml "
-        "(or undo it in the Sheet) and sync again."
+        "tally won't rewrite the tab and lose them. Delete those rows (tally only reads "
+        "category changes) and sync again."
     )
     return "\n".join(lines)
 

@@ -79,10 +79,9 @@ def test_wrong_header_is_refused() -> None:
 
 
 def test_format_edits() -> None:
-    grid = written_grid()
-    grid[1][4] = ""
+    grid: list[list[object]] = [*written_grid(), [46090, "Cash", "LEMONADE", -3, "Groceries"]]
     text = transactions_tab.format_edits(transactions_tab.find_edits(grid, WRITTEN))
-    assert "row 2: MARKET: Groceries → (empty)" in text
+    assert "1 row(s) tally didn't write:\n  row 4: LEMONADE" in text
 
 
 def tab_rows() -> list[Row]:
