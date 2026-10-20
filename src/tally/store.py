@@ -15,7 +15,7 @@ from pathlib import Path
 
 from tally.transaction import Transaction
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Version 1. Later versions are reached by the migrations below, in order.
 _SCHEMA = """
@@ -56,6 +56,14 @@ CREATE TABLE sheet_writes (
     value_cents INTEGER NOT NULL,
     written_at TEXT NOT NULL,
     PRIMARY KEY (sheet_id, row_label, month)
+);
+""",
+    2: """
+CREATE TABLE sheet_categories (
+    sheet_id TEXT NOT NULL,
+    transaction_id INTEGER NOT NULL,
+    category TEXT NOT NULL,
+    PRIMARY KEY (sheet_id, transaction_id)
 );
 """,
 }
@@ -204,8 +212,15 @@ def _save(
 
 def transactions(conn: sqlite3.Connection, account: str | None = None) -> list[Transaction]:
     """Stored transactions in the order they were added, optionally for one account."""
+    return [t for _, t in transactions_with_ids(conn, account)]
+
+
+def transactions_with_ids(
+    conn: sqlite3.Connection, account: str | None = None
+) -> list[tuple[int, Transaction]]:
+    """Like transactions(), paired with each one's ID in the database."""
     query = (
-        "SELECT account, date, posted, description, merchant, amount_cents, bank_category,"
+        "SELECT id, account, date, posted, description, merchant, amount_cents, bank_category,"
         " balance_cents FROM transactions"
     )
     params: tuple[str, ...] = ()
@@ -214,15 +229,18 @@ def transactions(conn: sqlite3.Connection, account: str | None = None) -> list[T
         params = (account,)
     rows = conn.execute(query + " ORDER BY id", params).fetchall()
     return [
-        Transaction(
-            account=row[0],
-            date=datetime.date.fromisoformat(row[1]),
-            posted=datetime.date.fromisoformat(row[2]) if row[2] is not None else None,
-            description=row[3],
-            merchant=row[4],
-            amount=_dollars(row[5]),
-            bank_category=row[6],
-            balance=_dollars(row[7]) if row[7] is not None else None,
+        (
+            row[0],
+            Transaction(
+                account=row[1],
+                date=datetime.date.fromisoformat(row[2]),
+                posted=datetime.date.fromisoformat(row[3]) if row[3] is not None else None,
+                description=row[4],
+                merchant=row[5],
+                amount=_dollars(row[6]),
+                bank_category=row[7],
+                balance=_dollars(row[8]) if row[8] is not None else None,
+            ),
         )
         for row in rows
     ]
@@ -276,4 +294,24 @@ def record_sheet_writes(
             " ON CONFLICT (sheet_id, row_label, month)"
             " DO UPDATE SET value_cents = excluded.value_cents, written_at = excluded.written_at",
             [(sheet_id, row, month, _cents(value), written_at) for row, month, value in cells],
+        )
+
+
+def sheet_categories(conn: sqlite3.Connection, sheet_id: str) -> dict[int, str]:
+    """The category tally last wrote for each transaction on the Sheet's Transactions tab."""
+    rows = conn.execute(
+        "SELECT transaction_id, category FROM sheet_categories WHERE sheet_id = ?", (sheet_id,)
+    ).fetchall()
+    return dict(rows)
+
+
+def replace_sheet_categories(
+    conn: sqlite3.Connection, sheet_id: str, categories: dict[int, str]
+) -> None:
+    """Record the categories of a freshly rewritten Transactions tab, replacing the old record."""
+    with conn:
+        conn.execute("DELETE FROM sheet_categories WHERE sheet_id = ?", (sheet_id,))
+        conn.executemany(
+            "INSERT INTO sheet_categories (sheet_id, transaction_id, category) VALUES (?, ?, ?)",
+            [(sheet_id, tid, category) for tid, category in categories.items()],
         )

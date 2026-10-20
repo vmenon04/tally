@@ -5,7 +5,16 @@ import re
 import sys
 from pathlib import Path
 
-from tally import budget, config, importing, report, rules, sheet, store
+from tally import (
+    budget,
+    config,
+    importing,
+    report,
+    rules,
+    sheet,
+    store,
+    transactions_tab,
+)
 from tally.transaction import Transaction
 
 
@@ -96,29 +105,48 @@ def _sync(dry_run: bool) -> int:
             config.secrets_dir() / "google-service-account.json",
             write=not dry_run,
         )
+        tabs = target.tabs()
+        if budget.TAB not in tabs:
+            print(f"sync: the Sheet has no {budget.TAB!r} tab.", file=sys.stderr)
+            return 1
         grid = target.values(budget.RANGE)
+        has_tab = transactions_tab.TAB in tabs
+        tab_grid = target.values(transactions_tab.RANGE) if has_tab else []
     except (config.ConfigError, rules.RulesError, sheet.SheetError) as e:
         print(f"sync: {e}", file=sys.stderr)
         return 1
 
     conn = store.connect(db_path)
     try:
-        stored = store.transactions(conn)
+        pairs = store.transactions_with_ids(conn)
+        stored = [t for _, t in pairs]
         months = sorted({(t.date.year, t.date.month) for t in stored})
         reports = [report.build(stored, month_rules, year, month) for year, month in months]
         today = datetime.datetime.now().astimezone().date()
         try:
             result = budget.plan(grid, reports, month_rules.categories, (today.year, today.month))
-        except budget.BudgetError as e:
-            print(f"sync: Budget tab: {e}", file=sys.stderr)
+            edits = transactions_tab.find_edits(
+                tab_grid, store.sheet_categories(conn, settings.sheet_id)
+            )
+        except (budget.BudgetError, transactions_tab.TransactionsTabError) as e:
+            print(f"sync: {e}", file=sys.stderr)
             return 1
         conflicts = budget.find_conflicts(result, store.sheet_writes(conn, settings.sheet_id))
+        tab_rows = transactions_tab.rows(pairs, month_rules)
 
         heading = "Dry run: nothing will be changed." if dry_run else "Syncing."
         print(f"{heading} Sheet: {settings.sheet_id}")
         print()
         print(budget.format_plan(result, conflicts))
-        if conflicts:
+        uncategorized = sum(r.category == rules.UNCATEGORIZED for r in tab_rows)
+        print(
+            f"\nTransactions tab: {'rewrite' if has_tab else 'create'} with {len(tab_rows)} "
+            f"rows ({uncategorized} uncategorized)"
+        )
+        if edits:
+            print()
+            print(transactions_tab.format_edits(edits))
+        if conflicts or edits:
             return 1
         if dry_run:
             return 0
@@ -126,21 +154,37 @@ def _sync(dry_run: bool) -> int:
             print("\nNothing written: the Budget tab is missing rows or columns.", file=sys.stderr)
             return 1
 
-        if result.changes:
-            try:
-                target.update({f"{budget.TAB}!{c.cell}": c.new for c in result.changes})
-            except sheet.SheetError as e:
-                print(f"sync: {e}. Nothing was written.", file=sys.stderr)
-                return 1
+        requests = [sheet.number_cell(tabs[budget.TAB], c.cell, c.new) for c in result.changes]
+        requests += transactions_tab.requests(
+            tabs.get(transactions_tab.TAB), _unused_tab_id(tabs), tab_rows, month_rules
+        )
+        try:
+            target.batch_update(requests)
+        except sheet.SheetError as e:
+            print(f"sync: {e}. Nothing was written.", file=sys.stderr)
+            return 1
         store.record_sheet_writes(
             conn,
             settings.sheet_id,
             [(c.row, c.month, c.new) for c in [*result.changes, *result.unchanged]],
         )
-        print(f"\nUpdated {len(result.changes)} cells.")
+        store.replace_sheet_categories(
+            conn, settings.sheet_id, {r.id: r.category for r in tab_rows}
+        )
+        print(
+            f"\nUpdated {len(result.changes)} Budget cells and wrote {len(tab_rows)} rows "
+            "to the Transactions tab."
+        )
         return 0
     finally:
         conn.close()
+
+
+def _unused_tab_id(tabs: dict[str, int]) -> int:
+    tab_id = 1
+    while tab_id in tabs.values():
+        tab_id += 1
+    return tab_id
 
 
 def _stored_transactions(db_path: Path) -> list[Transaction]:

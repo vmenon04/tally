@@ -173,7 +173,7 @@ def test_unknown_schema_version_is_rejected(tmp_path: Path) -> None:
     conn = sqlite3.connect(path)
     conn.execute("PRAGMA user_version = 99")
     conn.close()
-    with pytest.raises(store.StoreError, match="schema version 99, expected 2"):
+    with pytest.raises(store.StoreError, match="schema version 99, expected 3"):
         store.connect(path)
 
 
@@ -252,8 +252,9 @@ def test_version_1_database_is_migrated(tmp_path: Path) -> None:
     conn.executescript(store._SCHEMA + "PRAGMA user_version = 1;")
     conn.close()
     conn = store.connect(path)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == store.SCHEMA_VERSION
     assert store.sheet_writes(conn, "s") == {}
+    assert store.sheet_categories(conn, "s") == {}
     conn.close()
 
 
@@ -263,3 +264,18 @@ def test_sheet_writes_are_remembered_per_sheet(db: sqlite3.Connection) -> None:
     store.record_sheet_writes(db, "a", [("Groceries", "Mar 2026", Decimal("0"))], now=NOW)
     assert store.sheet_writes(db, "a") == {("Groceries", "Mar 2026"): Decimal("0")}
     assert store.sheet_writes(db, "b") == {("Groceries", "Mar 2026"): Decimal("1.00")}
+
+
+def test_transactions_with_ids(db: sqlite3.Connection) -> None:
+    save(db, [coffee("1.00"), coffee("2.00")])
+    pairs = store.transactions_with_ids(db)
+    assert [t.amount for _, t in pairs] == [Decimal("-1.00"), Decimal("-2.00")]
+    assert len({tid for tid, _ in pairs}) == 2
+
+
+def test_sheet_categories_are_replaced_per_sheet(db: sqlite3.Connection) -> None:
+    store.replace_sheet_categories(db, "a", {1: "Groceries", 2: "Income"})
+    store.replace_sheet_categories(db, "b", {1: "Rent"})
+    store.replace_sheet_categories(db, "a", {2: "Investing"})
+    assert store.sheet_categories(db, "a") == {2: "Investing"}
+    assert store.sheet_categories(db, "b") == {1: "Rent"}

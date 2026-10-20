@@ -35,7 +35,9 @@ balances that don't add up, a gap in BofA history) is not stored and stays in th
 (`sheet_id = "..."`): each month's category actuals, and actual Roth IRA contributions up to
 the current month. `--dry-run` lists the cells it would change without changing them. It
 never overwrites a value it didn't write itself (such as one you typed); it lists those and
-writes nothing until you clear them. It signs in as a Google service
+writes nothing until you clear them. It also rewrites a Transactions tab (created on the
+first sync) listing every transaction, newest first, with its category; if you've changed a
+category there, sync stops and lists the change rather than erase it. It signs in as a Google service
 account whose key is `secrets/google-service-account.json`; share only the Sheet with that
 account. `TALLY_SECRETS_DIR` sets the secrets folder (default: `secrets`).
 
