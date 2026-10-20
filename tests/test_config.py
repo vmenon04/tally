@@ -23,11 +23,18 @@ def test_load(tmp_path: Path) -> None:
         ('sheet_id = ""\n', "sheet_id must be"),
         ("sheet_id = 5\n", "sheet_id must be"),
         ('sheet_id = "a"\nsheet = "b"\n', "unknown keys"),
+        ('sheet_id = "a"\ngmail_account = "alerts"\n', "gmail_account must be"),
+        ('sheet_id = "a"\ngmail_account = 5\n', "gmail_account must be"),
     ],
 )
 def test_bad_config(tmp_path: Path, text: str, error: str) -> None:
     with pytest.raises(config.ConfigError, match=error):
         config.load(write(tmp_path, text))
+
+
+def test_gmail_account(tmp_path: Path) -> None:
+    text = 'sheet_id = "abc123"\ngmail_account = " alerts@example.com "\n'
+    assert config.load(write(tmp_path, text)).gmail_account == "alerts@example.com"
 
 
 def test_missing_config(tmp_path: Path) -> None:

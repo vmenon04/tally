@@ -12,7 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TextIO
 
-from tally import matching, store
+from tally import gmail, matching, store
 from tally.alerts import Alert, AlertError, bofa, discover, is_from, read
 from tally.importing import private_dir
 
@@ -20,6 +20,8 @@ _PARSERS: dict[str, Callable[[bytes], Alert | None]] = {
     discover.DOMAIN: discover.parse,
     bofa.DOMAIN: bofa.parse,
 }
+# The Gmail search for every email from a bank tally reads (its parsers check the rest).
+QUERY = "from:(" + " OR ".join(_PARSERS) + ")"
 
 
 def run(data_dir: Path, *, dry_run: bool, out: TextIO, err: TextIO) -> bool:
@@ -33,27 +35,91 @@ def run(data_dir: Path, *, dry_run: bool, out: TextIO, err: TextIO) -> bool:
         print(f"Nothing to read: no .eml files in {folder}.", file=out)
         return True
 
-    db_path = data_dir / "tally.db"
-    if dry_run:
-        print("Dry run: nothing will be saved.", file=out)
-        conn = store.connect_copy(db_path)
-    else:
-        private_dir(data_dir, "alerts")
-        conn = store.connect(db_path)
+    conn = _connect(data_dir, dry_run, out)
     try:
         counts: Counter[str] = Counter()
         for path in paths:
-            outcome = _read_one(conn, path, out, err)
-            counts[outcome] += 1
-        print(
-            f"\n{counts['added']} added, {counts['already stored']} already stored, "
-            f"{counts['skipped']} skipped, {counts['refused']} refused.",
-            file=out,
-        )
-        _print_matching(matching.match(store.alerts(conn), store.transactions(conn)), out)
+            try:
+                raw = path.read_bytes()
+            except OSError as e:
+                print(f"{path.name}: refused: {e}", file=err)
+                counts["refused"] += 1
+                continue
+            counts[_read_one(conn, path.name, raw, out, err)] += 1
+        _summary(conn, counts, out)
     finally:
         conn.close()
     return counts["refused"] == 0
+
+
+def run_gmail(
+    data_dir: Path,
+    mailbox: gmail.Mailbox,
+    address: str,
+    *,
+    dry_run: bool,
+    out: TextIO,
+    err: TextIO,
+) -> bool:
+    """Fetch the bank emails tally hasn't read yet from the alerts mailbox, and store them.
+
+    Each email read is kept in data_dir/alerts/gmail/<Gmail ID>.eml, which is also how the
+    next run knows not to fetch it again. A refused email isn't kept, so every run reports
+    it until it's dealt with, like a CSV that stays in the inbox. Returns False if any email
+    was refused or Gmail failed.
+    """
+    archive = data_dir / "alerts" / "gmail"
+    try:
+        ids = mailbox.message_ids(QUERY)
+    except gmail.GmailError as e:
+        print(f"alerts: {e}", file=err)
+        return False
+    unread = [i for i in reversed(ids) if not (archive / f"{i}.eml").exists()]
+    print(f"Gmail {address}: {len(ids)} bank emails, {len(unread)} not read before.", file=out)
+
+    conn = _connect(data_dir, dry_run, out)
+    try:
+        counts: Counter[str] = Counter()
+        failed = False
+        for message_id in unread:
+            try:
+                raw = mailbox.raw(message_id)
+            except gmail.GmailError as e:
+                print(f"alerts: {e}", file=err)
+                failed = True
+                break
+            outcome = _read_one(conn, f"gmail {message_id}", raw, out, err)
+            counts[outcome] += 1
+            if not dry_run and outcome != "refused":
+                _keep(data_dir, message_id, raw)
+        _summary(conn, counts, out)
+    finally:
+        conn.close()
+    return counts["refused"] == 0 and not failed
+
+
+def _connect(data_dir: Path, dry_run: bool, out: TextIO) -> sqlite3.Connection:
+    db_path = data_dir / "tally.db"
+    if dry_run:
+        print("Dry run: nothing will be saved.", file=out)
+        return store.connect_copy(db_path)
+    private_dir(data_dir, "alerts")
+    return store.connect(db_path)
+
+
+def _keep(data_dir: Path, message_id: str, raw: bytes) -> None:
+    path = private_dir(data_dir, "alerts", "gmail") / f"{message_id}.eml"
+    path.write_bytes(raw)
+    path.chmod(0o600)
+
+
+def _summary(conn: sqlite3.Connection, counts: Counter[str], out: TextIO) -> None:
+    print(
+        f"\n{counts['added']} added, {counts['already stored']} already stored, "
+        f"{counts['skipped']} skipped, {counts['refused']} refused.",
+        file=out,
+    )
+    _print_matching(matching.match(store.alerts(conn), store.transactions(conn)), out)
 
 
 def _print_matching(result: matching.Result, out: TextIO) -> None:
@@ -84,29 +150,24 @@ def _alert_line(a: Alert) -> str:
     return f"{a.date}  {a.account:13}  {a.amount:>8}  {a.merchant}"
 
 
-def _read_one(conn: sqlite3.Connection, path: Path, out: TextIO, err: TextIO) -> str:
-    try:
-        raw = path.read_bytes()
-    except OSError as e:
-        print(f"{path.name}: refused: {e}", file=err)
-        return "refused"
+def _read_one(conn: sqlite3.Connection, name: str, raw: bytes, out: TextIO, err: TextIO) -> str:
     message = read(raw)
     parse = next((p for domain, p in _PARSERS.items() if is_from(message, domain)), None)
     if parse is None:
-        print(f"{path.name}: skipped, not from Discover or Bank of America", file=out)
+        print(f"{name}: skipped, not from Discover or Bank of America", file=out)
         return "skipped"
     try:
         alert = parse(raw)
     except AlertError as e:
-        print(f"{path.name}: refused: {e}", file=err)
+        print(f"{name}: refused: {e}", file=err)
         return "refused"
     if alert is None:
-        print(f"{path.name}: skipped, not a transaction alert", file=out)
+        print(f"{name}: skipped, not a transaction alert", file=out)
         return "skipped"
     new = store.save_alert(conn, alert, now=datetime.datetime.now(datetime.UTC))
     outcome = "added" if new else "already stored"
     print(
-        f"{path.name}: {outcome}  {alert.account}  {alert.date}  {alert.amount}  {alert.merchant}",
+        f"{name}: {outcome}  {alert.account}  {alert.date}  {alert.amount}  {alert.merchant}",
         file=out,
     )
     return outcome

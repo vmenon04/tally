@@ -43,6 +43,23 @@ a day before to three days after, agreeing merchant name, same amount or up to 3
 a tip; the full rules are at the top of `src/tally/matching.py`) and lists the rest as
 *waiting* (the CSVs don't reach that date yet) or *not found* (they do, but have no such row).
 
+### Reading the alerts mailbox
+
+Instead of saving emails by hand, tally can read a separate Gmail account that receives only
+the bank alerts (a filter in your main Gmail forwards them). Put its address in
+`data/config.toml` as `gmail_account = "..."`, turn on 2-Step Verification for that account,
+create an app password for it at myaccount.google.com/apppasswords, then:
+
+```sh
+uv run tally gmail-login          # once: type the app password; saved to secrets/gmail-app-password
+uv run tally alerts --gmail       # fetch new bank emails over IMAP, store their alerts
+```
+
+gmail-login only saves a password Gmail accepts, and only something shaped like an app
+password (never your account password). The mailbox is opened read-only, so nothing in it is
+marked, moved or deleted. Each email read is kept in `data/alerts/gmail/`, so it's never
+fetched twice; a refused email isn't kept, so it's reported on every run.
+
 ## Reports and the Google Sheet
 
 `data/rules.toml` sorts transactions into categories (the format is described at the top of
