@@ -175,3 +175,72 @@ def test_unknown_schema_version_is_rejected(tmp_path: Path) -> None:
     conn.close()
     with pytest.raises(store.StoreError, match="schema version 99, expected 1"):
         store.connect(path)
+
+
+def bofa_rows() -> list[Transaction]:
+    return bofa.load(FIXTURES / "bofa_checking.csv")
+
+
+def test_bofa_file_continuing_history_without_overlap_is_accepted(db: sqlite3.Connection) -> None:
+    rows = bofa_rows()
+    save(db, rows[:6], account="bofa_checking")
+    assert save(db, rows[6:], account="bofa_checking").rows_new == 7
+
+
+def test_bofa_file_overlapping_history_is_accepted(db: sqlite3.Connection) -> None:
+    rows = bofa_rows()
+    save(db, rows[:6], account="bofa_checking")
+    assert save(db, rows[4:], account="bofa_checking").rows_new == 7
+
+
+def test_bofa_gap_is_rejected(db: sqlite3.Connection) -> None:
+    rows = bofa_rows()
+    save(db, rows[:6], account="bofa_checking")
+    expected = "gap: this file starts at balance 2428.78 on 2026-03-10, but the last stored balance"
+    with pytest.raises(store.StoreError, match=expected):
+        save(db, rows[8:], account="bofa_checking")
+    assert len(store.transactions(db)) == 6
+
+
+def test_older_bofa_file_without_overlap_is_rejected(db: sqlite3.Connection) -> None:
+    rows = bofa_rows()
+    save(db, rows[6:], account="bofa_checking")
+    with pytest.raises(store.StoreError, match="gap"):
+        save(db, rows[:6], account="bofa_checking")
+
+
+def test_discover_has_no_gap_check(db: sqlite3.Connection) -> None:
+    save(db, [coffee(day=2)])
+    assert save(db, [coffee(day=20)]).rows_new == 1
+
+
+def test_copy_has_the_data_but_changes_stay_in_memory(tmp_path: Path) -> None:
+    path = tmp_path / "tally.db"
+    conn = store.connect(path)
+    save(conn, [coffee()])
+    conn.close()
+
+    copy = store.connect_copy(path)
+    assert store.transactions(copy) == [coffee()]
+    save(copy, [coffee("1.00")])
+    copy.close()
+
+    conn = store.connect(path)
+    assert store.transactions(conn) == [coffee()]
+    conn.close()
+
+
+def test_copy_of_missing_database_is_empty_and_creates_no_file(tmp_path: Path) -> None:
+    copy = store.connect_copy(tmp_path / "tally.db")
+    assert store.transactions(copy) == []
+    copy.close()
+    assert not (tmp_path / "tally.db").exists()
+
+
+def test_copy_checks_schema_version(tmp_path: Path) -> None:
+    path = tmp_path / "tally.db"
+    conn = sqlite3.connect(path)
+    conn.execute("PRAGMA user_version = 99")
+    conn.close()
+    with pytest.raises(store.StoreError, match="schema version 99"):
+        store.connect_copy(path)

@@ -56,12 +56,31 @@ class StoreError(Exception):
 class ImportResult:
     import_id: int
     rows_in_file: int
-    rows_new: int
+    new: tuple[Transaction, ...]
+
+    @property
+    def rows_new(self) -> int:
+        return len(self.new)
 
 
 def connect(path: Path) -> sqlite3.Connection:
     """Open the database, creating it if needed."""
-    conn = sqlite3.connect(path, autocommit=False)
+    return _prepare(sqlite3.connect(path, autocommit=False), path)
+
+
+def connect_copy(path: Path) -> sqlite3.Connection:
+    """An in-memory copy of the database (empty if it doesn't exist), for trial runs."""
+    conn = sqlite3.connect(":memory:", autocommit=False)
+    if path.exists():
+        source = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+        try:
+            source.backup(conn)
+        finally:
+            source.close()
+    return _prepare(conn, path)
+
+
+def _prepare(conn: sqlite3.Connection, path: Path) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys = ON")
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     if version == 0:
@@ -88,46 +107,78 @@ def save(
     imported_at = (now or datetime.datetime.now(datetime.UTC)).isoformat(timespec="seconds")
 
     with conn:
-        import_id = conn.execute(
-            "INSERT INTO imports"
-            " (account, file_name, file_sha256, imported_at, rows_in_file, rows_new)"
-            " VALUES (?, ?, ?, ?, ?, 0)",
-            (account, file_name, file_sha256, imported_at, len(transactions)),
-        ).lastrowid
-        assert import_id is not None
+        return _save(conn, transactions, account, file_name, file_sha256, imported_at)
 
-        stored: dict[_Identity, list[int | None]] = {}
-        seen: Counter[_Identity] = Counter()
-        rows_new = 0
-        for t in transactions:
-            identity = _identity(t)
-            if identity not in stored:
-                stored[identity] = _stored_balances(conn, identity)
-            occurrence = seen[identity]
-            seen[identity] += 1
 
-            balance = _cents(t.balance) if t.balance is not None else None
-            if occurrence < len(stored[identity]):
-                # Already stored. Where the bank gives running balances, the overlap must agree,
-                # otherwise this file and the database disagree about the account's history.
-                stored_balance = stored[identity][occurrence]
-                if balance is not None and stored_balance is not None and balance != stored_balance:
-                    raise StoreError(
-                        f"{t.date} {t.description!r} {t.amount}: balance {t.balance} doesn't "
-                        f"match the stored balance {_dollars(stored_balance)}"
-                    )
-                continue
+def _save(
+    conn: sqlite3.Connection,
+    transactions: Sequence[Transaction],
+    account: str,
+    file_name: str,
+    file_sha256: str,
+    imported_at: str,
+) -> ImportResult:
+    last_balance = conn.execute(
+        "SELECT date, balance_cents FROM transactions"
+        " WHERE account = ? AND balance_cents IS NOT NULL"
+        " ORDER BY posted DESC, id DESC LIMIT 1",
+        (account,),
+    ).fetchone()
 
-            conn.execute(
-                "INSERT INTO transactions (account, date, posted, description, merchant,"
-                " amount_cents, bank_category, balance_cents, import_id)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (*identity[:4], t.merchant, identity[4], t.bank_category, balance, import_id),
+    import_id = conn.execute(
+        "INSERT INTO imports"
+        " (account, file_name, file_sha256, imported_at, rows_in_file, rows_new)"
+        " VALUES (?, ?, ?, ?, ?, 0)",
+        (account, file_name, file_sha256, imported_at, len(transactions)),
+    ).lastrowid
+    assert import_id is not None
+
+    stored: dict[_Identity, list[int | None]] = {}
+    seen: Counter[_Identity] = Counter()
+    new: list[Transaction] = []
+    overlaps = False
+    for t in transactions:
+        identity = _identity(t)
+        if identity not in stored:
+            stored[identity] = _stored_balances(conn, identity)
+        occurrence = seen[identity]
+        seen[identity] += 1
+
+        balance = _cents(t.balance) if t.balance is not None else None
+        if occurrence < len(stored[identity]):
+            # Already stored. Where the bank gives running balances, the overlap must agree,
+            # otherwise this file and the database disagree about the account's history.
+            stored_balance = stored[identity][occurrence]
+            if balance is not None and stored_balance is not None and balance != stored_balance:
+                raise StoreError(
+                    f"{t.date} {t.description!r} {t.amount}: balance {t.balance} doesn't "
+                    f"match the stored balance {_dollars(stored_balance)}"
+                )
+            overlaps = True
+            continue
+
+        conn.execute(
+            "INSERT INTO transactions (account, date, posted, description, merchant,"
+            " amount_cents, bank_category, balance_cents, import_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (*identity[:4], t.merchant, identity[4], t.bank_category, balance, import_id),
+        )
+        new.append(t)
+
+    # A file that shares no rows with the stored history must continue it exactly,
+    # otherwise transactions between the two are missing.
+    first = transactions[0] if transactions else None
+    if last_balance and first and first.balance is not None and not overlaps:
+        opening = _cents(first.balance) - _cents(first.amount)
+        if opening != last_balance[1]:
+            raise StoreError(
+                f"gap: this file starts at balance {_dollars(opening)} on {first.date}, "
+                f"but the last stored balance is {_dollars(last_balance[1])} on "
+                f"{last_balance[0]}. Download a date range that overlaps what is stored."
             )
-            rows_new += 1
 
-        conn.execute("UPDATE imports SET rows_new = ? WHERE id = ?", (rows_new, import_id))
-    return ImportResult(import_id, len(transactions), rows_new)
+    conn.execute("UPDATE imports SET rows_new = ? WHERE id = ?", (len(new), import_id))
+    return ImportResult(import_id, len(transactions), tuple(new))
 
 
 def transactions(conn: sqlite3.Connection, account: str | None = None) -> list[Transaction]:
