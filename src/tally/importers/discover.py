@@ -10,20 +10,17 @@ negative means money spent, matching every other account.
 """
 
 import csv
-import datetime
 import io
 import re
 from decimal import Decimal
 from pathlib import Path
 
-from tally.importers import ParseError
+from tally.importers import ParseError, parse_amount, parse_date
 from tally.transaction import Transaction
 
 ACCOUNT = "discover"
 HEADER = ["Trans. Date", "Post Date", "Description", "Amount", "Category"]
 
-_DATE = re.compile(r"(\d{2})/(\d{2})/(\d{4})")
-_AMOUNT = re.compile(r"-?(\d{1,3}(,\d{3})+|\d+)\.\d{2}")
 # Glued onto Apple Pay purchases with no space, sometimes followed by extra digits.
 _APPLE_PAY = re.compile(r"APPLE PAY ENDING IN\s*\S*$")
 # Some processors glue a reference code onto the state: "SPRINGFIELD IL00012345ABCD...".
@@ -53,11 +50,11 @@ def parse(text: str) -> list[Transaction]:
         transactions.append(
             Transaction(
                 account=ACCOUNT,
-                date=_parse_date(trans_date, line),
-                posted=_parse_date(post_date, line),
+                date=parse_date(trans_date, line),
+                posted=parse_date(post_date, line),
                 description=description,
                 merchant=clean_merchant(description),
-                amount=Decimal(0) - _parse_amount(amount, line),
+                amount=Decimal(0) - parse_amount(amount, line),
                 bank_category=category.strip() or None,
             )
         )
@@ -69,21 +66,3 @@ def clean_merchant(description: str) -> str:
     merchant = _APPLE_PAY.sub("", description.strip())
     merchant = _REFERENCE.sub(r" \1", merchant)
     return " ".join(merchant.split())
-
-
-def _parse_date(text: str, line: int) -> datetime.date:
-    match = _DATE.fullmatch(text.strip())
-    if match:
-        month, day, year = (int(part) for part in match.groups())
-        try:
-            return datetime.date(year, month, day)
-        except ValueError:
-            pass
-    raise ParseError(f"bad date {text!r}", line)
-
-
-def _parse_amount(text: str, line: int) -> Decimal:
-    text = text.strip()
-    if not _AMOUNT.fullmatch(text):
-        raise ParseError(f"bad amount {text!r}", line)
-    return Decimal(text.replace(",", ""))
