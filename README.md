@@ -38,8 +38,10 @@ uv run tally alerts             # store each alert once (by Message-ID); the fil
 
 An email is only accepted when Gmail's `Authentication-Results` header shows the bank signed
 it. Alerts are provisional (the amount can change before it posts) and are kept apart from
-imported transactions. The command lists the alerts that no imported CSV row explains yet:
-a row on the same account within 5 days and $5 of the alert explains it.
+imported transactions. The command matches alerts to imported CSV rows (same account, dated
+a day before to three days after, agreeing merchant name, same amount or up to 30% more for
+a tip; the full rules are at the top of `src/tally/matching.py`) and lists the rest as
+*waiting* (the CSVs don't reach that date yet) or *not found* (they do, but have no such row).
 
 ## Reports and the Google Sheet
 

@@ -2,57 +2,24 @@
 
 The bank is picked by the sender's domain, and its parser then checks Gmail's signature
 result, so a forged From line only gets an email refused. An alert stays pending until a
-posted row from a CSV export explains it.
+posted row from a CSV export explains it (see matching).
 """
 
 import datetime
 import sqlite3
 from collections import Counter
-from collections.abc import Callable, Sequence
-from decimal import Decimal
+from collections.abc import Callable
 from pathlib import Path
 from typing import TextIO
 
-from tally import store
+from tally import matching, store
 from tally.alerts import Alert, AlertError, bofa, discover, is_from, read
 from tally.importing import private_dir
-from tally.transaction import Transaction
 
 _PARSERS: dict[str, Callable[[bytes], Alert | None]] = {
     discover.DOMAIN: discover.parse,
     bofa.DOMAIN: bofa.parse,
 }
-
-# How far a posted row may be from its alert and still explain it. Tips and holds change
-# the amount, and a purchase can post a few days after it is authorized.
-MATCH_DAYS = 5
-MATCH_DOLLARS = Decimal(5)
-
-
-def pending(alerts: Sequence[Alert], transactions: Sequence[Transaction]) -> list[Alert]:
-    """Alerts that no posted transaction explains yet.
-
-    A transaction explains an alert on the same account within MATCH_DAYS days and
-    MATCH_DOLLARS of its amount. Each transaction explains at most one alert: the first
-    one (oldest first) it is close to, picking the closest amount, then the closest date.
-    """
-    unused = list(transactions)
-    left = []
-    for a in alerts:
-        candidates = [
-            t
-            for t in unused
-            if t.account == a.account
-            and abs((t.date - a.date).days) <= MATCH_DAYS
-            and abs(t.amount - a.amount) <= MATCH_DOLLARS
-        ]
-        if not candidates:
-            left.append(a)
-            continue
-        unused.remove(
-            min(candidates, key=lambda t: (abs(t.amount - a.amount), abs((t.date - a.date).days)))
-        )
-    return left
 
 
 def run(data_dir: Path, *, dry_run: bool, out: TextIO, err: TextIO) -> bool:
@@ -83,13 +50,38 @@ def run(data_dir: Path, *, dry_run: bool, out: TextIO, err: TextIO) -> bool:
             f"{counts['skipped']} skipped, {counts['refused']} refused.",
             file=out,
         )
-        left = pending(store.alerts(conn), store.transactions(conn))
-        print(f"\nPending: {len(left)} alert(s) not in a CSV import yet", file=out)
-        for a in left:
-            print(f"  {a.date}  {a.account:13}  {a.amount:>8}  {a.merchant}", file=out)
+        _print_matching(matching.match(store.alerts(conn), store.transactions(conn)), out)
     finally:
         conn.close()
     return counts["refused"] == 0
+
+
+def _print_matching(result: matching.Result, out: TextIO) -> None:
+    loose = [m for m in result.matches if m.by_amount_only]
+    print(
+        f"\nMatched to posted rows: {len(result.matches)} alert(s), {len(loose)} by amount only",
+        file=out,
+    )
+    for m in loose:
+        print(
+            f"  {_alert_line(m.alert)}  ->  {m.transaction.date}  {m.transaction.merchant}",
+            file=out,
+        )
+    if result.not_found:
+        print(
+            f"\nNot found: {len(result.not_found)} alert(s) the CSVs should show by now "
+            "(declined, reversed, or named differently?)",
+            file=out,
+        )
+        for a in result.not_found:
+            print(f"  {_alert_line(a)}", file=out)
+    print(f"\nWaiting: {len(result.waiting)} alert(s) not in a CSV import yet", file=out)
+    for a in result.waiting:
+        print(f"  {_alert_line(a)}", file=out)
+
+
+def _alert_line(a: Alert) -> str:
+    return f"{a.date}  {a.account:13}  {a.amount:>8}  {a.merchant}"
 
 
 def _read_one(conn: sqlite3.Connection, path: Path, out: TextIO, err: TextIO) -> str:
