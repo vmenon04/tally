@@ -7,13 +7,14 @@ fail() { echo "pre-commit: $*" >&2; exit 1; }
 
 # 1. No files from secrets/ or data/, and no file types that hold tokens or transactions.
 blocked=$(git diff --cached --name-only --diff-filter=ACMR \
-  | grep -E '^(secrets|data)/|\.(db|sqlite[0-9]*|eml)$|(^|/)\.env$|service[-_]?account.*\.json$|token.*\.json$' \
+  | grep -E '^(secrets|data)/|\.(db|sqlite[0-9]*)$|(^|/)\.env$|service[-_]?account.*\.json$|token.*\.json$' \
   || true)
-csvs=$(git diff --cached --name-only --diff-filter=ACMR \
-  | grep -E '\.csv$' | grep -vE '^tests/fixtures/' || true)
-if [[ -n "$blocked$csvs" ]]; then
+# Bank exports and emails are allowed only as made-up test fixtures.
+exports=$(git diff --cached --name-only --diff-filter=ACMR \
+  | grep -E '\.(csv|eml)$' | grep -vE '^tests/fixtures/' || true)
+if [[ -n "$blocked$exports" ]]; then
   fail "refusing to commit secrets or personal data:
-$blocked$csvs"
+$blocked$exports"
 fi
 
 # 2. No credential-shaped strings in the staged changes (this hook itself is exempt).

@@ -5,6 +5,7 @@ data/
 *.db
 *.sqlite*
 *.eml
+!tests/fixtures/*.eml
 *.csv
 !tests/fixtures/*.csv
 
