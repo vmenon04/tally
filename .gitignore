@@ -1,0 +1,20 @@
+# Secrets and personal financial data never enter the repo.
+secrets/
+data/
+.env
+*.db
+*.sqlite*
+*.eml
+*.csv
+!tests/fixtures/*.csv
+
+# Python / tooling
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+dist/
+
+.DS_Store
