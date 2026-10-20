@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from tally import (
+    alert_reading,
     budget,
     config,
     corrections,
@@ -34,6 +35,16 @@ def main(argv: list[str] | None = None) -> int:
         "--dry-run", action="store_true", help="show what would be imported without saving"
     )
 
+    alerts_parser = commands.add_parser(
+        "alerts",
+        help="read saved alert emails",
+        description="Read the Discover and BofA alert emails saved as .eml files in the alerts "
+        "folder, store each alert once, and list the alerts no imported CSV row explains yet.",
+    )
+    alerts_parser.add_argument(
+        "--dry-run", action="store_true", help="show what would be stored without saving"
+    )
+
     report_parser = commands.add_parser(
         "report",
         help="show a month's spending per category",
@@ -56,6 +67,9 @@ def main(argv: list[str] | None = None) -> int:
             args.files, data_dir(), dry_run=args.dry_run, out=sys.stdout, err=sys.stderr
         )
         return 0 if ok else 1
+    if args.command == "alerts":
+        ok = alert_reading.run(data_dir(), dry_run=args.dry_run, out=sys.stdout, err=sys.stderr)
+        return 0 if ok else 1
     if args.command == "report":
         return _report(*args.month)
     if args.command == "sync":
@@ -65,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def data_dir() -> Path:
-    """Where the database, inbox and archived downloads live: TALLY_DATA_DIR, else ./data."""
+    """Where the database, inbox, alerts and downloads live: TALLY_DATA_DIR, else ./data."""
     return Path(os.environ.get("TALLY_DATA_DIR", "data"))
 
 

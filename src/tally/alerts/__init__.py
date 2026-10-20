@@ -55,10 +55,19 @@ def check_sender(message: EmailMessage, domain: str) -> None:
     signed = rf"\bdkim=pass header\.(?:i=@|d=)(?:[\w-]+\.)*{re.escape(domain)}(?=[\s;]|$)"
     if not re.search(signed, first):
         raise AlertError(f"Gmail didn't confirm the email was signed by {domain}")
-    sender = email.utils.parseaddr(str(message["From"] or ""))[1].lower()
-    sender_domain = sender.rpartition("@")[2]
-    if sender_domain != domain and not sender_domain.endswith("." + domain):
-        raise AlertError(f"email is from {sender!r}, not {domain}")
+    if not is_from(message, domain):
+        raise AlertError(f"email is from {sender(message)!r}, not {domain}")
+
+
+def sender(message: EmailMessage) -> str:
+    """The From address, lowercased."""
+    return email.utils.parseaddr(str(message["From"] or ""))[1].lower()
+
+
+def is_from(message: EmailMessage, domain: str) -> bool:
+    """Whether the From address is at domain or one of its subdomains. Not proof on its own."""
+    sender_domain = sender(message).rpartition("@")[2]
+    return sender_domain == domain or sender_domain.endswith("." + domain)
 
 
 def message_id(message: EmailMessage) -> str:

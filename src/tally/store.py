@@ -1,4 +1,4 @@
-"""The SQLite database that holds every imported transaction.
+"""The SQLite database that holds every imported transaction, and the alerts read from email.
 
 Banks give no transaction IDs, so a row's identity is its account, dates, raw description
 and amount. Identical rows on the same day are real (two equal coffees), so an import adds
@@ -13,9 +13,10 @@ from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 
+from tally.alerts import Alert
 from tally.transaction import Transaction
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # Version 1. Later versions are reached by the migrations below, in order.
 _SCHEMA = """
@@ -64,6 +65,18 @@ CREATE TABLE sheet_categories (
     transaction_id INTEGER NOT NULL,
     category TEXT NOT NULL,
     PRIMARY KEY (sheet_id, transaction_id)
+);
+""",
+    3: """
+CREATE TABLE alerts (
+    id INTEGER PRIMARY KEY,
+    message_id TEXT NOT NULL UNIQUE,
+    account TEXT NOT NULL,
+    date TEXT NOT NULL,
+    merchant TEXT NOT NULL,
+    amount_cents INTEGER NOT NULL,
+    received_at TEXT NOT NULL,
+    read_at TEXT NOT NULL
 );
 """,
 }
@@ -241,6 +254,48 @@ def transactions_with_ids(
                 bank_category=row[7],
                 balance=_dollars(row[8]) if row[8] is not None else None,
             ),
+        )
+        for row in rows
+    ]
+
+
+def save_alert(
+    conn: sqlite3.Connection, alert: Alert, now: datetime.datetime | None = None
+) -> bool:
+    """Store an alert unless one with the same Message-ID is stored. True if it was new."""
+    read_at = (now or datetime.datetime.now(datetime.UTC)).isoformat(timespec="seconds")
+    with conn:
+        cursor = conn.execute(
+            "INSERT INTO alerts"
+            " (message_id, account, date, merchant, amount_cents, received_at, read_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (message_id) DO NOTHING",
+            (
+                alert.message_id,
+                alert.account,
+                alert.date.isoformat(),
+                alert.merchant,
+                _cents(alert.amount),
+                alert.received.isoformat(),
+                read_at,
+            ),
+        )
+    return cursor.rowcount == 1
+
+
+def alerts(conn: sqlite3.Connection) -> list[Alert]:
+    """Stored alerts, oldest purchase first."""
+    rows = conn.execute(
+        "SELECT account, date, merchant, amount_cents, message_id, received_at FROM alerts"
+        " ORDER BY date, received_at, id"
+    ).fetchall()
+    return [
+        Alert(
+            account=row[0],
+            date=datetime.date.fromisoformat(row[1]),
+            merchant=row[2],
+            amount=_dollars(row[3]),
+            message_id=row[4],
+            received=datetime.datetime.fromisoformat(row[5]),
         )
         for row in rows
     ]

@@ -26,6 +26,21 @@ balances that don't add up, a gap in BofA history) is not stored and stays in th
 
 `TALLY_DATA_DIR` sets the data folder (default: `data` in the current directory).
 
+## Alert emails
+
+Discover "Transaction Alert" and BofA "Your debit card was used" emails, saved as `.eml`
+files in `data/alerts/`, are read with:
+
+```sh
+uv run tally alerts --dry-run   # show what would be stored, save nothing
+uv run tally alerts             # store each alert once (by Message-ID); the files stay put
+```
+
+An email is only accepted when Gmail's `Authentication-Results` header shows the bank signed
+it. Alerts are provisional (the amount can change before it posts) and are kept apart from
+imported transactions. The command lists the alerts that no imported CSV row explains yet:
+a row on the same account within 5 days and $5 of the alert explains it.
+
 ## Reports and the Google Sheet
 
 `data/rules.toml` sorts transactions into categories (the format is described at the top of

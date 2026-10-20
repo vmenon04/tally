@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from tally import store
+from tally.alerts import Alert
 from tally.importers import bofa, discover
 from tally.transaction import Transaction
 
@@ -173,7 +174,7 @@ def test_unknown_schema_version_is_rejected(tmp_path: Path) -> None:
     conn = sqlite3.connect(path)
     conn.execute("PRAGMA user_version = 99")
     conn.close()
-    with pytest.raises(store.StoreError, match="schema version 99, expected 3"):
+    with pytest.raises(store.StoreError, match="schema version 99, expected 4"):
         store.connect(path)
 
 
@@ -255,6 +256,7 @@ def test_version_1_database_is_migrated(tmp_path: Path) -> None:
     assert conn.execute("PRAGMA user_version").fetchone()[0] == store.SCHEMA_VERSION
     assert store.sheet_writes(conn, "s") == {}
     assert store.sheet_categories(conn, "s") == {}
+    assert store.alerts(conn) == []
     conn.close()
 
 
@@ -279,3 +281,31 @@ def test_sheet_categories_are_replaced_per_sheet(db: sqlite3.Connection) -> None
     store.replace_sheet_categories(db, "a", {2: "Investing"})
     assert store.sheet_categories(db, "a") == {2: "Investing"}
     assert store.sheet_categories(db, "b") == {1: "Rent"}
+
+
+def alert(message_id: str = "<a1@example.com>", day: int = 12) -> Alert:
+    return Alert(
+        account="discover",
+        date=datetime.date(2026, 3, day),
+        merchant="MAPLE MARKET #0412",
+        amount=Decimal("-42.10"),
+        message_id=message_id,
+        received=datetime.datetime(2026, 3, day, 15, 15, tzinfo=datetime.UTC),
+    )
+
+
+def test_alerts_round_trip(db: sqlite3.Connection) -> None:
+    assert store.save_alert(db, alert(), now=NOW) is True
+    assert store.alerts(db) == [alert()]
+
+
+def test_same_email_is_stored_once(db: sqlite3.Connection) -> None:
+    assert store.save_alert(db, alert(), now=NOW) is True
+    assert store.save_alert(db, alert(), now=NOW) is False
+    assert store.alerts(db) == [alert()]
+
+
+def test_alerts_oldest_purchase_first(db: sqlite3.Connection) -> None:
+    store.save_alert(db, alert("<late@example.com>", day=14), now=NOW)
+    store.save_alert(db, alert("<early@example.com>", day=2), now=NOW)
+    assert [a.message_id for a in store.alerts(db)] == ["<early@example.com>", "<late@example.com>"]
