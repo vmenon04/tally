@@ -173,7 +173,7 @@ def test_unknown_schema_version_is_rejected(tmp_path: Path) -> None:
     conn = sqlite3.connect(path)
     conn.execute("PRAGMA user_version = 99")
     conn.close()
-    with pytest.raises(store.StoreError, match="schema version 99, expected 1"):
+    with pytest.raises(store.StoreError, match="schema version 99, expected 2"):
         store.connect(path)
 
 
@@ -244,3 +244,22 @@ def test_copy_checks_schema_version(tmp_path: Path) -> None:
     conn.close()
     with pytest.raises(store.StoreError, match="schema version 99"):
         store.connect_copy(path)
+
+
+def test_version_1_database_is_migrated(tmp_path: Path) -> None:
+    path = tmp_path / "tally.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(store._SCHEMA + "PRAGMA user_version = 1;")
+    conn.close()
+    conn = store.connect(path)
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert store.sheet_writes(conn, "s") == {}
+    conn.close()
+
+
+def test_sheet_writes_are_remembered_per_sheet(db: sqlite3.Connection) -> None:
+    store.record_sheet_writes(db, "a", [("Groceries", "Mar 2026", Decimal("42.10"))], now=NOW)
+    store.record_sheet_writes(db, "b", [("Groceries", "Mar 2026", Decimal("1.00"))], now=NOW)
+    store.record_sheet_writes(db, "a", [("Groceries", "Mar 2026", Decimal("0"))], now=NOW)
+    assert store.sheet_writes(db, "a") == {("Groceries", "Mar 2026"): Decimal("0")}
+    assert store.sheet_writes(db, "b") == {("Groceries", "Mar 2026"): Decimal("1.00")}

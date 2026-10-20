@@ -83,9 +83,6 @@ def _report(year: int, month: int) -> int:
 
 
 def _sync(dry_run: bool) -> int:
-    if not dry_run:
-        print("tally sync only supports --dry-run so far.", file=sys.stderr)
-        return 1
     folder = data_dir()
     db_path = folder / "tally.db"
     if not db_path.exists():
@@ -95,26 +92,55 @@ def _sync(dry_run: bool) -> int:
         settings = config.load(folder / "config.toml")
         month_rules = rules.load(folder / "rules.toml")
         target = sheet.GoogleSheet(
-            settings.sheet_id, config.secrets_dir() / "google-service-account.json"
+            settings.sheet_id,
+            config.secrets_dir() / "google-service-account.json",
+            write=not dry_run,
         )
         grid = target.values(budget.RANGE)
     except (config.ConfigError, rules.RulesError, sheet.SheetError) as e:
         print(f"sync: {e}", file=sys.stderr)
         return 1
 
-    stored = _stored_transactions(db_path)
-    months = sorted({(t.date.year, t.date.month) for t in stored})
-    reports = [report.build(stored, month_rules, year, month) for year, month in months]
-    today = datetime.datetime.now().astimezone().date()
+    conn = store.connect(db_path)
     try:
-        changes = budget.plan(grid, reports, month_rules.categories, (today.year, today.month))
-    except budget.BudgetError as e:
-        print(f"sync: Budget tab: {e}", file=sys.stderr)
-        return 1
-    print(f"Dry run: nothing will be changed. Sheet: {settings.sheet_id}")
-    print()
-    print(budget.format_plan(changes))
-    return 0
+        stored = store.transactions(conn)
+        months = sorted({(t.date.year, t.date.month) for t in stored})
+        reports = [report.build(stored, month_rules, year, month) for year, month in months]
+        today = datetime.datetime.now().astimezone().date()
+        try:
+            result = budget.plan(grid, reports, month_rules.categories, (today.year, today.month))
+        except budget.BudgetError as e:
+            print(f"sync: Budget tab: {e}", file=sys.stderr)
+            return 1
+        conflicts = budget.find_conflicts(result, store.sheet_writes(conn, settings.sheet_id))
+
+        heading = "Dry run: nothing will be changed." if dry_run else "Syncing."
+        print(f"{heading} Sheet: {settings.sheet_id}")
+        print()
+        print(budget.format_plan(result, conflicts))
+        if conflicts:
+            return 1
+        if dry_run:
+            return 0
+        if result.missing_rows or result.missing_months:
+            print("\nNothing written: the Budget tab is missing rows or columns.", file=sys.stderr)
+            return 1
+
+        if result.changes:
+            try:
+                target.update({f"{budget.TAB}!{c.cell}": c.new for c in result.changes})
+            except sheet.SheetError as e:
+                print(f"sync: {e}. Nothing was written.", file=sys.stderr)
+                return 1
+        store.record_sheet_writes(
+            conn,
+            settings.sheet_id,
+            [(c.row, c.month, c.new) for c in [*result.changes, *result.unchanged]],
+        )
+        print(f"\nUpdated {len(result.changes)} cells.")
+        return 0
+    finally:
+        conn.close()
 
 
 def _stored_transactions(db_path: Path) -> list[Transaction]:

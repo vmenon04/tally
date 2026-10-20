@@ -37,7 +37,7 @@ class CellChange:
 @dataclass(slots=True)
 class BudgetPlan:
     changes: list[CellChange] = field(default_factory=list)
-    unchanged: int = 0
+    unchanged: list[CellChange] = field(default_factory=list)  # already hold the right value
     missing_rows: list[str] = field(default_factory=list)
     missing_months: list[str] = field(default_factory=list)
 
@@ -95,13 +95,33 @@ def plan(
             if isinstance(old, str) and old.startswith("="):
                 raise BudgetError(f"{cell} ({name}, {header}) is a formula; tally won't touch it")
             if _same(old, new):
-                result.unchanged += 1
+                result.unchanged.append(CellChange(cell, name, header, old, new))
             else:
                 result.changes.append(CellChange(cell, name, header, old, new))
     return result
 
 
-def format_plan(result: BudgetPlan) -> str:
+def find_conflicts(result: BudgetPlan, written: dict[tuple[str, str], Decimal]) -> list[CellChange]:
+    """Changes that would overwrite a value tally didn't write, so probably one you typed.
+
+    A cell may be changed if it is empty, still holds what tally last wrote there, or holds
+    a planned Roth IRA amount that tally hasn't replaced yet.
+    """
+    conflicts = []
+    for c in result.changes:
+        if c.old == "":
+            continue
+        last = written.get((c.row, c.month))
+        if last is None and c.row == ROTH_ROW:
+            continue
+        if last is not None and _same(c.old, last):
+            continue
+        conflicts.append(c)
+    return conflicts
+
+
+def format_plan(result: BudgetPlan, conflicts: list[CellChange] | None = None) -> str:
+    conflicts = conflicts or []
     lines = []
     if result.missing_rows or result.missing_months:
         lines.append("Missing from the Budget tab (needs a one-time setup):")
@@ -109,12 +129,20 @@ def format_plan(result: BudgetPlan) -> str:
         lines += [f"  column {header!r}" for header in result.missing_months]
         lines.append("")
     lines.append(
-        f"Budget changes: {len(result.changes)} cells ({result.unchanged} already up to date)"
+        f"Budget changes: {len(result.changes)} cells ({len(result.unchanged)} already up to date)"
     )
     width = max((len(f"{c.row} · {c.month}") for c in result.changes), default=0)
     for c in result.changes:
         old = "(empty)" if c.old == "" else str(c.old)
-        lines.append(f"  {c.cell:<4} {f'{c.row} · {c.month}':<{width}}  {old} → {c.new:.2f}")
+        mark = "   ✗ not written by tally" if c in conflicts else ""
+        lines.append(f"  {c.cell:<4} {f'{c.row} · {c.month}':<{width}}  {old} → {c.new:.2f}{mark}")
+    if conflicts:
+        lines += [
+            "",
+            f"{len(conflicts)} cell(s) marked ✗ hold a value tally didn't write, probably one "
+            "you typed.",
+            "tally won't overwrite them. Clear those cells (or fix the rules) and sync again.",
+        ]
     return "\n".join(lines)
 
 

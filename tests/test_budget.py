@@ -50,7 +50,7 @@ def test_fills_empty_cells_and_skips_matching_ones() -> None:
     assert result.changes == [
         budget.CellChange("C5", "Rent + fees", "Mar 2026", "", Decimal("1500.00")),
     ]
-    assert result.unchanged == 2
+    assert len(result.unchanged) == 2
 
 
 def test_replaces_planned_roth_amount_with_actual() -> None:
@@ -130,13 +130,57 @@ def test_column_letters() -> None:
     ]
 
 
+def test_conflict_rules() -> None:
+    g = grid()
+    g[4][2] = 99  # Rent, Mar: typed by hand
+    g[4][3] = 10  # Rent, Apr: tally wrote 10 earlier
+    reports = [month(2026, 3, rent="1", investing="650"), month(2026, 4, rent="2", groceries="3")]
+    result = budget.plan(g, reports, CATEGORIES, (2026, 4))
+    written = {("Rent + fees", "Apr 2026"): Decimal("10.00")}
+    conflicts = budget.find_conflicts(result, written)
+    # Typed by hand: Rent Mar (99) and Groceries Mar (12.34). Fine: Rent Apr (tally's own 10),
+    # Groceries Apr (empty) and the Roth row (plan amounts tally hasn't replaced yet).
+    assert [c.cell for c in conflicts] == ["C5", "C6"]
+
+
+def test_roth_is_protected_once_tally_has_written_it() -> None:
+    result = plan([month(2026, 3, groceries="12.34", investing="650")])
+    written = {(budget.ROTH_ROW, "Mar 2026"): Decimal("600")}
+    assert [c.cell for c in budget.find_conflicts(result, written)] == ["C8"]
+
+
+def test_format_marks_conflicts() -> None:
+    g = grid()
+    g[4][2] = 99
+    result = budget.plan(g, [month(2026, 3, rent="1", groceries="12.34")], CATEGORIES, (2026, 2))
+    text = budget.format_plan(result, budget.find_conflicts(result, {}))
+    assert "C5   Rent + fees · Mar 2026  99 → 1.00   ✗ not written by tally" in text
+    assert "1 cell(s) marked ✗ hold a value tally didn't write" in text
+
+
 class FakeSheet:
-    def __init__(self, sheet_id: str, key_file: Path) -> None:
-        self.sheet_id = sheet_id
+    """Stands in for GoogleSheet: one shared grid, and a log of what was asked of it."""
+
+    grid: Grid = []
+    updates: list[dict[str, Decimal]] = []
+    write_flags: list[bool] = []
+    fail_writes = False
+
+    def __init__(self, sheet_id: str, key_file: Path, *, write: bool = False) -> None:
+        FakeSheet.write_flags.append(write)
 
     def values(self, cell_range: str) -> Grid:
         assert cell_range == budget.RANGE
-        return grid()
+        return [list(row) for row in FakeSheet.grid]
+
+    def update(self, cells: dict[str, Decimal]) -> None:
+        if FakeSheet.fail_writes:
+            raise sheet.SheetError("writing: HTTP 500 INTERNAL")
+        FakeSheet.updates.append(cells)
+        for address, value in cells.items():
+            cell = address.removeprefix(f"{budget.TAB}!")
+            column, row = ord(cell[0]) - ord("A"), int(cell[1:]) - 1
+            FakeSheet.grid[row][column] = float(value)
 
 
 @pytest.fixture
@@ -145,48 +189,153 @@ def data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("TALLY_DATA_DIR", str(data))
     monkeypatch.setenv("TALLY_SECRETS_DIR", str(tmp_path / "secrets"))
     monkeypatch.setattr(sheet, "GoogleSheet", FakeSheet)
+    FakeSheet.grid = [row + [""] * (6 - len(row)) for row in grid()]
+    FakeSheet.grid[5][2] = ""  # Groceries, Mar: start empty
+    FakeSheet.updates, FakeSheet.write_flags, FakeSheet.fail_writes = [], [], False
     return data
 
 
-def set_up(data: Path) -> None:
+RULES = (
+    'categories = ["Rent + fees", "Groceries"]\n'
+    '[[rule]]\nmatch = "MAPLE MARKET"\ncategory = "Groceries"\n'
+    '[[rule]]\nmerchant = "FID BKG SVC LLC"\ncategory = "Investing"\n'
+)
+
+
+def set_up(data: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    # The BofA fixture is March 2026: groceries 42.10 and 500.00 into the Roth IRA.
     assert main(["import", str(FIXTURES / "bofa_checking.csv")]) == 0
     (data / "config.toml").write_text('sheet_id = "test-sheet"\n')
-    (data / "rules.toml").write_text(
-        'categories = ["Rent + fees", "Groceries"]\n'
-        '[[rule]]\nmatch = "MAPLE MARKET"\ncategory = "Groceries"\n'
-        '[[rule]]\nmerchant = "FID BKG SVC LLC"\ncategory = "Investing"\n'
-    )
-
-
-def test_sync_dry_run(data: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    set_up(data)
+    (data / "rules.toml").write_text(RULES)
     capsys.readouterr()
-    assert main(["sync", "--dry-run"]) == 0
-    out = capsys.readouterr().out
+
+
+def sync(capsys: pytest.CaptureFixture[str], *args: str) -> tuple[int, str, str]:
+    code = main(["sync", *args])
+    captured = capsys.readouterr()
+    return code, captured.out, captured.err
+
+
+def test_dry_run_reads_only(data: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    set_up(data, capsys)
+    code, out, _ = sync(capsys, "--dry-run")
+    assert code == 0
     assert "Dry run: nothing will be changed. Sheet: test-sheet" in out
     assert "C6   Groceries · Mar 2026" in out
-    assert "12.34 → 42.10" in out
+    assert "(empty) → 42.10" in out
+    assert FakeSheet.write_flags == [False]
+    assert FakeSheet.updates == []
 
 
-def test_sync_without_dry_run_is_refused(data: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    set_up(data)
-    assert main(["sync"]) == 1
-    assert "only supports --dry-run" in capsys.readouterr().err
+def test_sync_writes_and_remembers(data: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    set_up(data, capsys)
+    code, out, _ = sync(capsys)
+    assert code == 0
+    assert FakeSheet.write_flags == [True]
+    assert FakeSheet.updates == [{"Budget!C5": Decimal("0"), "Budget!C6": Decimal("42.10")}]
+    assert "Updated 2 cells." in out
+
+    code, out, _ = sync(capsys)
+    assert code == 0
+    assert "Budget changes: 0 cells (3 already up to date)" in out
+    assert len(FakeSheet.updates) == 1
+
+
+def test_sync_updates_its_own_values(data: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    set_up(data, capsys)
+    assert sync(capsys)[0] == 0
+    (data / "rules.toml").write_text(RULES.replace("MAPLE MARKET", "NO SUCH SHOP"))
+    code, _, _ = sync(capsys)
+    assert code == 0
+    assert FakeSheet.updates[-1] == {"Budget!C6": Decimal("0")}
+
+
+def test_sync_refuses_to_overwrite_your_typing(
+    data: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    set_up(data, capsys)
+    assert sync(capsys)[0] == 0
+    FakeSheet.grid[5][2] = 50  # you typed over tally's 42.10
+    code, out, _ = sync(capsys)
+    assert code == 1
+    assert "C6   Groceries · Mar 2026  50 → 42.10   ✗ not written by tally" in out
+    assert len(FakeSheet.updates) == 1
+
+
+def test_value_typed_before_tally_ever_wrote_is_protected(
+    data: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    set_up(data, capsys)
+    FakeSheet.grid[5][2] = 12.34
+    assert sync(capsys, "--dry-run")[0] == 1
+    assert sync(capsys)[0] == 1
+    assert FakeSheet.updates == []
+
+
+def test_planned_roth_amount_is_replaced(data: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    set_up(data, capsys)
+    FakeSheet.grid[7][2] = 300
+    assert sync(capsys)[0] == 0
+    assert FakeSheet.updates[0]["Budget!C8"] == Decimal("500.00")
+
+
+def test_value_already_right_is_adopted(data: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    set_up(data, capsys)
+    FakeSheet.grid[5][2] = 42.10  # typed, but it's what tally would write
+    assert sync(capsys)[0] == 0
+    (data / "rules.toml").write_text(RULES.replace("MAPLE MARKET", "NO SUCH SHOP"))
+    assert sync(capsys)[0] == 0  # tally now owns that cell, so it may change it
+    assert FakeSheet.updates[-1] == {"Budget!C6": Decimal("0")}
+
+
+def test_missing_layout_blocks_writing(data: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    set_up(data, capsys)
+    FakeSheet.grid[2][2] = "Not a month"
+    assert sync(capsys, "--dry-run")[0] == 0
+    code, out, err = sync(capsys)
+    assert code == 1
+    assert "column 'Mar 2026'" in out
+    assert "Nothing written" in err
+    assert FakeSheet.updates == []
+
+
+def test_failed_write_records_nothing(data: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    set_up(data, capsys)
+    FakeSheet.fail_writes = True
+    code, _, err = sync(capsys)
+    assert code == 1
+    assert "HTTP 500 INTERNAL. Nothing was written." in err
+    FakeSheet.fail_writes = False
+    assert sync(capsys)[0] == 0
+    assert FakeSheet.updates == [{"Budget!C5": Decimal("0"), "Budget!C6": Decimal("42.10")}]
 
 
 def test_sync_without_config(data: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    set_up(data)
+    set_up(data, capsys)
     (data / "config.toml").unlink()
-    assert main(["sync", "--dry-run"]) == 1
-    assert "sync: no config file at" in capsys.readouterr().err
+    code, _, err = sync(capsys, "--dry-run")
+    assert code == 1
+    assert "sync: no config file at" in err
 
 
 def test_sync_without_key_file(
     data: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    set_up(data)
+    set_up(data, capsys)
     monkeypatch.undo()
     monkeypatch.setenv("TALLY_DATA_DIR", str(data))
     monkeypatch.setenv("TALLY_SECRETS_DIR", str(data.parent / "secrets"))
-    assert main(["sync", "--dry-run"]) == 1
-    assert "sync: no service account key at" in capsys.readouterr().err
+    code, _, err = sync(capsys, "--dry-run")
+    assert code == 1
+    assert "sync: no service account key at" in err
+
+
+def test_update_body() -> None:
+    body = sheet.update_body({"Budget!C5": Decimal("0"), "Budget!C6": Decimal("42.10")})
+    assert body == {
+        "valueInputOption": "RAW",
+        "data": [
+            {"range": "Budget!C5", "values": [[0.0]]},
+            {"range": "Budget!C6", "values": [[42.1]]},
+        ],
+    }

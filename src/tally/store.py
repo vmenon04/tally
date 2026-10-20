@@ -15,8 +15,9 @@ from pathlib import Path
 
 from tally.transaction import Transaction
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
+# Version 1. Later versions are reached by the migrations below, in order.
 _SCHEMA = """
 CREATE TABLE imports (
     id INTEGER PRIMARY KEY,
@@ -44,6 +45,20 @@ CREATE TABLE transactions (
 CREATE INDEX transactions_identity
     ON transactions (account, date, posted, description, amount_cents);
 """
+
+# _MIGRATIONS[n] takes the schema from version n to n + 1.
+_MIGRATIONS = {
+    1: """
+CREATE TABLE sheet_writes (
+    sheet_id TEXT NOT NULL,
+    row_label TEXT NOT NULL,
+    month TEXT NOT NULL,
+    value_cents INTEGER NOT NULL,
+    written_at TEXT NOT NULL,
+    PRIMARY KEY (sheet_id, row_label, month)
+);
+""",
+}
 
 type _Identity = tuple[str, str, str | None, str, int]
 
@@ -85,12 +100,16 @@ def connect_copy(path: Path) -> sqlite3.Connection:
 def _prepare(conn: sqlite3.Connection, path: Path) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys = ON")
     version = conn.execute("PRAGMA user_version").fetchone()[0]
-    if version == 0:
-        conn.executescript(_SCHEMA + f"PRAGMA user_version = {SCHEMA_VERSION};")
-        conn.commit()
-    elif version != SCHEMA_VERSION:
+    if version > SCHEMA_VERSION:
         conn.close()
         raise StoreError(f"{path} has schema version {version}, expected {SCHEMA_VERSION}")
+    if version == 0:
+        conn.executescript(_SCHEMA + "PRAGMA user_version = 1;")
+        version = 1
+    while version < SCHEMA_VERSION:
+        conn.executescript(_MIGRATIONS[version] + f"PRAGMA user_version = {version + 1};")
+        version += 1
+    conn.commit()
     return conn
 
 
@@ -232,3 +251,29 @@ def _cents(amount: Decimal) -> int:
 
 def _dollars(cents: int) -> Decimal:
     return Decimal(cents).scaleb(-2)
+
+
+def sheet_writes(conn: sqlite3.Connection, sheet_id: str) -> dict[tuple[str, str], Decimal]:
+    """What tally last wrote to each (row label, month) cell of the given Sheet."""
+    rows = conn.execute(
+        "SELECT row_label, month, value_cents FROM sheet_writes WHERE sheet_id = ?", (sheet_id,)
+    ).fetchall()
+    return {(row, month): _dollars(cents) for row, month, cents in rows}
+
+
+def record_sheet_writes(
+    conn: sqlite3.Connection,
+    sheet_id: str,
+    cells: Sequence[tuple[str, str, Decimal]],
+    now: datetime.datetime | None = None,
+) -> None:
+    """Remember the values tally wrote (or found already correct) in the given Sheet."""
+    written_at = (now or datetime.datetime.now(datetime.UTC)).isoformat(timespec="seconds")
+    with conn:
+        conn.executemany(
+            "INSERT INTO sheet_writes (sheet_id, row_label, month, value_cents, written_at)"
+            " VALUES (?, ?, ?, ?, ?)"
+            " ON CONFLICT (sheet_id, row_label, month)"
+            " DO UPDATE SET value_cents = excluded.value_cents, written_at = excluded.written_at",
+            [(sheet_id, row, month, _cents(value), written_at) for row, month, value in cells],
+        )
