@@ -9,11 +9,14 @@ import datetime
 import email.policy
 import email.utils
 import re
+import time
 from dataclasses import dataclass
 from decimal import Decimal
 from email.message import EmailMessage
 from email.parser import BytesParser
 from html.parser import HTMLParser
+
+_AMOUNT = re.compile(r"\$((\d{1,3}(,\d{3})+|\d+)\.\d{2})")
 
 # Tags that don't start a new line of text.
 _INLINE = {"a", "b", "em", "font", "i", "img", "span", "strong", "u"}
@@ -73,6 +76,23 @@ def received(message: EmailMessage) -> datetime.datetime:
     if sent is None or sent.tzinfo is None:
         raise AlertError(f"bad Date header {message['Date']!r}")
     return sent
+
+
+def parse_date(text: str) -> datetime.date:
+    """Dates like "October 17, 2026", as both Discover and BofA alerts write them."""
+    try:
+        parsed = time.strptime(text, "%B %d, %Y")
+        return datetime.date(parsed.tm_year, parsed.tm_mon, parsed.tm_mday)
+    except ValueError:
+        raise AlertError(f"bad date {text!r}") from None
+
+
+def parse_amount(text: str) -> Decimal:
+    """Amounts like "$1,234.56", as a positive Decimal."""
+    match = _AMOUNT.fullmatch(text)
+    if match is None:
+        raise AlertError(f"bad amount {text!r}")
+    return Decimal(match.group(1).replace(",", ""))
 
 
 def html_lines(html: str) -> list[str]:
