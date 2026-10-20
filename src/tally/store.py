@@ -64,7 +64,9 @@ class ImportResult:
 
 
 def connect(path: Path) -> sqlite3.Connection:
-    """Open the database, creating it if needed."""
+    """Open the database, creating it if needed. Only the owner may read the file (600)."""
+    path.touch(exist_ok=True)
+    path.chmod(0o600)
     return _prepare(sqlite3.connect(path, autocommit=False), path)
 
 

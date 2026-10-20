@@ -1,4 +1,5 @@
 import shutil
+import stat
 from pathlib import Path
 
 import pytest
@@ -166,3 +167,20 @@ def test_hidden_files_in_inbox_are_ignored(data: Path, capsys: pytest.CaptureFix
     (data / "inbox" / ".DS_Store").write_bytes(b"\x00\x00")
     assert main(["import"]) == 0
     assert "Nothing to import" in capsys.readouterr().out
+
+
+def mode(path: Path) -> int:
+    return stat.S_IMODE(path.stat().st_mode)
+
+
+def test_created_folders_and_database_are_owner_only(data: Path) -> None:
+    put_in_inbox(data, DISCOVER, "d.csv")
+    for folder in (data, data / "inbox"):
+        folder.chmod(0o755)
+
+    assert main(["import"]) == 0
+    for folder in (data, data / "inbox", data / "raw", data / "raw" / "discover"):
+        assert mode(folder) == 0o700, folder
+    assert mode(data / "tally.db") == 0o600
+    [archived] = (data / "raw" / "discover").iterdir()
+    assert mode(archived) == 0o600

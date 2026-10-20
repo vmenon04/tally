@@ -55,17 +55,34 @@ def read(path: Path) -> ParsedFile:
     return ParsedFile(path, hashlib.sha256(data).hexdigest(), source.account, source.parse(text))
 
 
-def archive(parsed: ParsedFile, raw_dir: Path, today: datetime.date) -> Path:
-    """Copy the original file to raw_dir/<account>/<date>-<hash>.csv, once per content."""
-    folder = raw_dir / parsed.account
+def archive(parsed: ParsedFile, data_dir: Path, today: datetime.date) -> Path:
+    """Copy the original file to data_dir/raw/<account>/<date>-<hash>.csv, once per content."""
+    folder = data_dir / "raw" / parsed.account
     name = parsed.sha256[:16]
     existing = sorted(folder.glob(f"*-{name}.csv"))
     if existing:
         return existing[0]
-    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+    private_dir(data_dir, "raw", parsed.account)
     dest = folder / f"{today.isoformat()}-{name}.csv"
     shutil.copyfile(parsed.path, dest)
+    dest.chmod(0o600)
     return dest
+
+
+def private_dir(data_dir: Path, *parts: str) -> Path:
+    """data_dir/<parts>, with data_dir and each part created if needed and owner-only (700).
+
+    Folders that already exist are tightened too. mkdir's mode alone isn't enough: it is
+    reduced by the umask and isn't applied to parents created along the way.
+    """
+    data_dir.mkdir(parents=True, exist_ok=True)
+    data_dir.chmod(0o700)
+    path = data_dir
+    for part in parts:
+        path = path / part
+        path.mkdir(exist_ok=True)
+        path.chmod(0o700)
+    return path
 
 
 def run(
@@ -88,7 +105,7 @@ def run(
     from_inbox = not paths
     if from_inbox:
         if not dry_run:
-            inbox.mkdir(parents=True, exist_ok=True, mode=0o700)
+            private_dir(data_dir, "inbox")
         paths = sorted(p for p in inbox.glob("*") if p.is_file() and not p.name.startswith("."))
         if not paths:
             print(f"Nothing to import: {inbox} is empty.", file=out)
@@ -111,7 +128,7 @@ def run(
     if dry_run:
         conn = store.connect_copy(db_path)
     else:
-        data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        private_dir(data_dir)
         conn = store.connect(db_path)
     try:
         for p in parsed:
@@ -155,7 +172,7 @@ def _import_one(
             print(f"  {t.date}  {t.amount:>10}  {t.merchant}", file=out)
         return True
 
-    archive(p, data_dir / "raw", today)
+    archive(p, data_dir, today)
     if from_inbox:
         p.path.unlink()
     return True
