@@ -113,6 +113,7 @@ def parse(text: str) -> list[Transaction]:
                 description=description,
                 merchant=clean_merchant(description),
                 amount=amount,
+                balance=balance,
             )
         )
 

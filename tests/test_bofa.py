@@ -57,6 +57,7 @@ def test_first_row_in_full() -> None:
         merchant="Zelle payment from ALEX SAMPLE",
         amount=Decimal("250.00"),
         bank_category=None,
+        balance=Decimal("1450.00"),
     )
 
 
@@ -71,6 +72,10 @@ def test_card_purchase_uses_the_day_it_happened() -> None:
     purchase = next(t for t in load(FIXTURE) if t.merchant.startswith("MAPLE MARKET"))
     assert purchase.date == datetime.date(2026, 3, 7)
     assert purchase.posted == datetime.date(2026, 3, 9)
+
+
+def test_running_balance_is_kept() -> None:
+    assert load(FIXTURE)[-1].balance == Decimal("1698.53")
 
 
 def test_identical_payments_are_all_kept() -> None:
