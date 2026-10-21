@@ -128,6 +128,29 @@ def test_cells() -> None:
     assert tid["userEnteredValue"] == {"numberValue": 9}
     assert "backgroundColor" in category["userEnteredFormat"]
     assert "backgroundColor" not in second["values"][4]["userEnteredFormat"]
+    assert "textFormat" not in category["userEnteredFormat"]
+
+
+def test_pending_rows_are_marked() -> None:
+    rows = [Row(-4, tx("MARKET", 6), "Groceries"), *tab_rows()]
+    update = transactions_tab.requests(7, 42, rows, RULES)[1]["updateCells"]
+    pending, posted = update["rows"][1]["values"], update["rows"][2]["values"]
+    assert pending[1]["userEnteredValue"] == {"stringValue": "Discover (pending)"}
+    assert pending[5]["userEnteredValue"] == {"numberValue": -4}
+    assert all(c["userEnteredFormat"]["textFormat"]["italic"] for c in pending)
+    assert pending[4]["userEnteredFormat"].get("backgroundColor") is None
+    assert posted[1]["userEnteredValue"] == {"stringValue": "Discover"}
+
+
+def test_format_pending_edits() -> None:
+    grid: list[list[object]] = [
+        list(HEADER),
+        [46087, "Discover (pending)", "ODD SHOP", -1, "Groceries", -4],
+    ]
+    edits = transactions_tab.find_edits(grid, {-4: "Uncategorized"})
+    text = transactions_tab.format_pending_edits(edits)
+    assert "row 2: ODD SHOP (Uncategorized → Groceries)" in text
+    assert "once they post" in text
 
 
 def test_category_dropdown_lists_every_choice() -> None:

@@ -1,4 +1,5 @@
 import copy
+import datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -6,6 +7,7 @@ from typing import Any
 import pytest
 
 from tally import budget, sheet, store, transactions_tab
+from tally.alerts import Alert
 from tally.cli import main
 from tally.sheet import Grid
 
@@ -269,6 +271,83 @@ def test_existing_tab_tally_did_not_write_is_refused(
     code, out, _ = sync(capsys, "--dry-run")
     assert code == 1
     assert "row 2: MINE" in out
+
+
+def save_alerts(data: Path, *alerts: tuple[str, int, str, str]) -> None:
+    """Store alerts given as (account, day in March 2026, merchant, amount)."""
+    conn = store.connect(data / "tally.db")
+    try:
+        for n, (account, day, merchant, amount) in enumerate(alerts):
+            store.save_alert(
+                conn,
+                Alert(
+                    account=account,
+                    date=datetime.date(2026, 3, day),
+                    merchant=merchant,
+                    amount=Decimal(amount),
+                    message_id=f"<alert{n}@example.com>",
+                    received=datetime.datetime(2026, 3, day, 12, tzinfo=datetime.UTC),
+                ),
+            )
+    finally:
+        conn.close()
+
+
+@pytest.fixture
+def alerted(ready: Path) -> Path:
+    save_alerts(
+        ready,
+        ("discover", 12, "MAPLE MARKET #0412", "-12.34"),  # no Discover CSV yet: pending
+        ("bofa_checking", 13, "REMITLY INC", "-75.25"),  # posted in the BofA CSV
+        ("bofa_checking", 5, "CORNER CAFE", "-9.99"),  # the CSV reaches it but hasn't it
+    )
+    return ready
+
+
+def test_pending_alerts_count_until_they_post(
+    alerted: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code, out, _ = sync(capsys)
+    assert code == 0
+    assert "Transactions tab: create with 14 rows (1 pending, 11 uncategorized)" in out
+    assert budget_cell("C6") == 54.44  # 42.10 posted + 12.34 pending
+    pending_rows = [r for r in tab() if r[1] == "Discover (pending)"]
+    assert [r[2:5] for r in pending_rows] == [["MAPLE MARKET #0412", -12.34, "Groceries"]]
+    assert isinstance(pending_rows[0][5], int) and pending_rows[0][5] < 0
+    assert "CORNER CAFE" not in [r[2] for r in tab()]
+
+    assert main(["import", str(FIXTURES / "discover_recent.csv")]) == 0
+    code, out, _ = sync(capsys)
+    assert code == 0
+    assert "Transactions tab: rewrite with 22 rows (" in out
+    assert "pending," not in out
+    assert budget_cell("C6") == 54.44  # the posted row took the alert's place
+    assert "Discover (pending)" not in [r[1] for r in tab()]
+
+
+def test_recategorizing_a_pending_row_stops_the_sync(
+    alerted: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert sync(capsys)[0] == 0
+    next(r for r in tab() if r[1] == "Discover (pending)")[4] = "Rent + fees"
+    rules_before = (alerted / "rules.toml").read_text()
+    code, out, _ = sync(capsys, "--dry-run")
+    assert code == 1
+    assert "MAPLE MARKET #0412 (Groceries → Rent + fees)" in out
+    assert "once they post" in out
+    assert "didn't write" not in out
+    assert sync(capsys)[0] == 1
+    assert len(FakeSheet.batches) == 1
+    assert (alerted / "rules.toml").read_text() == rules_before
+
+
+def test_report_includes_pending_alerts(alerted: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["report", "2026-03"]) == 0
+    out = capsys.readouterr().out
+    assert "  Groceries                   $54.44" in out
+    assert "Includes 1 pending card alert(s) not yet in a bank export" in out
+    assert main(["report", "2026-04"]) == 0
+    assert "pending card alert" not in capsys.readouterr().out
 
 
 def test_budget_conflict_blocks_everything(ready: Path, capsys: pytest.CaptureFixture[str]) -> None:

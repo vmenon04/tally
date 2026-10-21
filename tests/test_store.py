@@ -312,6 +312,15 @@ def test_alerts_oldest_purchase_first(db: sqlite3.Connection) -> None:
     assert [a.message_id for a in store.alerts(db)] == ["<early@example.com>", "<late@example.com>"]
 
 
+def test_alerts_with_ids(db: sqlite3.Connection) -> None:
+    store.save_alert(db, alert("<late@example.com>", day=14), now=NOW)
+    store.save_alert(db, alert("<early@example.com>", day=2), now=NOW)
+    assert [(i, a.message_id) for i, a in store.alerts_with_ids(db)] == [
+        (2, "<early@example.com>"),
+        (1, "<late@example.com>"),
+    ]
+
+
 def test_notifications_are_remembered_and_forgotten(db: sqlite3.Connection) -> None:
     later = NOW + datetime.timedelta(hours=1)
     store.record_notifications(db, ["a", "b"], NOW)

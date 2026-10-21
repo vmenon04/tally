@@ -3,12 +3,18 @@
 tally owns this tab and rewrites it on every sync. The Category column is where you correct
 categories, so before rewriting, tally compares it with what it last wrote and stops if you
 changed anything, rather than erase your edits.
+
+Card alerts not yet in a bank export are listed too, in grey italics with "(pending)" after
+the account, under negative IDs (see pending.py). Their categories can't be corrected until
+they post: a rule pinned to the alert wouldn't fit the posted row, which may be named and
+priced differently.
 """
 
 import datetime
 from dataclasses import dataclass
 from typing import Any
 
+from tally.pending import is_pending
 from tally.rules import NOT_SPENDING, UNCATEGORIZED, Rules
 from tally.sheet import Grid, Request
 from tally.transaction import Transaction
@@ -22,6 +28,7 @@ _CATEGORY_COLUMN = 4
 _ID_COLUMN = 5
 _WIDTHS = [95, 115, 380, 95, 200, 60]
 _UNCATEGORIZED_BACKGROUND = {"red": 1.0, "green": 0.95, "blue": 0.8}
+_PENDING_TEXT = {"italic": True, "foregroundColor": {"red": 0.45, "green": 0.45, "blue": 0.45}}
 _SHEETS_EPOCH = datetime.date(1899, 12, 30)
 
 
@@ -31,9 +38,13 @@ class TransactionsTabError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class Row:
-    id: int
+    id: int  # negative for a pending alert
     transaction: Transaction
     category: str
+
+    @property
+    def pending(self) -> bool:
+        return is_pending(self.id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +78,17 @@ def find_edits(grid: Grid, written: dict[int, str]) -> list[Edit]:
         if was is None or category != was:
             edits.append(Edit(number, tid, cells[2], was, category))
     return edits
+
+
+def format_pending_edits(edits: list[Edit]) -> str:
+    """Describe category changes on pending rows, which can't be saved yet."""
+    lines = [f"Transactions tab: {len(edits)} pending row(s) recategorized:"]
+    lines += [f"  row {e.row_number}: {e.merchant!s} ({e.was} → {e.now!s})" for e in edits]
+    lines.append(
+        "Pending rows are card alerts not yet in a bank export; their category can be changed "
+        "once they post. Put them back and sync again."
+    )
+    return "\n".join(lines)
 
 
 def format_edits(edits: list[Edit]) -> str:
@@ -172,31 +194,35 @@ def requests(
 
 def _cells(row: Row) -> list[dict[str, Any]]:
     t = row.transaction
-    background = (
-        {"backgroundColor": _UNCATEGORIZED_BACKGROUND} if row.category == UNCATEGORIZED else {}
-    )
+    style: dict[str, Any] = {}
+    if row.category == UNCATEGORIZED:
+        style["backgroundColor"] = _UNCATEGORIZED_BACKGROUND
+    account = ACCOUNT_NAMES.get(t.account, t.account)
+    if row.pending:
+        style["textFormat"] = _PENDING_TEXT
+        account += " (pending)"
     return [
         {
             "userEnteredValue": {"numberValue": (t.date - _SHEETS_EPOCH).days},
             "userEnteredFormat": {
                 "numberFormat": {"type": "DATE", "pattern": "mm/dd/yyyy"},
-                **background,
+                **style,
             },
         },
         {
-            "userEnteredValue": {"stringValue": ACCOUNT_NAMES.get(t.account, t.account)},
-            "userEnteredFormat": background,
+            "userEnteredValue": {"stringValue": account},
+            "userEnteredFormat": style,
         },
-        {"userEnteredValue": {"stringValue": t.merchant}, "userEnteredFormat": background},
+        {"userEnteredValue": {"stringValue": t.merchant}, "userEnteredFormat": style},
         {
             "userEnteredValue": {"numberValue": float(t.amount)},
             "userEnteredFormat": {
                 "numberFormat": {"type": "CURRENCY", "pattern": "$#,##0.00;-$#,##0.00"},
-                **background,
+                **style,
             },
         },
-        {"userEnteredValue": {"stringValue": row.category}, "userEnteredFormat": background},
-        {"userEnteredValue": {"numberValue": row.id}, "userEnteredFormat": background},
+        {"userEnteredValue": {"stringValue": row.category}, "userEnteredFormat": style},
+        {"userEnteredValue": {"numberValue": row.id}, "userEnteredFormat": style},
     ]
 
 

@@ -127,6 +127,9 @@ flowchart TD
     save --> archive["original moved to<br/>data/raw/account/date-hash.csv"]
 
     db --> categorize["rules.py + data/rules.toml<br/>first matching rule wins"]
+    alerts_db[("tally.db: alerts")] --> waiting["pending.py<br/>alerts no CSV reaches yet,<br/>as provisional rows, negative IDs"]
+    db --> waiting
+    waiting --> categorize
     categorize --> rep["report.py<br/>a month's spending per category"]
     rep --> cli_report["tally report YYYY-MM"]
 
@@ -161,6 +164,7 @@ flowchart TD
         alerts_bofa["alerts/bofa.py"]
         matching["matching.py<br/>alert to posted row"]
         notify["notify.py<br/>ntfy, once per event"]
+        pending["pending.py<br/>waiting alerts as rows"]
     end
 
     subgraph csvs["Bank exports"]
@@ -183,7 +187,7 @@ flowchart TD
     config["config.py<br/>config.toml, secrets"]
     transaction["transaction.py<br/>Transaction"]
 
-    cli --> alert_reading & importing & notify & gmail & config & store
+    cli --> alert_reading & importing & notify & gmail & config & store & pending
     cli --> rules & report & budget & transactions_tab & corrections & sheet
 
     alert_reading --> gmail & matching & store & alerts_pkg & alerts_discover & alerts_bofa
@@ -193,6 +197,7 @@ flowchart TD
     gmail --> config
     notify --> config & store
     matching --> alerts_pkg & transaction
+    pending --> matching & alerts_pkg & transaction
 
     importing --> store & importers_pkg & importers_discover & importers_bofa & transaction
     importers_discover --> importers_pkg & transaction
@@ -201,7 +206,7 @@ flowchart TD
     rules --> importers_discover & importers_bofa & transaction
     report --> rules & transaction
     budget --> report & sheet
-    transactions_tab --> rules & sheet & transaction
+    transactions_tab --> rules & sheet & transaction & pending
     corrections --> rules & transaction
 
     store --> alerts_pkg & transaction
@@ -260,13 +265,14 @@ erDiagram
     }
     sheet_categories {
         text sheet_id PK
-        int transaction_id PK
+        int transaction_id PK "negative = pending alert"
         text category
     }
 ```
 
 Alerts are never joined to transactions in the database. Matching is recomputed on every
-run, so a late or corrected CSV fixes the picture without any cleanup.
+run, so a late or corrected CSV fixes the picture without any cleanup. The same goes for
+pending alerts on the Sheet: each sync works out afresh which alerts no CSV reaches yet.
 
 ## On the server
 

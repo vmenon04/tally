@@ -12,6 +12,14 @@ first sync) listing every transaction, newest first, with its category. Changing
 there is how you correct one: the next sync saves it as a rule for that one transaction in a
 marked section at the top of `rules.toml` (clearing the category removes it again), and
 suggests a merchant-wide rule once you've corrected the same merchant the same way twice.
-Rows added to that tab by hand stop the sync. It signs in as a Google service
-account whose key is `secrets/google-service-account.json`; share only the Sheet with that
+Rows added to that tab by hand stop the sync.
+
+Card alerts that no imported CSV reaches yet count as *pending*, in the report and on both
+tabs, so the Sheet stays current between imports. They're shown in grey italics with
+"(pending)" after the account, and the next import replaces each with its posted row (whose
+amount may differ, for example with a tip). Their categories come from the same rules, but
+can't be corrected until they post: sync stops and says so if you change one. Alerts a CSV
+should show but doesn't (declined or reversed) aren't counted; `tally alerts` lists them.
+
+Sync signs in as a Google service account whose key is `secrets/google-service-account.json`; share only the Sheet with that
 account. `TALLY_SECRETS_DIR` sets the secrets folder (default: `secrets`).

@@ -290,18 +290,26 @@ def save_alert(
 
 def alerts(conn: sqlite3.Connection) -> list[Alert]:
     """Stored alerts, oldest purchase first."""
+    return [a for _, a in alerts_with_ids(conn)]
+
+
+def alerts_with_ids(conn: sqlite3.Connection) -> list[tuple[int, Alert]]:
+    """Like alerts(), paired with each one's ID in the database."""
     rows = conn.execute(
-        "SELECT account, date, merchant, amount_cents, message_id, received_at FROM alerts"
+        "SELECT id, account, date, merchant, amount_cents, message_id, received_at FROM alerts"
         " ORDER BY date, received_at, id"
     ).fetchall()
     return [
-        Alert(
-            account=row[0],
-            date=datetime.date.fromisoformat(row[1]),
-            merchant=row[2],
-            amount=_dollars(row[3]),
-            message_id=row[4],
-            received=datetime.datetime.fromisoformat(row[5]),
+        (
+            row[0],
+            Alert(
+                account=row[1],
+                date=datetime.date.fromisoformat(row[2]),
+                merchant=row[3],
+                amount=_dollars(row[4]),
+                message_id=row[5],
+                received=datetime.datetime.fromisoformat(row[6]),
+            ),
         )
         for row in rows
     ]

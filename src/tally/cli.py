@@ -14,6 +14,7 @@ from tally import (
     gmail,
     importing,
     notify,
+    pending,
     report,
     rules,
     sheet,
@@ -262,8 +263,14 @@ def _report(year: int, month: int) -> int:
     except rules.RulesError as e:
         print(f"rules.toml: {e}", file=sys.stderr)
         return 1
-    stored = _stored_transactions(db_path)
-    print(report.format_report(report.build(stored, month_rules, year, month)))
+    stored, waiting = _counted_transactions(db_path)
+    print(report.format_report(report.build([*stored, *waiting], month_rules, year, month)))
+    in_month = sum(t.date.year == year and t.date.month == month for t in waiting)
+    if in_month:
+        print(
+            f"\nIncludes {in_month} pending card alert(s) not yet in a bank export; "
+            "their amounts can change when they post."
+        )
     return 0
 
 
@@ -297,6 +304,7 @@ def _sync(dry_run: bool) -> int:
     try:
         pairs = store.transactions_with_ids(conn)
         by_id = dict(pairs)
+        waiting = pending.transactions(store.alerts_with_ids(conn), [t for _, t in pairs])
         today = datetime.datetime.now().astimezone().date()
         try:
             edits = transactions_tab.find_edits(
@@ -305,9 +313,18 @@ def _sync(dry_run: bool) -> int:
         except transactions_tab.TransactionsTabError as e:
             print(f"sync: {e}", file=sys.stderr)
             return 1
-        added = [e for e in edits if not (isinstance(e.id, int) and e.id in by_id and e.was)]
+        on_pending = [
+            e for e in edits if isinstance(e.id, int) and pending.is_pending(e.id) and e.was
+        ]
+        added = [
+            e
+            for e in edits
+            if e not in on_pending and not (isinstance(e.id, int) and e.id in by_id and e.was)
+        ]
         changed = [
-            (by_id[e.id], str(e.now)) for e in edits if e not in added and isinstance(e.id, int)
+            (by_id[e.id], str(e.now))
+            for e in edits
+            if e not in added and e not in on_pending and isinstance(e.id, int)
         ]
         fixes = None
         if changed and not added:
@@ -318,16 +335,16 @@ def _sync(dry_run: bool) -> int:
                 print(f"sync: correcting rules.toml: {e}", file=sys.stderr)
                 return 1
 
-        stored = [t for _, t in pairs]
-        months = sorted({(t.date.year, t.date.month) for t in stored})
-        reports = [report.build(stored, month_rules, year, month) for year, month in months]
+        counted = [t for _, t in [*pairs, *waiting]]
+        months = sorted({(t.date.year, t.date.month) for t in counted})
+        reports = [report.build(counted, month_rules, year, month) for year, month in months]
         try:
             result = budget.plan(grid, reports, month_rules.categories, (today.year, today.month))
         except budget.BudgetError as e:
             print(f"sync: {e}", file=sys.stderr)
             return 1
         conflicts = budget.find_conflicts(result, store.sheet_writes(conn, settings.sheet_id))
-        tab_rows = transactions_tab.rows(pairs, month_rules)
+        tab_rows = transactions_tab.rows([*pairs, *waiting], month_rules)
 
         heading = "Dry run: nothing will be changed." if dry_run else "Syncing."
         print(f"{heading} Sheet: {settings.sheet_id}")
@@ -340,14 +357,20 @@ def _sync(dry_run: bool) -> int:
         print()
         print(budget.format_plan(result, conflicts))
         uncategorized = sum(r.category == rules.UNCATEGORIZED for r in tab_rows)
+        counts = f"{uncategorized} uncategorized"
+        if waiting:
+            counts = f"{len(waiting)} pending, {counts}"
         print(
             f"\nTransactions tab: {'rewrite' if has_tab else 'create'} with {len(tab_rows)} "
-            f"rows ({uncategorized} uncategorized)"
+            f"rows ({counts})"
         )
         if added:
             print()
             print(transactions_tab.format_edits(added))
-        if conflicts or added:
+        if on_pending:
+            print()
+            print(transactions_tab.format_pending_edits(on_pending))
+        if conflicts or added or on_pending:
             return 1
         if dry_run:
             return 0
@@ -390,9 +413,12 @@ def _unused_tab_id(tabs: dict[str, int]) -> int:
     return tab_id
 
 
-def _stored_transactions(db_path: Path) -> list[Transaction]:
+def _counted_transactions(db_path: Path) -> tuple[list[Transaction], list[Transaction]]:
+    """The stored transactions, and the pending alerts (see pending.py)."""
     conn = store.connect(db_path)
     try:
-        return store.transactions(conn)
+        stored = store.transactions(conn)
+        waiting = pending.transactions(store.alerts_with_ids(conn), stored)
+        return stored, [t for _, t in waiting]
     finally:
         conn.close()
