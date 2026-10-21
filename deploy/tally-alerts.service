@@ -18,8 +18,9 @@ Environment=TZ=America/New_York
 ExecStart=/srv/tally/venv/bin/tally alerts --gmail
 TimeoutStartSec=5min
 # The run's report names merchants and amounts; keep it out of the system journal.
-# Errors still go there.
+# Errors still go there (by default they'd follow the output and be discarded too).
 StandardOutput=null
+StandardError=journal
 
 # Can write only to its own data folder; everything else is read-only or hidden.
 UMask=0077

@@ -287,7 +287,7 @@ flowchart LR
         timer["tally-alerts.timer<br/>OnBootSec=2min<br/>OnUnitActiveSec=5min"]
         service["tally-alerts.service<br/>Type=oneshot, User=tally<br/>TZ=America/New_York<br/>stdout discarded"]
         summary_timer["tally-summary.timer<br/>Sun 18:00 America/New_York<br/>Persistent=true"]
-        summary_service["tally-summary.service<br/>tally summary --email<br/>same sandbox"]
+        summary_service["tally-summary.service<br/>tally summary --email --sync<br/>same sandbox"]
     end
 
     subgraph sandbox["Sandbox: exposure 1.3"]

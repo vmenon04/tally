@@ -1,4 +1,5 @@
-# Emails the weekly summary. Started on Sunday evenings by tally-summary.timer.
+# Syncs the Sheet, then emails the weekly summary (saying so if the sync was blocked).
+# Started on Sunday evenings by tally-summary.timer.
 # See docs/server.md and docs/summary.md.
 
 [Unit]
@@ -15,11 +16,12 @@ Environment=TALLY_DATA_DIR=/srv/tally/data
 Environment=TALLY_SECRETS_DIR=/srv/tally/secrets
 # The budget's months and "today" follow the owner's time zone, not the server's.
 Environment=TZ=America/New_York
-ExecStart=/srv/tally/venv/bin/tally summary --email
+ExecStart=/srv/tally/venv/bin/tally summary --email --sync
 TimeoutStartSec=5min
 # The summary names merchants and amounts; keep it out of the system journal.
-# Errors still go there.
+# Errors still go there (by default they'd follow the output and be discarded too).
 StandardOutput=null
+StandardError=journal
 
 # Can write only to its own data folder; everything else is read-only or hidden.
 UMask=0077

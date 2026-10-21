@@ -562,3 +562,37 @@ def test_summary_email_failure(
     assert "tally: week of" in captured.out  # still printed
     assert "summary: not emailed: Gmail refused the app password" in captured.err
     assert "abcdefghijklmnop" not in captured.err
+
+
+def test_summary_syncs_first(alerted: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["summary", "--as-of", "2026-03-15", "--sync"]) == 0
+    out = capsys.readouterr().out
+    assert len(FakeSheet.batches) == 1
+    assert budget_cell("C6") == 54.44
+    assert out.startswith("tally: week of")  # the sync's own output isn't shown
+    assert "The Sheet wasn't updated" not in out
+
+
+def test_summary_says_when_the_sync_was_blocked(
+    alerted: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    FakeSheet.grids[BUDGET_ID][5][2] = 12.34  # Groceries, Mar: typed by hand
+    assert main(["summary", "--as-of", "2026-03-15", "--sync"]) == 0
+    out = capsys.readouterr().out
+    assert FakeSheet.batches == []
+    assert (
+        "  - The Sheet wasn't updated before this summary: 1 cell(s) marked ✗ hold a value tally "
+        "didn't write, probably one you typed. Run `tally sync` to see the details." in out
+    )
+
+
+def test_summary_names_a_row_added_by_hand(
+    alerted: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert sync(capsys)[0] == 0
+    tab().append([46100, "Cash", "LEMONADE", -3, "Groceries", ""])
+    assert main(["summary", "--as-of", "2026-03-15", "--sync"]) == 0
+    assert (
+        "The Sheet wasn't updated before this summary: Transactions tab: 1 row(s) tally didn't "
+        "write. Run `tally sync`" in capsys.readouterr().out
+    )

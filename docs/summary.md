@@ -4,6 +4,7 @@
 uv run tally summary                      # as of today
 uv run tally summary --as-of 2026-10-18   # as it would have been on that day
 uv run tally summary --email              # print it and email it
+uv run tally summary --email --sync       # run `tally sync` first, then email it
 ```
 
 It covers the 7 days up to today (or the `--as-of` day; anything later is left out):
@@ -45,5 +46,7 @@ It signs in to Gmail's SMTP server with the app password `tally gmail-login` sav
 nothing else to set up. The summary is printed either way; if sending fails, the command says
 why and exits with an error.
 
-On the server, `tally-summary.timer` sends it every Sunday at 6pm New York time
-([Running on a server](server.md)).
+On the server, `tally-summary.timer` syncs the Sheet and sends it every Sunday at 6pm New York
+time. If the sync is blocked (say, by a value typed into a cell tally fills), the summary
+still goes out, and its first "look out for" item says why. See
+[Running on a server](server.md).

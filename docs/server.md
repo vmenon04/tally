@@ -42,7 +42,7 @@ password, unlike running tally, because new code can read the secrets.
 | Timer | Runs | When |
 |---|---|---|
 | `tally-alerts.timer` | `tally alerts --gmail` | every 5 minutes |
-| `tally-summary.timer` | `tally summary --email` | Sundays at 6pm New York time (at boot instead, if the server was off then) |
+| `tally-summary.timer` | `tally summary --email --sync` | Sundays at 6pm New York time (at boot instead, if the server was off then) |
 
 Each runs through its `.service`, sandboxed so it can write only to `/srv/tally/data`.
 `systemctl list-timers 'tally-*'` shows the next runs; `journalctl -u tally-alerts -u

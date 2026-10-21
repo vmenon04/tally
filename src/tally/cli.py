@@ -1,6 +1,9 @@
 import argparse
+import contextlib
+import dataclasses
 import datetime
 import getpass
+import io
 import os
 import re
 import sys
@@ -101,6 +104,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="also email it, from the alerts mailbox to summary_to in config.toml",
     )
+    summary_parser.add_argument(
+        "--sync",
+        action="store_true",
+        help="run `tally sync` first; if it fails, the summary says why",
+    )
 
     sync_parser = commands.add_parser(
         "sync",
@@ -131,7 +139,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "report":
         return _report(*args.month)
     if args.command == "summary":
-        return _summary(args.as_of, email=args.email)
+        return _summary(args.as_of, email=args.email, sync=args.sync)
     if args.command == "sync":
         return _sync(dry_run=args.dry_run)
     parser.print_help()
@@ -308,12 +316,13 @@ def _report(year: int, month: int) -> int:
     return 0
 
 
-def _summary(as_of: datetime.date | None, *, email: bool) -> int:
+def _summary(as_of: datetime.date | None, *, email: bool, sync: bool) -> int:
     folder = data_dir()
     db_path = folder / "tally.db"
     if not db_path.exists():
         print(f"Nothing imported yet: no database at {db_path}.", file=sys.stderr)
         return 1
+    sync_problem = _quiet_sync() if sync else None
     pairs, alerts = _stored(db_path)
     posted = [t for _, t in pairs]
     today = as_of or datetime.datetime.now().astimezone().date()
@@ -352,6 +361,8 @@ def _summary(as_of: datetime.date | None, *, email: bool) -> int:
         summary.Roth(settings.roth_limit, settings.roth_elsewhere),
         note,
     )
+    if sync_problem:
+        result = dataclasses.replace(result, look_out=[sync_problem, *result.look_out])
     text = summary.format_summary(result)
     print(text)
     if not email or sender is None or recipient is None:
@@ -371,6 +382,30 @@ def _summary(as_of: datetime.date | None, *, email: bool) -> int:
         return 1
     print(f"\nEmailed to {recipient}.")
     return 0
+
+
+def _quiet_sync() -> str | None:
+    """Run a sync without printing it. None if it worked, else why it didn't, in a sentence."""
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        code = _sync(dry_run=False)
+    if code == 0:
+        return None
+    lines = [line.strip() for line in [*err.getvalue().splitlines(), *out.getvalue().splitlines()]]
+    reason = next(
+        (
+            line
+            for line in lines
+            if line.startswith(("sync:", "Nothing written"))
+            or "tally didn't write" in line
+            or "hold a value tally didn't write" in line
+        ),
+        "it stopped with an error",
+    )
+    return (
+        f"The Sheet wasn't updated before this summary: "
+        f"{reason.removeprefix('sync: ').rstrip(':.')}. Run `tally sync` to see the details."
+    )
 
 
 def _sync(dry_run: bool) -> int:
