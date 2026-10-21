@@ -144,7 +144,7 @@ def format_summary(s: Summary) -> str:
     lines += ["", "THIS WEEK", f"  Spent {report.money(s.week_total)} on {len(s.week)} purchase(s)"]
     if plan_total:
         weekly = plan_total * 7 / days
-        lines[-1] += f" (your plan works out to about {_whole(weekly)} a week)"
+        lines[-1] += f" (your plan works out to about {whole(weekly)} a week)"
     width = max((len(i.transaction.merchant) for i in s.week), default=0)
     for i in s.week:
         t = i.transaction
@@ -175,7 +175,7 @@ def format_summary(s: Summary) -> str:
         days_left = days - s.today.day
         if days_left > 0:
             per_day = (plan_total - spent_total) / days_left
-            total += f"  ({_whole(per_day)} a day left for the rest of the month)"
+            total += f"  ({whole(per_day)} a day left for the rest of the month)"
     lines.append(total)
     if s.last_month:
         lines += ["", s.last_month]
@@ -215,7 +215,7 @@ def _over_and_ahead(
         if c.spent / c.plan > gone + AHEAD and purchases[c.name] >= PACE_PURCHASES:
             left = c.plan - c.spent
             days_left = days - today.day
-            per_day = f", about {_whole(left / days_left)} a day" if days_left else ""
+            per_day = f", about {whole(left / days_left)} a day" if days_left else ""
             lines.append(
                 f"{c.name} is ahead of pace: {c.spent / c.plan:.0%} of its plan used with "
                 f"{gone:.0%} of the month gone. {report.money(left)} left{per_day}."
@@ -363,7 +363,7 @@ def _roth(
     ]
 
 
-def _whole(amount: Decimal) -> str:
+def whole(amount: Decimal) -> str:
     """Money in whole dollars, for estimates."""
     sign = "-" if amount < 0 else ""
     return f"{sign}${abs(amount):,.0f}"

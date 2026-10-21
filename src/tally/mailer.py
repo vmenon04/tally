@@ -19,7 +19,8 @@ class MailError(Exception):
     """Gmail refused or couldn't be reached. The message never includes the password."""
 
 
-def message(sender: str, to: str, subject: str, body: str) -> EmailMessage:
+def message(sender: str, to: str, subject: str, body: str, html: str | None = None) -> EmailMessage:
+    """A plain text email, with an HTML version for mail apps that show it."""
     msg = EmailMessage()
     msg["From"] = sender
     msg["To"] = to
@@ -27,6 +28,8 @@ def message(sender: str, to: str, subject: str, body: str) -> EmailMessage:
     msg["Date"] = email.utils.formatdate(localtime=True)
     msg["Message-ID"] = email.utils.make_msgid(domain=sender.rpartition("@")[2])
     msg.set_content(body)
+    if html is not None:
+        msg.add_alternative(html, subtype="html")
     return msg
 
 

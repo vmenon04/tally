@@ -22,6 +22,7 @@ from tally import (
     sheet,
     store,
     summary,
+    summary_email,
     transactions_tab,
 )
 from tally.transaction import Transaction
@@ -357,7 +358,13 @@ def _summary(as_of: datetime.date | None, *, email: bool) -> int:
     if not email or sender is None or recipient is None:
         return 0
     link = f"https://docs.google.com/spreadsheets/d/{settings.sheet_id}"
-    msg = mailer.message(sender, recipient, summary.title(result), f"{text}\n\nBudget: {link}\n")
+    msg = mailer.message(
+        sender,
+        recipient,
+        summary.title(result),
+        f"{text}\n\nBudget: {link}\n",
+        summary_email.format_html(result, link),
+    )
     try:
         mailer.send(sender, gmail.load_password(gmail_password_file()), msg)
     except (gmail.GmailError, mailer.MailError) as e:

@@ -484,10 +484,13 @@ def test_summary_email(mail_ready: type[FakeSMTP], capsys: pytest.CaptureFixture
     [msg] = conn.sent
     assert (msg["From"], msg["To"]) == ("alerts@example.com", "me@example.com")
     assert msg["Subject"] == "tally: week of Mar 9 – Mar 15, 2026"
-    body = msg.get_content()
+    body = msg.get_body(("plain",)).get_content()
     assert body.startswith("tally: week of Mar 9 – Mar 15, 2026\n")
     assert "MAPLE MARKET #0412" in body
     assert body.endswith("Budget: https://docs.google.com/spreadsheets/d/test-sheet\n")
+    html = msg.get_body(("html",)).get_content()
+    assert "MAPLE MARKET #0412" in html and ">pending</span>" in html
+    assert 'href="https://docs.google.com/spreadsheets/d/test-sheet"' in html
 
 
 def test_summary_without_email_sends_nothing(mail_ready: type[FakeSMTP]) -> None:
