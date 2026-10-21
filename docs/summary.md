@@ -44,3 +44,6 @@ summary_to = "you@example.com"
 It signs in to Gmail's SMTP server with the app password `tally gmail-login` saved, so there's
 nothing else to set up. The summary is printed either way; if sending fails, the command says
 why and exits with an error.
+
+On the server, `tally-summary.timer` sends it every Sunday at 6pm New York time
+([Running on a server](server.md)).

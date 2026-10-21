@@ -286,6 +286,8 @@ flowchart LR
     subgraph systemd["systemd, root"]
         timer["tally-alerts.timer<br/>OnBootSec=2min<br/>OnUnitActiveSec=5min"]
         service["tally-alerts.service<br/>Type=oneshot, User=tally<br/>TZ=America/New_York<br/>stdout discarded"]
+        summary_timer["tally-summary.timer<br/>Sun 18:00 America/New_York<br/>Persistent=true"]
+        summary_service["tally-summary.service<br/>tally summary --email<br/>same sandbox"]
     end
 
     subgraph sandbox["Sandbox: exposure 1.3"]
@@ -308,6 +310,7 @@ flowchart LR
     end
 
     timer --> service --> bin
+    summary_timer --> summary_service --> bin
     bin --> venv
     bin <--> datadir
     bin --> secretsdir

@@ -37,13 +37,17 @@ uncommitted changes). On the server, `tally-deploy` unpacks it into `app.new/`, 
 there, and only if they pass swaps it in and updates `venv/`. Installing code needs your
 password, unlike running tally, because new code can read the secrets.
 
-## Every 5 minutes
+## On a schedule
 
-`tally-alerts.timer` runs `tally alerts --gmail` through `tally-alerts.service`, which is
-sandboxed so it can write only to `/srv/tally/data`. `systemctl list-timers tally-alerts`
-shows the next run; `journalctl -u tally-alerts` shows errors (the run's report itself isn't
-logged, since it names merchants and amounts). Commands run through `tally-run` aren't
-sandboxed, but run as the same `tally` user.
+| Timer | Runs | When |
+|---|---|---|
+| `tally-alerts.timer` | `tally alerts --gmail` | every 5 minutes |
+| `tally-summary.timer` | `tally summary --email` | Sundays at 6pm New York time (at boot instead, if the server was off then) |
+
+Each runs through its `.service`, sandboxed so it can write only to `/srv/tally/data`.
+`systemctl list-timers 'tally-*'` shows the next runs; `journalctl -u tally-alerts -u
+tally-summary` shows errors (the output itself isn't logged, since it names merchants and
+amounts). Commands run through `tally-run` aren't sandboxed, but run as the same `tally` user.
 
 ## Setting up a server
 
@@ -55,10 +59,10 @@ sudo chmod 700 /srv/tally
 sudo install -d -o "$USER" -g tally -m 2770 /srv/tally-inbox
 sudo install -m 755 deploy/tally-run deploy/tally-deploy /usr/local/bin/
 sudo visudo -c -f deploy/sudoers && sudo install -m 440 deploy/sudoers /etc/sudoers.d/tally
-sudo install -m 644 deploy/tally-alerts.service deploy/tally-alerts.timer /etc/systemd/system/
+sudo install -m 644 deploy/tally-*.service deploy/tally-*.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 ```
 
 Then `bin/tally-remote deploy` from your machine, copy `data/` and `secrets/` into
 `/srv/tally` (owned by `tally`, 700 folders and 600 files), and
-`sudo systemctl enable --now tally-alerts.timer`.
+`sudo systemctl enable --now tally-alerts.timer tally-summary.timer`.
