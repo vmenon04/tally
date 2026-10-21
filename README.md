@@ -13,6 +13,7 @@ uv run tally --help
 - [Importing bank exports](docs/importing.md)
 - [Alert emails and notifications](docs/alerts.md)
 - [Reports and the Google Sheet](docs/sheet.md)
+- [Weekly summary](docs/summary.md)
 - [Architecture](docs/architecture.md)
 - [Running on a server](docs/server.md)
 - [Development](docs/development.md)

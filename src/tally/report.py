@@ -63,7 +63,7 @@ def format_report(report: MonthReport) -> str:
     title = f"{calendar.month_name[report.month]} {report.year}"
 
     def line(label: str, amount: Decimal, note: str = "") -> str:
-        return f"  {label:<{width}}{_money(amount):>12}{note}".rstrip()
+        return f"  {label:<{width}}{money(amount):>12}{note}".rstrip()
 
     lines = [title, "", "Spending"]
     lines += [line(name, amount) for name, amount in report.spending.items()]
@@ -73,7 +73,7 @@ def format_report(report: MonthReport) -> str:
         line(
             "Investing (Roth IRA)",
             report.investing,
-            f"   {report.year} so far: {_money(report.investing_year_to_date)}",
+            f"   {report.year} so far: {money(report.investing_year_to_date)}",
         )
     )
     lines.append(line("Savings transfers", report.savings))
@@ -81,10 +81,10 @@ def format_report(report: MonthReport) -> str:
     if not report.uncategorized:
         lines.append("  none")
     for t in report.uncategorized:
-        lines.append(f"  {t.date}  {t.account:<13}  {_money(t.amount):>11}  {t.merchant}")
+        lines.append(f"  {t.date}  {t.account:<13}  {money(t.amount):>11}  {t.merchant}")
     return "\n".join(lines)
 
 
-def _money(amount: Decimal) -> str:
+def money(amount: Decimal) -> str:
     sign = "-" if amount < 0 else ""
     return f"{sign}${abs(amount):,.2f}"

@@ -132,6 +132,9 @@ flowchart TD
     waiting --> categorize
     categorize --> rep["report.py<br/>a month's spending per category"]
     rep --> cli_report["tally report YYYY-MM"]
+    rep --> weekly["summary.py<br/>week, month vs plan,<br/>look out for, coming up"]
+    gsheet -- "plan numbers, read only" --> weekly
+    weekly --> cli_summary["tally summary"]
 
     rep --> plan["budget.py<br/>cells to change on the Budget tab"]
     plan --> conflicts{"cell changed by<br/>someone other than tally?"}
@@ -180,6 +183,7 @@ flowchart TD
         budget["budget.py<br/>Budget tab plan"]
         transactions_tab["transactions_tab.py<br/>Transactions tab"]
         corrections["corrections.py<br/>Sheet edits to rules"]
+        summary["summary.py<br/>weekly summary and advice"]
         sheet["sheet.py<br/>Sheets API"]
     end
 
@@ -188,7 +192,7 @@ flowchart TD
     transaction["transaction.py<br/>Transaction"]
 
     cli --> alert_reading & importing & notify & gmail & config & store & pending
-    cli --> rules & report & budget & transactions_tab & corrections & sheet
+    cli --> rules & report & budget & transactions_tab & corrections & sheet & summary
 
     alert_reading --> gmail & matching & store & alerts_pkg & alerts_discover & alerts_bofa
     alert_reading --> importing
@@ -208,6 +212,7 @@ flowchart TD
     budget --> report & sheet
     transactions_tab --> rules & sheet & transaction & pending
     corrections --> rules & transaction
+    summary --> budget & report & pending & rules & transactions_tab
 
     store --> alerts_pkg & transaction
 ```

@@ -1,0 +1,32 @@
+# Weekly summary
+
+```sh
+uv run tally summary                      # as of today
+uv run tally summary --as-of 2026-10-18   # as it would have been on that day
+```
+
+It covers the 7 days up to today (or the `--as-of` day; anything later is left out):
+
+- **This week:** every purchase, pending ones marked, against what the plan allows per week.
+- **The month so far:** each category's spending against its "Plan / mo" on the Budget tab, and
+  what's left per day. In a month's first days, how the month before ended.
+- **Look out for:** categories over plan or ahead of pace, big purchases, uncategorized
+  transactions, alerts missing from a bank export, and the monthly CSV import when it's due.
+- **Coming up:** next month's paychecks, planned spending and Roth IRA transfer, and whether the
+  year's planned Roth IRA contributions fit the limit.
+
+The advice comes from fixed rules (the thresholds are at the top of `src/tally/summary.py`),
+worked out from the database, the pending alerts and the numbers typed on the Budget tab, which
+is read but never changed. Nothing is sent anywhere to produce it. If the Sheet can't be read,
+the summary says so and leaves out the plan comparisons.
+
+For the Roth IRA check, add to `data/config.toml`:
+
+```toml
+roth_limit = 7500        # this year's contribution limit
+roth_elsewhere = 2240    # contributed this year where tally can't see it (before tally, other accounts)
+```
+
+The amounts typed in the Budget tab's Roth IRA row for the coming months count as planned.
+`tally sync` keeps the current month's planned amount there until a contribution goes in, then
+replaces it with the actual one.

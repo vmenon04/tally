@@ -17,6 +17,7 @@ TAB = "Budget"
 RANGE = f"{TAB}!A1:Z100"
 PLAN_HEADER = "Plan / mo"
 ROTH_ROW = "Roth IRA contribution (from checking)"
+PAYCHECKS_ROW = "Paychecks this month"
 
 _MONTH_HEADER = re.compile(r"[A-Z][a-z]{2} \d{4}")
 
@@ -42,6 +43,42 @@ class BudgetPlan:
     missing_months: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True, slots=True)
+class Targets:
+    """The numbers you typed on the Budget tab, as tally reads them for the weekly summary."""
+
+    monthly: dict[str, Decimal]  # row label -> its "Plan / mo" amount
+    months: dict[str, dict[str, Decimal]]  # row label -> month header -> amount
+
+    def for_month(self, label: str, year: int, month: int) -> Decimal | None:
+        return self.months.get(label, {}).get(month_header(year, month))
+
+
+def read_targets(grid: Grid) -> Targets:
+    """Every number typed in the plan column and the month columns, by row label.
+
+    Formulas and text are skipped: tally reads the plan, it doesn't evaluate the Sheet.
+    """
+    header_row = _header_row(grid)
+    header = grid[header_row]
+    monthly: dict[str, Decimal] = {}
+    months: dict[str, dict[str, Decimal]] = {}
+    for row in grid[header_row + 1 :]:
+        label = row[0] if row else ""
+        if not isinstance(label, str) or not label:
+            continue
+        for i, cell in enumerate(row[1:], start=1):
+            amount = _number(cell)
+            column = header[i] if i < len(header) else ""
+            if amount is None:
+                continue
+            if column == PLAN_HEADER:
+                monthly[label] = amount
+            elif isinstance(column, str) and _MONTH_HEADER.fullmatch(column):
+                months.setdefault(label, {})[column] = amount
+    return Targets(monthly, months)
+
+
 def month_header(year: int, month: int) -> str:
     return f"{calendar.month_abbr[month]} {year}"
 
@@ -55,13 +92,10 @@ def plan(
     """The cell changes that would bring the Budget tab up to date with the reports.
 
     The Roth IRA row is only filled for months up to roth_through (normally the current
-    month), so planned contributions for future months stay as you typed them.
+    month), so planned contributions for future months stay as you typed them. In that last
+    month it's only filled once a contribution has gone in, so the month's plan stays until then.
     """
-    header_row = next(
-        (i for i, row in enumerate(grid) if len(row) > 1 and row[1] == PLAN_HEADER), None
-    )
-    if header_row is None:
-        raise BudgetError(f"no header row with {PLAN_HEADER!r} in column B")
+    header_row = _header_row(grid)
     columns = {
         cell: i
         for i, cell in enumerate(grid[header_row])
@@ -84,7 +118,8 @@ def plan(
             result.missing_months.append(header)
             continue
         values = dict(report.spending)
-        if (report.year, report.month) <= roth_through:
+        month = (report.year, report.month)
+        if month < roth_through or (month == roth_through and report.investing):
             values[ROTH_ROW] = report.investing
         for name, new in values.items():
             if name not in rows:
@@ -146,6 +181,21 @@ def format_plan(result: BudgetPlan, conflicts: list[CellChange] | None = None) -
     return "\n".join(lines)
 
 
+def _header_row(grid: Grid) -> int:
+    header_row = next(
+        (i for i, row in enumerate(grid) if len(row) > 1 and row[1] == PLAN_HEADER), None
+    )
+    if header_row is None:
+        raise BudgetError(f"no header row with {PLAN_HEADER!r} in column B")
+    return header_row
+
+
+def _number(cell: object) -> Decimal | None:
+    if isinstance(cell, bool) or not isinstance(cell, int | float):
+        return None
+    return Decimal(str(cell))
+
+
 def _cell(grid: Grid, row: int, column: int) -> object:
     if row < len(grid) and column < len(grid[row]):
         return grid[row][column]
@@ -153,9 +203,7 @@ def _cell(grid: Grid, row: int, column: int) -> object:
 
 
 def _same(old: object, new: Decimal) -> bool:
-    if isinstance(old, bool) or not isinstance(old, int | float):
-        return False
-    return Decimal(str(old)) == new
+    return _number(old) == new
 
 
 def _column_letter(index: int) -> str:

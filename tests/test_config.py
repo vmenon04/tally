@@ -1,3 +1,4 @@
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -26,6 +27,9 @@ def test_load(tmp_path: Path) -> None:
         ('sheet_id = "a"\ngmail_account = "alerts"\n', "gmail_account must be"),
         ('sheet_id = "a"\ngmail_account = 5\n', "gmail_account must be"),
         ('sheet_id = "a"\nntfy_server = "http://ntfy.example.com"\n', "must be an https"),
+        ('sheet_id = "a"\nroth_limit = "7500"\n', "roth_limit must be an amount"),
+        ('sheet_id = "a"\nroth_elsewhere = -1\n', "roth_elsewhere must be an amount"),
+        ('sheet_id = "a"\nroth_limit = true\n', "roth_limit must be an amount"),
     ],
 )
 def test_bad_config(tmp_path: Path, text: str, error: str) -> None:
@@ -64,3 +68,12 @@ def test_secrets_dir(monkeypatch: pytest.MonkeyPatch) -> None:
     assert config.secrets_dir() == Path("secrets")
     monkeypatch.setenv("TALLY_SECRETS_DIR", "/srv/tally/secrets")
     assert config.secrets_dir() == Path("/srv/tally/secrets")
+
+
+def test_roth_settings(tmp_path: Path) -> None:
+    plain = config.load(write(tmp_path, 'sheet_id = "a"\n'))
+    assert (plain.roth_limit, plain.roth_elsewhere) == (None, Decimal(0))
+    loaded = config.load(
+        write(tmp_path, 'sheet_id = "a"\nroth_limit = 7500\nroth_elsewhere = 1234.50\n')
+    )
+    assert (loaded.roth_limit, loaded.roth_elsewhere) == (Decimal(7500), Decimal("1234.50"))

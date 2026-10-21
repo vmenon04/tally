@@ -5,8 +5,9 @@
 
 `uv run tally sync` fills in the Budget tab of the Sheet named in `data/config.toml`
 (`sheet_id = "..."`): each month's category actuals, and actual Roth IRA contributions up to
-the current month. `--dry-run` lists the cells it would change without changing them. It
-never overwrites a value it didn't write itself (such as one you typed); it lists those and
+the current month (for the current month, only once a contribution has gone in, so the
+month's planned amount stays until then). `--dry-run` lists the cells it would change without
+changing them. It never overwrites a value it didn't write itself (such as one you typed); it lists those and
 writes nothing until you clear them. It also rewrites a Transactions tab (created on the
 first sync) listing every transaction, newest first, with its category. Changing a category
 there is how you correct one: the next sync saves it as a rule for that one transaction in a

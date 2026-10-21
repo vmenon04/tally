@@ -429,3 +429,33 @@ def test_number_cell() -> None:
             "fields": "userEnteredValue",
         }
     }
+
+
+def test_summary_command(alerted: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    (alerted / "config.toml").write_text('sheet_id = "test-sheet"\nroth_limit = 1000\n')
+    assert main(["summary", "--as-of", "2026-03-15"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("tally: week of Mar 9 – Mar 15, 2026\n")
+    assert "MAPLE MARKET #0412" in out and "(pending)" in out
+    assert "  Groceries       $54.44 of   $300.00    18%" in out
+    assert "Not in the bank export: Mar 5  CORNER CAFE  $9.99." in out
+    assert "Roth IRA 2026: $500.00 in so far, $400.00 more planned." in out
+    assert FakeSheet.write_flags == [False]
+
+
+def test_summary_without_the_sheet(
+    alerted: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def unreachable(self: FakeSheet, cell_range: str) -> Grid:
+        raise sheet.SheetError("reading Budget!A1:Z100: HTTP 503")
+
+    monkeypatch.setattr(FakeSheet, "values", unreachable)
+    assert main(["summary", "--as-of", "2026-03-15"]) == 0
+    out = capsys.readouterr().out
+    assert "(Couldn't read the Budget tab, so there's no plan to compare with:" in out
+    assert "  Groceries       $54.44\n" in out
+
+
+def test_summary_rejects_a_bad_date() -> None:
+    with pytest.raises(SystemExit):
+        main(["summary", "--as-of", "last sunday"])

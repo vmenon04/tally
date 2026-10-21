@@ -3,6 +3,7 @@
 import os
 import tomllib
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 
 NTFY_SERVER = "https://ntfy.sh"
@@ -17,17 +18,27 @@ class Config:
     sheet_id: str
     gmail_account: str | None = None  # the mailbox the bank alerts are forwarded to
     ntfy_server: str = NTFY_SERVER
+    # This year's Roth IRA limit, and what went in that tally can't see (made before tally, or
+    # from another account). The weekly summary checks the plan against the limit.
+    roth_limit: Decimal | None = None
+    roth_elsewhere: Decimal = Decimal(0)
 
 
 def load(path: Path) -> Config:
     try:
-        data = tomllib.loads(path.read_text(encoding="utf-8"))
+        data = tomllib.loads(path.read_text(encoding="utf-8"), parse_float=Decimal)
     except FileNotFoundError:
         raise ConfigError(f"no config file at {path}") from None
     except tomllib.TOMLDecodeError as e:
         raise ConfigError(f"{path} is not valid TOML: {e}") from e
 
-    unknown = set(data) - {"sheet_id", "gmail_account", "ntfy_server"}
+    unknown = set(data) - {
+        "sheet_id",
+        "gmail_account",
+        "ntfy_server",
+        "roth_limit",
+        "roth_elsewhere",
+    }
     if unknown:
         raise ConfigError(f"{path}: unknown keys {sorted(unknown)}")
     sheet_id = data.get("sheet_id")
@@ -41,11 +52,24 @@ def load(path: Path) -> Config:
     ntfy_server = data.get("ntfy_server", NTFY_SERVER)
     if not isinstance(ntfy_server, str) or not ntfy_server.startswith("https://"):
         raise ConfigError(f"{path}: ntfy_server must be an https:// address")
+    roth_limit = _amount(data, "roth_limit", path)
+    roth_elsewhere = _amount(data, "roth_elsewhere", path)
     return Config(
         sheet_id=sheet_id.strip(),
         gmail_account=gmail_account.strip() if gmail_account is not None else None,
         ntfy_server=ntfy_server.rstrip("/"),
+        roth_limit=roth_limit,
+        roth_elsewhere=roth_elsewhere if roth_elsewhere is not None else Decimal(0),
     )
+
+
+def _amount(data: dict[str, object], key: str, path: Path) -> Decimal | None:
+    value = data.get(key)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int | Decimal) or value < 0:
+        raise ConfigError(f"{path}: {key} must be an amount like 7500 or 1234.00")
+    return Decimal(value)
 
 
 def secrets_dir() -> Path:

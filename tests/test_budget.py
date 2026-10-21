@@ -60,6 +60,24 @@ def test_roth_plan_for_future_months_is_left_alone() -> None:
     assert [c.cell for c in result.changes] == ["D5", "D6"]
 
 
+def test_this_months_roth_plan_stays_until_a_contribution() -> None:
+    assert "C8" not in [c.cell for c in plan([month(2026, 3)]).changes]
+    past = budget.plan(grid(), [month(2026, 3)], CATEGORIES, (2026, 4))
+    assert {c.cell: c.new for c in past.changes}["C8"] == Decimal(0)
+
+
+def test_read_targets() -> None:
+    g = grid()
+    g.append([budget.PAYCHECKS_ROW, "", 2, 3])
+    targets = budget.read_targets(g)
+    assert targets.monthly == {"Rent + fees": Decimal(800), "Groceries": Decimal(300)}
+    assert targets.for_month("Groceries", 2026, 3) == Decimal("12.34")
+    assert targets.for_month(budget.ROTH_ROW, 2026, 4) == Decimal(400)
+    assert targets.for_month(budget.PAYCHECKS_ROW, 2026, 4) == Decimal(3)
+    assert targets.for_month("Rent + fees", 2026, 3) is None  # empty
+    assert "Total spending" not in targets.monthly  # formulas are skipped
+
+
 def test_zero_spending_is_written() -> None:
     changes = plan([month(2026, 4)]).changes
     assert {c.cell: c.new for c in changes} == {"D5": Decimal(0), "D6": Decimal(0)}
@@ -70,7 +88,7 @@ def test_missing_month_column_and_row_are_reported() -> None:
     result = budget.plan(grid(), reports, (*CATEGORIES, "Family support"), (2026, 3))
     assert result.missing_months == ["Feb 2026"]
     assert result.missing_rows == ["Family support"]
-    assert [c.cell for c in result.changes] == ["C5", "C8"]
+    assert [c.cell for c in result.changes] == ["C5"]  # no Roth contribution yet in March
 
 
 def test_formula_in_a_target_cell_is_refused() -> None:

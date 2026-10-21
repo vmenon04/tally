@@ -13,12 +13,14 @@ from tally import (
     corrections,
     gmail,
     importing,
+    matching,
     notify,
     pending,
     report,
     rules,
     sheet,
     store,
+    summary,
     transactions_tab,
 )
 from tally.transaction import Transaction
@@ -80,6 +82,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     report_parser.add_argument("month", type=_month, help="the month, like 2026-10")
 
+    summary_parser = commands.add_parser(
+        "summary",
+        help="show the weekly summary",
+        description="The past week's spending, the month so far against the Budget tab's plan, "
+        "what to look out for, and what's coming up.",
+    )
+    summary_parser.add_argument(
+        "--as-of",
+        type=_date,
+        help="the summary as it would have been on this day, like 2026-10-18 (default: today)",
+    )
+
     sync_parser = commands.add_parser(
         "sync",
         help="update the Google Sheet",
@@ -108,6 +122,8 @@ def main(argv: list[str] | None = None) -> int:
         return _notify_test()
     if args.command == "report":
         return _report(*args.month)
+    if args.command == "summary":
+        return _summary(args.as_of)
     if args.command == "sync":
         return _sync(dry_run=args.dry_run)
     parser.print_help()
@@ -124,6 +140,13 @@ def _month(text: str) -> tuple[int, int]:
     if not match or not 1 <= int(match[2]) <= 12:
         raise argparse.ArgumentTypeError(f"expected a month like 2026-10, got {text!r}")
     return int(match[1]), int(match[2])
+
+
+def _date(text: str) -> datetime.date:
+    try:
+        return datetime.date.fromisoformat(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected a date like 2026-10-18, got {text!r}") from None
 
 
 def gmail_password_file() -> Path:
@@ -271,6 +294,51 @@ def _report(year: int, month: int) -> int:
             f"\nIncludes {in_month} pending card alert(s) not yet in a bank export; "
             "their amounts can change when they post."
         )
+    return 0
+
+
+def _summary(as_of: datetime.date | None) -> int:
+    folder = data_dir()
+    db_path = folder / "tally.db"
+    if not db_path.exists():
+        print(f"Nothing imported yet: no database at {db_path}.", file=sys.stderr)
+        return 1
+    try:
+        settings = config.load(folder / "config.toml")
+        month_rules = rules.load(folder / "rules.toml")
+    except (config.ConfigError, rules.RulesError) as e:
+        print(f"summary: {e}", file=sys.stderr)
+        return 1
+
+    targets, note = None, None
+    try:
+        target = sheet.GoogleSheet(
+            settings.sheet_id, config.secrets_dir() / "google-service-account.json"
+        )
+        targets = budget.read_targets(target.values(budget.RANGE))
+    except (sheet.SheetError, budget.BudgetError) as e:
+        note = f"(Couldn't read the Budget tab, so there's no plan to compare with: {e})"
+
+    conn = store.connect(db_path)
+    try:
+        pairs = store.transactions_with_ids(conn)
+        alerts = store.alerts_with_ids(conn)
+    finally:
+        conn.close()
+    posted = [t for _, t in pairs]
+    waiting = pending.transactions(alerts, posted)
+    not_found = matching.match([a for _, a in alerts], posted).not_found
+    today = as_of or datetime.datetime.now().astimezone().date()
+    result = summary.build(
+        today,
+        [*pairs, *waiting],
+        month_rules,
+        targets,
+        not_found,
+        summary.Roth(settings.roth_limit, settings.roth_elsewhere),
+        note,
+    )
+    print(summary.format_summary(result))
     return 0
 
 
