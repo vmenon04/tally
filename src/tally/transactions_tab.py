@@ -5,9 +5,8 @@ categories, so before rewriting, tally compares it with what it last wrote and s
 changed anything, rather than erase your edits.
 
 Card alerts not yet in a bank export are listed too, in grey italics with "(pending)" after
-the account, under negative IDs (see pending.py). Their categories can't be corrected until
-they post: a rule pinned to the alert wouldn't fit the posted row, which may be named and
-priced differently.
+the account, under the negative of their alert IDs (see pending.py). They're corrected like any
+other row; once the purchase posts, the correction moves to the posted row (see corrections.py).
 """
 
 import datetime
@@ -78,17 +77,6 @@ def find_edits(grid: Grid, written: dict[int, str]) -> list[Edit]:
         if was is None or category != was:
             edits.append(Edit(number, tid, cells[2], was, category))
     return edits
-
-
-def format_pending_edits(edits: list[Edit]) -> str:
-    """Describe category changes on pending rows, which can't be saved yet."""
-    lines = [f"Transactions tab: {len(edits)} pending row(s) recategorized:"]
-    lines += [f"  row {e.row_number}: {e.merchant!s} ({e.was} → {e.now!s})" for e in edits]
-    lines.append(
-        "Pending rows are card alerts not yet in a bank export; their category can be changed "
-        "once they post. Put them back and sync again."
-    )
-    return "\n".join(lines)
 
 
 def format_edits(edits: list[Edit]) -> str:

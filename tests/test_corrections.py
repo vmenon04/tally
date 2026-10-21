@@ -143,3 +143,60 @@ def test_save_replaces_the_file_owner_only(tmp_path: Path) -> None:
     assert path.read_text() == RULES
     assert path.stat().st_mode & 0o777 == 0o600
     assert list(tmp_path.iterdir()) == [path]
+
+
+ALERT = tx("MAPLE MARKET #0412", day=7, amount="-40.00")  # as the alert had it
+POSTED = tx("MAPLE MARKET #0412 SPRINGFIELD IL", day=8, amount="-42.10")  # as the CSV has it
+
+
+def test_carry_over_moves_the_alerts_correction() -> None:
+    text = corrections.apply(RULES, [(ALERT, "Home / apartment stuff")], TODAY).text
+    result = corrections.carry_over(text, [(ALERT, POSTED)], TODAY)
+    assert result.messages == [
+        "Posted, correction carried over: MAPLE MARKET #0412 SPRINGFIELD IL "
+        "(03/08/2026, -42.10) → Home / apartment stuff"
+    ]
+    moved = rules.parse(result.text)
+    assert moved.categorize(POSTED) == "Home / apartment stuff"
+    assert moved.categorize(ALERT) == "Groceries"  # the alert's own rule is gone
+    assert result.text.count("[[rule]]") == text.count("[[rule]]")
+
+
+def test_carry_over_without_corrections_changes_nothing() -> None:
+    assert corrections.carry_over(RULES, [(ALERT, POSTED)], TODAY).text == RULES
+    text = corrections.apply(RULES, [(tx("OTHER"), "Groceries")], TODAY).text
+    assert corrections.carry_over(text, [(ALERT, POSTED)], TODAY) == corrections.Result(
+        text, [], []
+    )
+
+
+def test_posted_rows_own_correction_wins() -> None:
+    text = corrections.apply(
+        RULES, [(ALERT, "Home / apartment stuff"), (POSTED, "Income")], TODAY
+    ).text
+    result = corrections.carry_over(text, [(ALERT, POSTED)], TODAY)
+    assert result.messages == [
+        "Kept the posted row's own correction: MAPLE MARKET #0412 SPRINGFIELD IL "
+        "(03/08/2026, -42.10)"
+    ]
+    assert 'MAPLE MARKET #0412"' not in result.text
+
+
+def test_carry_over_when_the_rules_already_agree() -> None:
+    # The CSV's longer name meets a general rule the alert's name didn't.
+    general = RULES.replace(
+        "[[rule]]\nmatch",
+        '[[rule]]\nmatch = "SPRINGFIELD"\ncategory = "Home / apartment stuff"\n\n[[rule]]\nmatch',
+    )
+    text = corrections.apply(general, [(ALERT, "Home / apartment stuff")], TODAY).text
+    result = corrections.carry_over(text, [(ALERT, POSTED)], TODAY)
+    assert result.messages == [
+        "Posted, and the rules already say Home / apartment stuff: "
+        "MAPLE MARKET #0412 SPRINGFIELD IL (03/08/2026, -42.10)"
+    ]
+    assert "corrected on the Sheet" not in result.text
+
+
+def test_carry_over_reports_a_broken_file() -> None:
+    with pytest.raises(rules.RulesError, match="not valid TOML"):
+        corrections.carry_over("categories = [", [(ALERT, POSTED)], TODAY)

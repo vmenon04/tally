@@ -25,6 +25,7 @@ from tally import (
     summary_email,
     transactions_tab,
 )
+from tally.alerts import Alert
 from tally.transaction import Transaction
 
 
@@ -288,12 +289,15 @@ def _report(year: int, month: int) -> int:
     if not db_path.exists():
         print(f"Nothing imported yet: no database at {db_path}.", file=sys.stderr)
         return 1
+    pairs, alerts = _stored(db_path)
+    stored = [t for _, t in pairs]
+    waiting = [t for _, t in pending.transactions(alerts, stored)]
+    today = datetime.datetime.now().astimezone().date()
     try:
-        month_rules = rules.load(folder / "rules.toml")
+        month_rules = _rules(folder / "rules.toml", alerts, stored, today)
     except rules.RulesError as e:
         print(f"rules.toml: {e}", file=sys.stderr)
         return 1
-    stored, waiting = _counted_transactions(db_path)
     print(report.format_report(report.build([*stored, *waiting], month_rules, year, month)))
     in_month = sum(t.date.year == year and t.date.month == month for t in waiting)
     if in_month:
@@ -310,9 +314,12 @@ def _summary(as_of: datetime.date | None, *, email: bool) -> int:
     if not db_path.exists():
         print(f"Nothing imported yet: no database at {db_path}.", file=sys.stderr)
         return 1
+    pairs, alerts = _stored(db_path)
+    posted = [t for _, t in pairs]
+    today = as_of or datetime.datetime.now().astimezone().date()
     try:
         settings = config.load(folder / "config.toml")
-        month_rules = rules.load(folder / "rules.toml")
+        month_rules = _rules(folder / "rules.toml", alerts, posted, today)
     except (config.ConfigError, rules.RulesError) as e:
         print(f"summary: {e}", file=sys.stderr)
         return 1
@@ -334,16 +341,8 @@ def _summary(as_of: datetime.date | None, *, email: bool) -> int:
     except (sheet.SheetError, budget.BudgetError) as e:
         note = f"(Couldn't read the Budget tab, so there's no plan to compare with: {e})"
 
-    conn = store.connect(db_path)
-    try:
-        pairs = store.transactions_with_ids(conn)
-        alerts = store.alerts_with_ids(conn)
-    finally:
-        conn.close()
-    posted = [t for _, t in pairs]
     waiting = pending.transactions(alerts, posted)
     not_found = matching.match([a for _, a in alerts], posted).not_found
-    today = as_of or datetime.datetime.now().astimezone().date()
     result = summary.build(
         today,
         [*pairs, *waiting],
@@ -403,8 +402,12 @@ def _sync(dry_run: bool) -> int:
     conn = store.connect(db_path)
     try:
         pairs = store.transactions_with_ids(conn)
-        by_id = dict(pairs)
-        waiting = pending.transactions(store.alerts_with_ids(conn), [t for _, t in pairs])
+        alerts = store.alerts_with_ids(conn)
+        stored = [t for _, t in pairs]
+        waiting = pending.transactions(alerts, stored)
+        # Every alert can be corrected under its pending row's ID, even one that has posted
+        # since the tab was written: carry_over then moves the correction to the posted row.
+        by_id = dict(pairs) | {-i: pending.as_transaction(a) for i, a in alerts}
         today = datetime.datetime.now().astimezone().date()
         try:
             edits = transactions_tab.find_edits(
@@ -413,27 +416,23 @@ def _sync(dry_run: bool) -> int:
         except transactions_tab.TransactionsTabError as e:
             print(f"sync: {e}", file=sys.stderr)
             return 1
-        on_pending = [
-            e for e in edits if isinstance(e.id, int) and pending.is_pending(e.id) and e.was
-        ]
-        added = [
-            e
-            for e in edits
-            if e not in on_pending and not (isinstance(e.id, int) and e.id in by_id and e.was)
-        ]
+        added = [e for e in edits if not (isinstance(e.id, int) and e.id in by_id and e.was)]
         changed = [
-            (by_id[e.id], str(e.now))
-            for e in edits
-            if e not in added and e not in on_pending and isinstance(e.id, int)
+            (by_id[e.id], str(e.now)) for e in edits if e not in added and isinstance(e.id, int)
         ]
-        fixes = None
-        if changed and not added:
-            try:
-                fixes = corrections.apply(rules_path.read_text(encoding="utf-8"), changed, today)
-                month_rules = rules.parse(fixes.text)
-            except rules.RulesError as e:
-                print(f"sync: correcting rules.toml: {e}", file=sys.stderr)
-                return 1
+        text = rules_path.read_text(encoding="utf-8")
+        try:
+            fixes = corrections.Result(text, [], [])
+            if changed and not added:
+                fixes = corrections.apply(text, changed, today)
+            carried = corrections.carry_over(fixes.text, pending.posted(alerts, stored), today)
+            fixes = corrections.Result(
+                carried.text, [*fixes.messages, *carried.messages], carried.suggestions
+            )
+            month_rules = rules.parse(fixes.text)
+        except rules.RulesError as e:
+            print(f"sync: correcting rules.toml: {e}", file=sys.stderr)
+            return 1
 
         counted = [t for _, t in [*pairs, *waiting]]
         months = sorted({(t.date.year, t.date.month) for t in counted})
@@ -448,9 +447,9 @@ def _sync(dry_run: bool) -> int:
 
         heading = "Dry run: nothing will be changed." if dry_run else "Syncing."
         print(f"{heading} Sheet: {settings.sheet_id}")
-        if fixes:
+        if fixes.messages:
             saved = "not saved, dry run" if dry_run else "saved to rules.toml"
-            print(f"\nCorrections from the Transactions tab ({saved}):")
+            print(f"\nCorrections ({saved}):")
             print("\n".join(f"  {message}" for message in fixes.messages))
             for suggestion in fixes.suggestions:
                 print(f"\n{suggestion}")
@@ -467,10 +466,7 @@ def _sync(dry_run: bool) -> int:
         if added:
             print()
             print(transactions_tab.format_edits(added))
-        if on_pending:
-            print()
-            print(transactions_tab.format_pending_edits(on_pending))
-        if conflicts or added or on_pending:
+        if conflicts or added:
             return 1
         if dry_run:
             return 0
@@ -478,7 +474,7 @@ def _sync(dry_run: bool) -> int:
             print("\nNothing written: the Budget tab is missing rows or columns.", file=sys.stderr)
             return 1
 
-        if fixes:
+        if fixes.text != text:
             corrections.save(rules_path, fixes.text)
         requests = [sheet.number_cell(tabs[budget.TAB], c.cell, c.new) for c in result.changes]
         requests += transactions_tab.requests(
@@ -513,12 +509,25 @@ def _unused_tab_id(tabs: dict[str, int]) -> int:
     return tab_id
 
 
-def _counted_transactions(db_path: Path) -> tuple[list[Transaction], list[Transaction]]:
-    """The stored transactions, and the pending alerts (see pending.py)."""
+def _stored(db_path: Path) -> tuple[list[tuple[int, Transaction]], list[tuple[int, Alert]]]:
+    """The stored transactions and alerts, with their IDs."""
     conn = store.connect(db_path)
     try:
-        stored = store.transactions(conn)
-        waiting = pending.transactions(store.alerts_with_ids(conn), stored)
-        return stored, [t for _, t in waiting]
+        return store.transactions_with_ids(conn), store.alerts_with_ids(conn)
     finally:
         conn.close()
+
+
+def _rules(
+    path: Path, alerts: list[tuple[int, Alert]], stored: list[Transaction], today: datetime.date
+) -> rules.Rules:
+    """The rules, with corrections made on pending rows moved to the rows that posted since.
+
+    Only sync saves that move; report and summary apply it as they read, so they agree with
+    the Sheet in between.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raise rules.RulesError(f"no rules file at {path}") from None
+    return rules.parse(corrections.carry_over(text, pending.posted(alerts, stored), today).text)

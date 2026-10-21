@@ -17,12 +17,20 @@ from tally.transaction import Transaction
 
 
 def transactions(
-    alerts: Sequence[tuple[int, Alert]], posted: Sequence[Transaction]
+    alerts: Sequence[tuple[int, Alert]], rows: Sequence[Transaction]
 ) -> list[tuple[int, Transaction]]:
     """The waiting alerts as (negative alert ID, Transaction), oldest purchase first."""
     ids = {alert: alert_id for alert_id, alert in alerts}
-    result = matching.match([alert for _, alert in alerts], posted)
+    result = matching.match([alert for _, alert in alerts], rows)
     return [(-ids[a], as_transaction(a)) for a in result.waiting]
+
+
+def posted(
+    alerts: Sequence[tuple[int, Alert]], rows: Sequence[Transaction]
+) -> list[tuple[Transaction, Transaction]]:
+    """Each alert a CSV has reached, as its pending transaction, with the row that replaced it."""
+    result = matching.match([alert for _, alert in alerts], rows)
+    return [(as_transaction(m.alert), m.transaction) for m in result.matches]
 
 
 def is_pending(transaction_id: int) -> bool:

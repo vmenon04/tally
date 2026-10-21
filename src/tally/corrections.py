@@ -4,6 +4,11 @@ A correction becomes a rule pinned to that one transaction (account, date, amoun
 exact merchant), in a marked section at the top of the rules file so it wins over the
 general rules. tally only ever edits inside that section; the rest of the file is yours.
 Clearing a category on the Sheet removes its correction.
+
+A pending row (a card alert no CSV reaches yet) can be corrected too; its rule is pinned to
+the alert's merchant, date and amount. The bank's row for the purchase may be named, dated
+and priced differently, so once a CSV brings it in, carry_over moves the correction from the
+alert to the posted row.
 """
 
 import datetime
@@ -55,6 +60,36 @@ def apply(text: str, corrections: list[tuple[Transaction, str]], today: datetime
     return Result(text, messages, _suggestions(text))
 
 
+def carry_over(
+    text: str, posted_alerts: list[tuple[Transaction, Transaction]], today: datetime.date
+) -> Result:
+    """Move corrections made on pending rows to the posted rows that took their place.
+
+    posted_alerts pairs each alert (as its pending transaction) with the posted row matched
+    to it. A posted row corrected on its own keeps its own correction.
+    """
+    rules.parse(text)  # a broken file is reported as such, not as a broken correction
+    if SECTION_START not in text:
+        return Result(text, [], [])
+    messages = []
+    for alert, row in posted_alerts:
+        category = _pinned_category(text, alert)
+        if category is None:
+            continue
+        text, _ = _remove(text, alert)
+        label = f"{row.merchant} ({row.date:%m/%d/%Y}, {row.amount})"
+        if _pinned_category(text, row) is not None:
+            messages.append(f"Kept the posted row's own correction: {label}")
+        elif rules.parse(text).categorize(row) == category:
+            messages.append(f"Posted, and the rules already say {category}: {label}")
+        else:
+            text = _insert(text, _rule_text(row, category, today, "carried over from its alert"))
+            messages.append(f"Posted, correction carried over: {label} → {category}")
+    if messages:
+        rules.parse(text)
+    return Result(text, messages, _suggestions(text))
+
+
 def save(path: Path, text: str) -> None:
     """Replace the rules file in one step, readable only by you."""
     temporary = path.with_name(path.name + ".tmp")
@@ -99,6 +134,16 @@ def _matches(block: str, t: Transaction) -> bool:
     return pinned == (t.account, t.date, t.amount, t.merchant)
 
 
+def _pinned_category(text: str, t: Transaction) -> str | None:
+    """The category of the correction pinned to this transaction, if there is one."""
+    _, inside, _ = _section(text)
+    for block in _blocks(inside):
+        if _matches(block, t):
+            category: str = tomllib.loads(block)["rule"][0]["category"]
+            return category
+    return None
+
+
 def _remove(text: str, t: Transaction) -> tuple[str, bool]:
     before, inside, after = _section(text)
     kept = [b for b in _blocks(inside) if not _matches(b, t)]
@@ -111,9 +156,11 @@ def _insert(text: str, block: str) -> str:
     return before + "\n\n" + "".join(_blocks(inside)) + block + after
 
 
-def _rule_text(t: Transaction, category: str, today: datetime.date) -> str:
+def _rule_text(
+    t: Transaction, category: str, today: datetime.date, how: str = "corrected on the Sheet"
+) -> str:
     return (
-        f"[[rule]]  # corrected on the Sheet {today.isoformat()}\n"
+        f"[[rule]]  # {how} {today.isoformat()}\n"
         f"account = {json.dumps(t.account)}\n"
         f"date = {t.date.isoformat()}\n"
         f"amount = {t.amount}\n"

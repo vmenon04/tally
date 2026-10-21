@@ -18,9 +18,10 @@ Rows added to that tab by hand stop the sync.
 Card alerts that no imported CSV reaches yet count as *pending*, in the report and on both
 tabs, so the Sheet stays current between imports. They're shown in grey italics with
 "(pending)" after the account, and the next import replaces each with its posted row (whose
-amount may differ, for example with a tip). Their categories come from the same rules, but
-can't be corrected until they post: sync stops and says so if you change one. Alerts a CSV
-should show but doesn't (declined or reversed) aren't counted; `tally alerts` lists them.
+amount may differ, for example with a tip). Their categories come from the same rules, and you
+correct them like any other row. When the purchase posts, sync moves your correction to the
+posted row, even if the bank names, dates or prices it differently. Alerts a CSV should show
+but doesn't (declined or reversed) aren't counted; `tally alerts` lists them.
 
-Sync signs in as a Google service account whose key is `secrets/google-service-account.json`; share only the Sheet with that
-account. `TALLY_SECRETS_DIR` sets the secrets folder (default: `secrets`).
+Sync signs in as a Google service account whose key is `secrets/google-service-account.json`;
+share only the Sheet with that account. `TALLY_SECRETS_DIR` sets the secrets folder (default: `secrets`).

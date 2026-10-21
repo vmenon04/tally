@@ -189,7 +189,7 @@ def test_edited_category_becomes_a_rule(ready: Path, capsys: pytest.CaptureFixtu
 
     code, out, _ = sync(capsys, "--dry-run")
     assert code == 0
-    assert "Corrections from the Transactions tab (not saved, dry run):" in out
+    assert "Corrections (not saved, dry run):" in out
     assert "Added rule: Zelle payment to SAM PLACEHOLDER (03/11/2026, -30.00) → Groceries" in out
     assert "C6   Groceries · Mar 2026  42.1 → 72.10" in out
     assert "[[rule]]  # corrected" not in (ready / "rules.toml").read_text()
@@ -327,20 +327,67 @@ def test_pending_alerts_count_until_they_post(
     assert "Discover (pending)" not in [r[1] for r in tab()]
 
 
-def test_recategorizing_a_pending_row_stops_the_sync(
+def pending_row() -> list[object]:
+    return next(r for r in tab() if r[1] == "Discover (pending)")
+
+
+def test_correcting_a_pending_row(alerted: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert sync(capsys)[0] == 0
+    pending_row()[4] = "Rent + fees"
+    code, out, _ = sync(capsys)
+    assert code == 0
+    assert "Added rule: MAPLE MARKET #0412 (03/12/2026, -12.34) → Rent + fees" in out
+    assert (budget_cell("C5"), budget_cell("C6")) == (12.34, 42.1)
+    assert pending_row()[4] == "Rent + fees"
+    assert 'merchant = "MAPLE MARKET #0412"' in (alerted / "rules.toml").read_text()
+
+
+def test_correction_moves_to_the_posted_row(
     alerted: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert sync(capsys)[0] == 0
-    next(r for r in tab() if r[1] == "Discover (pending)")[4] = "Rent + fees"
+    pending_row()[4] = "Rent + fees"
+    assert sync(capsys)[0] == 0
+    assert main(["import", str(FIXTURES / "discover_recent.csv")]) == 0
+    capsys.readouterr()
+
+    # Before the next sync, report already counts the posted row as corrected...
     rules_before = (alerted / "rules.toml").read_text()
-    code, out, _ = sync(capsys, "--dry-run")
-    assert code == 1
-    assert "MAPLE MARKET #0412 (Groceries → Rent + fees)" in out
-    assert "once they post" in out
-    assert "didn't write" not in out
-    assert sync(capsys)[0] == 1
-    assert len(FakeSheet.batches) == 1
+    assert main(["report", "2026-03"]) == 0
+    assert "  Rent + fees                 $12.34" in capsys.readouterr().out
     assert (alerted / "rules.toml").read_text() == rules_before
+
+    # ...and sync saves the move.
+    code, out, _ = sync(capsys)
+    assert code == 0
+    assert (
+        "Posted, correction carried over: MAPLE MARKET #0412 SPRINGFIELD IL (03/12/2026, -12.34)"
+        " → Rent + fees" in out
+    )
+    text = (alerted / "rules.toml").read_text()
+    assert 'merchant = "MAPLE MARKET #0412"\n' not in text
+    assert 'merchant = "MAPLE MARKET #0412 SPRINGFIELD IL"' in text
+    assert "# carried over from its alert" in text
+    posted = next(r for r in tab() if r[2] == "MAPLE MARKET #0412 SPRINGFIELD IL")
+    assert posted[4] == "Rent + fees"
+    assert budget_cell("C5") == 12.34
+
+    code, out, _ = sync(capsys)
+    assert code == 0
+    assert "Corrections" not in out
+
+
+def test_pending_row_that_posted_while_you_edited(
+    alerted: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert sync(capsys)[0] == 0
+    pending_row()[4] = "Rent + fees"
+    assert main(["import", str(FIXTURES / "discover_recent.csv")]) == 0
+    code, out, _ = sync(capsys)
+    assert code == 0
+    assert "Added rule: MAPLE MARKET #0412 (03/12/2026, -12.34) → Rent + fees" in out
+    assert "Posted, correction carried over: MAPLE MARKET #0412 SPRINGFIELD IL" in out
+    assert budget_cell("C5") == 12.34
 
 
 def test_report_includes_pending_alerts(alerted: Path, capsys: pytest.CaptureFixture[str]) -> None:
