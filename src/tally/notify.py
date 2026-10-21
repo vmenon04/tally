@@ -7,6 +7,9 @@ carry merchants or amounts, only what kind of thing happened and how many.
 tally runs every few minutes, so each event has a key, and an event is announced once (a
 mailbox failure again after REPEAT_FAILURE if it's still failing). An event is only recorded
 as announced once ntfy has accepted it, so one that fails to send is tried on the next run.
+
+A mailbox failure is only announced once the mailbox has failed for MAILBOX_GRACE in a row:
+a single run timing out now and then is ordinary network noise, and the next run catches up.
 """
 
 import datetime
@@ -22,7 +25,10 @@ import requests
 from tally import config, store
 
 REPEAT_FAILURE = datetime.timedelta(hours=6)
+MAILBOX_GRACE = datetime.timedelta(minutes=15)
 MAILBOX_FAILURE = "mailbox-failure"
+# When the current run of mailbox failures began, kept alongside the sent notifications.
+FAILING_SINCE = "mailbox-failing-since"
 
 _TOPIC = re.compile(r"[A-Za-z0-9_-]{20,64}")
 
@@ -98,6 +104,23 @@ def load_topic(path: Path) -> str:
 
 def save_topic(path: Path, topic: str) -> None:
     config.write_secret(path, topic + "\n")
+
+
+def mailbox_failed(conn: sqlite3.Connection, now: datetime.datetime) -> list[Event]:
+    """Note a failed mailbox read. The failure event, once it has lasted MAILBOX_GRACE."""
+    since = store.notifications(conn).get(FAILING_SINCE)
+    if since is None:
+        store.record_notifications(conn, [FAILING_SINCE], now)
+        since = now
+    if now - since < MAILBOX_GRACE:
+        return []
+    return [Event("mailbox", MAILBOX_FAILURE)]
+
+
+def mailbox_read(conn: sqlite3.Connection) -> None:
+    """The mailbox was read: a later failure starts a new grace period and is announced afresh."""
+    store.forget_notification(conn, FAILING_SINCE)
+    store.forget_notification(conn, MAILBOX_FAILURE)
 
 
 def send_new(

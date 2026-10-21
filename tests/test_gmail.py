@@ -341,3 +341,35 @@ def test_search_failure_is_reported(tmp_path: Path) -> None:
     result = alert_reading.run_gmail(tmp_path, Down({}), ADDRESS, dry_run=False, out=out, err=err)
     assert result.failure == "searching the mailbox: socket error"
     assert not result.ok
+
+
+class FakeConnection:
+    """Stands in for imaplib.IMAP4_SSL up to login."""
+
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+        self.closed = False
+
+    def __call__(self, host: str, **kwargs: object) -> "FakeConnection":
+        return self
+
+    def login(self, address: str, password: str) -> None:
+        raise self.error
+
+    def shutdown(self) -> None:
+        self.closed = True
+
+
+def test_refused_password_and_timeout_are_told_apart(monkeypatch: pytest.MonkeyPatch) -> None:
+    refused = FakeConnection(imaplib.IMAP4.error("[AUTHENTICATIONFAILED] Invalid credentials"))
+    monkeypatch.setattr(imaplib, "IMAP4_SSL", refused)
+    with pytest.raises(gmail.GmailError, match="refused the app password"):
+        gmail.ImapMailbox.connect("alerts@example.com", "abcdefghijklmnop")
+    assert refused.closed
+
+    timed_out = FakeConnection(TimeoutError("The read operation timed out"))
+    monkeypatch.setattr(imaplib, "IMAP4_SSL", timed_out)
+    with pytest.raises(gmail.GmailError, match="didn't respond while signing in") as error:
+        gmail.ImapMailbox.connect("alerts@example.com", "abcdefghijklmnop")
+    assert "refused" not in str(error.value)
+    assert timed_out.closed

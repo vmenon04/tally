@@ -59,9 +59,15 @@ class ImapMailbox:
             raise GmailError(f"connecting to {HOST}: {e}") from e
         try:
             imap.login(address, password)
-        except (imaplib.IMAP4.error, OSError) as e:
-            imap.shutdown()
+        except imaplib.IMAP4.error as e:
+            _shutdown(imap)
             raise GmailError(f"Gmail refused the app password for {address} ({e})") from e
+        except OSError as e:
+            # A timeout or dropped connection: nothing to do with the password.
+            _shutdown(imap)
+            raise GmailError(
+                f"Gmail didn't respond while signing in ({e or type(e).__name__})"
+            ) from e
         return cls(imap)
 
     def __enter__(self) -> Self:
@@ -125,6 +131,11 @@ def load_password(path: Path) -> str:
 
 def save_password(path: Path, password: str) -> None:
     config.write_secret(path, password + "\n")
+
+
+def _shutdown(imap: Any) -> None:
+    with contextlib.suppress(OSError):
+        imap.shutdown()
 
 
 def _ok(reply: tuple[str, list[Any]], doing: str) -> list[Any]:

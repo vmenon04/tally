@@ -85,7 +85,7 @@ sequenceDiagram
     C->>G: ImapMailbox.connect(address, app password)
     G->>M: LOGIN, LIST, find \All, EXAMINE All Mail
     alt can't connect or log in
-        C->>N: Event "mailbox", repeated every 6 h at most
+        C->>N: mailbox failed: announced once it has lasted 15 min, then every 6 h
     else connected
         R->>G: message_ids(from:discover.com OR bankofamerica.com)
         G->>M: UID SEARCH X-GM-RAW, FETCH X-GM-MSGID

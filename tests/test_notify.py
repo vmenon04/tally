@@ -88,6 +88,22 @@ def test_mailbox_failure_repeats_after_six_hours(db: sqlite3.Connection) -> None
     assert sender.sent == [("can't read the alerts mailbox", "high")] * 2
 
 
+def test_mailbox_failure_waits_out_the_grace_period(db: sqlite3.Connection) -> None:
+    assert notify.mailbox_failed(db, NOW) == []
+    assert notify.mailbox_failed(db, NOW + datetime.timedelta(minutes=14, seconds=59)) == []
+    assert notify.mailbox_failed(db, NOW + notify.MAILBOX_GRACE) == [
+        Event("mailbox", notify.MAILBOX_FAILURE)
+    ]
+
+
+def test_reading_the_mailbox_starts_a_new_grace_period(db: sqlite3.Connection) -> None:
+    notify.mailbox_failed(db, NOW)
+    notify.mailbox_read(db)
+    later = NOW + datetime.timedelta(hours=1)
+    assert notify.mailbox_failed(db, later) == []
+    assert notify.mailbox_failed(db, later + notify.MAILBOX_GRACE) != []
+
+
 def test_other_events_never_repeat(db: sqlite3.Connection) -> None:
     sender = FakeSender()
     send(db, sender, [Event("refused", "refused:m1")])
@@ -270,6 +286,7 @@ def test_without_a_topic_the_run_still_works(
 def test_unreachable_mailbox_is_announced_until_it_recovers(
     dirs: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    monkeypatch.setattr(notify, "MAILBOX_GRACE", datetime.timedelta(0))
     main(["ntfy-setup"])
     post = FakePost()
     monkeypatch.setattr(requests, "post", post)
@@ -288,3 +305,29 @@ def test_unreachable_mailbox_is_announced_until_it_recovers(
     monkeypatch.setattr(gmail.ImapMailbox, "connect", refuse)
     assert main(["alerts", "--gmail"]) == 1
     assert len(post.calls) == 2  # announced again: it had recovered in between
+
+
+def test_one_failed_run_is_not_announced(
+    dirs: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    main(["ntfy-setup"])
+    post = FakePost()
+    monkeypatch.setattr(requests, "post", post)
+    gmail.save_password(dirs / "secrets" / "gmail-app-password", "abcdefghijklmnop")
+
+    def time_out(address: str, password: str) -> FakeImapMailbox:
+        raise gmail.GmailError("Gmail didn't respond while signing in (timed out)")
+
+    monkeypatch.setattr(gmail.ImapMailbox, "connect", time_out)
+    assert main(["alerts", "--gmail"]) == 1
+    assert main(["alerts", "--gmail"]) == 1
+    assert post.calls == []  # still within the grace period
+
+    conn = store.connect(dirs / "data" / "tally.db")
+    try:  # pretend the failures began 20 minutes ago
+        old = datetime.datetime.now(datetime.UTC) - datetime.timedelta(minutes=20)
+        store.record_notifications(conn, [notify.FAILING_SINCE], old)
+    finally:
+        conn.close()
+    assert main(["alerts", "--gmail"]) == 1
+    assert [c["data"] for c in post.calls] == [b"can't read the alerts mailbox"]

@@ -209,7 +209,7 @@ def _alerts_from_gmail(dry_run: bool) -> int:
     except gmail.GmailError as e:
         print(f"alerts: {e}", file=sys.stderr)
         if not dry_run:
-            _notify([notify.Event("mailbox", notify.MAILBOX_FAILURE)], recovered=False)
+            _notify([], mailbox_ok=False)
         return 1
     with mailbox:
         run = alert_reading.run_gmail(
@@ -219,9 +219,7 @@ def _alerts_from_gmail(dry_run: bool) -> int:
         events = [notify.Event("new", f"new:{a.message_id}") for a in run.added]
         events += [notify.Event("refused", f"refused:{i}") for i in run.refused]
         events += [notify.Event("not_found", f"not-found:{a.message_id}") for a in run.not_found]
-        if run.failure is not None:
-            events.append(notify.Event("mailbox", notify.MAILBOX_FAILURE))
-        _notify(events, recovered=run.failure is None)
+        _notify(events, mailbox_ok=run.failure is None)
     return 0 if run.ok else 1
 
 
@@ -235,8 +233,12 @@ def _sender() -> notify.NtfySender:
     return notify.NtfySender(settings.ntfy_server, notify.load_topic(ntfy_topic_file()))
 
 
-def _notify(events: list[notify.Event], *, recovered: bool) -> None:
-    """Announce the events not announced before. Never fails the command."""
+def _notify(events: list[notify.Event], *, mailbox_ok: bool) -> None:
+    """Announce the events not announced before. Never fails the command.
+
+    mailbox_ok says whether this run read the mailbox; a failure is announced only once it
+    has lasted a while (see notify.MAILBOX_GRACE).
+    """
     try:
         sender = _sender()
     except notify.NotifyError:
@@ -248,9 +250,11 @@ def _notify(events: list[notify.Event], *, recovered: bool) -> None:
     importing.private_dir(data_dir())
     conn = store.connect(data_dir() / "tally.db")
     try:
-        if recovered:
-            store.forget_notification(conn, notify.MAILBOX_FAILURE)
         now = datetime.datetime.now(datetime.UTC)
+        if mailbox_ok:
+            notify.mailbox_read(conn)
+        else:
+            events = [*events, *notify.mailbox_failed(conn, now)]
         for message in notify.send_new(conn, sender, events, now, sys.stderr):
             print(f"Notified: {message}")
     finally:
