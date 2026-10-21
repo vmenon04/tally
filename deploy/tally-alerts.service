@@ -1,0 +1,48 @@
+# Reads new bank alerts from the alerts mailbox and sends notifications.
+# Started every few minutes by tally-alerts.timer. See docs/server.md.
+
+[Unit]
+Description=tally: read new bank alerts
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=tally
+Group=tally
+WorkingDirectory=/srv/tally/data
+Environment=TALLY_DATA_DIR=/srv/tally/data
+Environment=TALLY_SECRETS_DIR=/srv/tally/secrets
+# The budget's months and "today" follow the owner's time zone, not the server's.
+Environment=TZ=America/New_York
+ExecStart=/srv/tally/app/.venv/bin/tally alerts --gmail
+TimeoutStartSec=5min
+# The run's report names merchants and amounts; keep it out of the system journal.
+# Errors still go there.
+StandardOutput=null
+
+# Can write only to its own data folder; everything else is read-only or hidden.
+UMask=0077
+ProtectSystem=strict
+ReadWritePaths=/srv/tally/data
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
