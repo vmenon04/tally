@@ -13,7 +13,8 @@ git config core.hooksPath .githooks    # enable the pre-commit checks (once per 
 |---|---|---|
 | `src/tally/` | Application code | yes |
 | `tests/` | Tests. Fixtures use made-up data only | yes |
-| `deploy/` | systemd units for a server ([Running on a server](server.md)) | yes |
+| `bin/tally-remote` | Runs tally on the server from your machine | yes |
+| `deploy/` | Server scripts, sudoers rule and systemd units ([Running on a server](server.md)) | yes |
 | `docs/` | These docs | yes |
 | `secrets/` | API keys and tokens (`chmod 700`) | **never** |
 | `data/` | Database, bank CSVs, config | **never** |

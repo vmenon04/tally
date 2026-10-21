@@ -13,4 +13,7 @@ downloads are fine: rows already stored are skipped. A file that fails (unknown 
 balances that don't add up, a gap in BofA history) is not stored and stays in the inbox.
 `uv run tally import FILE...` imports specific files and leaves them where they are.
 
+With tally on a server, `tally-remote import FILE...` sends the files and imports them there
+([Running on a server](server.md)).
+
 `TALLY_DATA_DIR` sets the data folder (default: `data` in the current directory).

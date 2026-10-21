@@ -1,0 +1,3 @@
+# Installed as /etc/sudoers.d/tally. Lets the owner's account run tally-run, and nothing else,
+# as the tally user without a password. Replace youraccount with your account name.
+youraccount ALL=(tally) NOPASSWD: /usr/local/bin/tally-run

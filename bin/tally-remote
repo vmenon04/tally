@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# Runs tally on the server from this machine. The server holds the only copy of the data.
+#
+#     tally-remote import FILE...     send bank CSVs to the server and import them
+#     tally-remote deploy             install this repo's last commit on the server
+#     tally-remote COMMAND ...        any other tally command, e.g. report 2026-10, sync --dry-run
+#
+# TALLY_HOST names the server (default: myserver). See docs/server.md.
+set -euo pipefail
+
+HOST=${TALLY_HOST:-myserver}
+DROP=/srv/tally-inbox
+
+# Runs tally-run on the server with these arguments, quoted for the remote shell.
+remote_tally() {
+    local tty=()
+    if [[ -t 0 && -t 1 ]]; then
+        tty=(-t) # for prompts such as gmail-login's
+    fi
+    exec ssh ${tty[@]+"${tty[@]}"} -q "$HOST" "sudo -n -u tally /usr/local/bin/tally-run$(printf ' %q' "$@")"
+}
+
+upload() {
+    local file=$1 name
+    if [[ ! -f $file ]]; then
+        echo "tally-remote: no such file: $file" >&2
+        exit 1
+    fi
+    # A name the server's shell and tally-run can take as is.
+    name=$(basename "$file" .csv)
+    name="$(date +%Y%m%d%H%M%S)-${name//[^A-Za-z0-9._-]/_}.csv"
+    ssh -q "$HOST" "umask 007 && cat >$DROP/$name.part && mv $DROP/$name.part $DROP/$name" <"$file"
+    echo "sent $file"
+}
+
+deploy() {
+    local repo commit archive
+    repo=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
+    if [[ -n $(git -C "$repo" status --porcelain) ]]; then
+        echo "tally-remote: commit or stash your changes first; only committed code is deployed" >&2
+        exit 1
+    fi
+    commit=$(git -C "$repo" rev-parse HEAD)
+    archive=$(ssh -q "$HOST" 'f=$(mktemp /tmp/tally-app.XXXXXX) && chmod 644 "$f" && echo "$f"')
+    git -C "$repo" archive --format=tar.gz HEAD | ssh -q "$HOST" "cat >$archive"
+    echo "deploying $(git -C "$repo" log --oneline -1)"
+    status=0
+    ssh -t -q "$HOST" "sudo -u tally /usr/local/bin/tally-deploy $archive $commit" || status=$?
+    ssh -q "$HOST" "rm -f $archive"
+    exit $status
+}
+
+case ${1:-} in
+    "" | -h | --help)
+        sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'
+        ;;
+    deploy)
+        deploy
+        ;;
+    import)
+        shift
+        options=()
+        files=()
+        for arg in "$@"; do
+            if [[ $arg == -* ]]; then options+=("$arg"); else files+=("$arg"); fi
+        done
+        for file in ${files[@]+"${files[@]}"}; do
+            upload "$file"
+        done
+        remote_tally import ${options[@]+"${options[@]}"}
+        ;;
+    *)
+        remote_tally "$@"
+        ;;
+esac

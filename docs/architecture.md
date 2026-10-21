@@ -40,7 +40,7 @@ flowchart LR
     main_gmail -- "forward" --> alerts_gmail
     discover_bank -. "CSV export" .-> browser
     bofa_bank -. "CSV export" .-> browser
-    browser -. "copy to data/inbox over SSH" .-> data
+    browser -. "tally-remote import, over SSH" .-> data
 
     timer --> tally
     alerts_gmail -- "IMAP, read-only" --> tally
@@ -278,21 +278,37 @@ flowchart LR
     end
 
     subgraph sandbox["Sandbox: exposure 1.3"]
-        bin["/srv/tally/app/.venv/bin/tally<br/>Python 3.13 from uv"]
+        bin["/srv/tally/venv/bin/tally<br/>Python 3.13 from uv"]
     end
 
     subgraph fs["/srv/tally, owner tally, 700"]
-        app["app/<br/>code + .venv<br/>read-only at run time"]
+        venv["venv/<br/>tally installed as a copy<br/>read-only at run time"]
+        app["app/ + app.old/<br/>deployed code, REVISION"]
         datadir["data/<br/>the only writable path"]
         secretsdir["secrets/<br/>read-only at run time"]
         uv["bin/uv 0.8.1<br/>used only to install"]
     end
 
+    subgraph you["Your account, over SSH"]
+        remote["bin/tally-remote<br/>on your machine"]
+        drop["/srv/tally-inbox<br/>2770, group tally"]
+        run["sudo -u tally tally-run<br/>no password, this one program"]
+        deploy["sudo -u tally tally-deploy<br/>password required"]
+    end
+
     timer --> service --> bin
-    bin --> app
+    bin --> venv
     bin <--> datadir
     bin --> secretsdir
     service -. "errors only" .-> journal["journald"]
+
+    remote -- "CSVs" --> drop
+    remote -- "commands" --> run
+    remote -- "git archive HEAD" --> deploy
+    run -- "moves drop files to data/inbox" --> datadir
+    run --> venv
+    deploy -- "test in app.new, swap" --> app
+    deploy -- "uv sync --no-editable" --> venv
 ```
 
 Sandbox settings in `deploy/tally-alerts.service`:
