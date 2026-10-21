@@ -1,12 +1,14 @@
 import copy
 import datetime
+import smtplib
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 import pytest
+from test_mailer import FakeSMTP
 
-from tally import budget, sheet, store, transactions_tab
+from tally import budget, gmail, sheet, store, transactions_tab
 from tally.alerts import Alert
 from tally.cli import main
 from tally.sheet import Grid
@@ -459,3 +461,54 @@ def test_summary_without_the_sheet(
 def test_summary_rejects_a_bad_date() -> None:
     with pytest.raises(SystemExit):
         main(["summary", "--as-of", "last sunday"])
+
+
+@pytest.fixture
+def mail_ready(alerted: Path, monkeypatch: pytest.MonkeyPatch) -> type[FakeSMTP]:
+    (alerted / "config.toml").write_text(
+        'sheet_id = "test-sheet"\n'
+        'gmail_account = "alerts@example.com"\n'
+        'summary_to = "me@example.com"\n'
+    )
+    gmail.save_password(alerted.parent / "secrets" / "gmail-app-password", "abcdefghijklmnop")
+    FakeSMTP.instances, FakeSMTP.fail_login = [], False
+    monkeypatch.setattr(smtplib, "SMTP_SSL", FakeSMTP)
+    return FakeSMTP
+
+
+def test_summary_email(mail_ready: type[FakeSMTP], capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["summary", "--as-of", "2026-03-15", "--email"]) == 0
+    out = capsys.readouterr().out
+    assert out.rstrip().endswith("Emailed to me@example.com.")
+    [conn] = mail_ready.instances
+    [msg] = conn.sent
+    assert (msg["From"], msg["To"]) == ("alerts@example.com", "me@example.com")
+    assert msg["Subject"] == "tally: week of Mar 9 – Mar 15, 2026"
+    body = msg.get_content()
+    assert body.startswith("tally: week of Mar 9 – Mar 15, 2026\n")
+    assert "MAPLE MARKET #0412" in body
+    assert body.endswith("Budget: https://docs.google.com/spreadsheets/d/test-sheet\n")
+
+
+def test_summary_without_email_sends_nothing(mail_ready: type[FakeSMTP]) -> None:
+    assert main(["summary", "--as-of", "2026-03-15"]) == 0
+    assert mail_ready.instances == []
+
+
+def test_summary_email_needs_both_addresses(
+    alerted: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (alerted / "config.toml").write_text('sheet_id = "test-sheet"\nsummary_to = "me@example.com"\n')
+    assert main(["summary", "--email"]) == 1
+    assert "needs gmail_account (the sender) and summary_to" in capsys.readouterr().err
+
+
+def test_summary_email_failure(
+    mail_ready: type[FakeSMTP], capsys: pytest.CaptureFixture[str]
+) -> None:
+    mail_ready.fail_login = True
+    assert main(["summary", "--as-of", "2026-03-15", "--email"]) == 1
+    captured = capsys.readouterr()
+    assert "tally: week of" in captured.out  # still printed
+    assert "summary: not emailed: Gmail refused the app password" in captured.err
+    assert "abcdefghijklmnop" not in captured.err

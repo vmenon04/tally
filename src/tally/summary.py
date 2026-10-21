@@ -129,9 +129,13 @@ def build(
     )
 
 
-def format_summary(s: Summary) -> str:
+def title(s: Summary) -> str:
     start = s.today - WEEK + datetime.timedelta(days=1)
-    lines = [f"tally: week of {start:%b %-d} – {s.today:%b %-d, %Y}"]
+    return f"tally: week of {start:%b %-d} – {s.today:%b %-d, %Y}"
+
+
+def format_summary(s: Summary) -> str:
+    lines = [title(s)]
     if s.note:
         lines += ["", s.note]
 

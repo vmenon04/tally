@@ -3,6 +3,7 @@
 ```sh
 uv run tally summary                      # as of today
 uv run tally summary --as-of 2026-10-18   # as it would have been on that day
+uv run tally summary --email              # print it and email it
 ```
 
 It covers the 7 days up to today (or the `--as-of` day; anything later is left out):
@@ -30,3 +31,16 @@ roth_elsewhere = 2240    # contributed this year where tally can't see it (befor
 The amounts typed in the Budget tab's Roth IRA row for the coming months count as planned.
 `tally sync` keeps the current month's planned amount there until a contribution goes in, then
 replaces it with the actual one.
+
+## By email
+
+`--email` sends the same text, with a link to the Sheet, from the alerts mailbox
+(`gmail_account`) to the address in `summary_to`:
+
+```toml
+summary_to = "you@example.com"
+```
+
+It signs in to Gmail's SMTP server with the app password `tally gmail-login` saved, so there's
+nothing else to set up. The summary is printed either way; if sending fails, the command says
+why and exits with an error.

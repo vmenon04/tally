@@ -17,6 +17,7 @@ class ConfigError(ValueError):
 class Config:
     sheet_id: str
     gmail_account: str | None = None  # the mailbox the bank alerts are forwarded to
+    summary_to: str | None = None  # where `tally summary --email` sends the weekly summary
     ntfy_server: str = NTFY_SERVER
     # This year's Roth IRA limit, and what went in that tally can't see (made before tally, or
     # from another account). The weekly summary checks the plan against the limit.
@@ -35,6 +36,7 @@ def load(path: Path) -> Config:
     unknown = set(data) - {
         "sheet_id",
         "gmail_account",
+        "summary_to",
         "ntfy_server",
         "roth_limit",
         "roth_elsewhere",
@@ -44,11 +46,8 @@ def load(path: Path) -> Config:
     sheet_id = data.get("sheet_id")
     if not isinstance(sheet_id, str) or not sheet_id.strip():
         raise ConfigError(f"{path}: sheet_id must be the ID from the Sheet's URL")
-    gmail_account = data.get("gmail_account")
-    if gmail_account is not None and (
-        not isinstance(gmail_account, str) or "@" not in gmail_account.strip()
-    ):
-        raise ConfigError(f"{path}: gmail_account must be an email address")
+    gmail_account = _address(data, "gmail_account", path)
+    summary_to = _address(data, "summary_to", path)
     ntfy_server = data.get("ntfy_server", NTFY_SERVER)
     if not isinstance(ntfy_server, str) or not ntfy_server.startswith("https://"):
         raise ConfigError(f"{path}: ntfy_server must be an https:// address")
@@ -56,11 +55,21 @@ def load(path: Path) -> Config:
     roth_elsewhere = _amount(data, "roth_elsewhere", path)
     return Config(
         sheet_id=sheet_id.strip(),
-        gmail_account=gmail_account.strip() if gmail_account is not None else None,
+        gmail_account=gmail_account,
+        summary_to=summary_to,
         ntfy_server=ntfy_server.rstrip("/"),
         roth_limit=roth_limit,
         roth_elsewhere=roth_elsewhere if roth_elsewhere is not None else Decimal(0),
     )
+
+
+def _address(data: dict[str, object], key: str, path: Path) -> str | None:
+    value = data.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str) or "@" not in value.strip():
+        raise ConfigError(f"{path}: {key} must be an email address")
+    return value.strip()
 
 
 def _amount(data: dict[str, object], key: str, path: Path) -> Decimal | None:

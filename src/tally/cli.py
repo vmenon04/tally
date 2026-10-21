@@ -13,6 +13,7 @@ from tally import (
     corrections,
     gmail,
     importing,
+    mailer,
     matching,
     notify,
     pending,
@@ -93,6 +94,11 @@ def main(argv: list[str] | None = None) -> int:
         type=_date,
         help="the summary as it would have been on this day, like 2026-10-18 (default: today)",
     )
+    summary_parser.add_argument(
+        "--email",
+        action="store_true",
+        help="also email it, from the alerts mailbox to summary_to in config.toml",
+    )
 
     sync_parser = commands.add_parser(
         "sync",
@@ -123,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "report":
         return _report(*args.month)
     if args.command == "summary":
-        return _summary(args.as_of)
+        return _summary(args.as_of, email=args.email)
     if args.command == "sync":
         return _sync(dry_run=args.dry_run)
     parser.print_help()
@@ -297,7 +303,7 @@ def _report(year: int, month: int) -> int:
     return 0
 
 
-def _summary(as_of: datetime.date | None) -> int:
+def _summary(as_of: datetime.date | None, *, email: bool) -> int:
     folder = data_dir()
     db_path = folder / "tally.db"
     if not db_path.exists():
@@ -308,6 +314,14 @@ def _summary(as_of: datetime.date | None) -> int:
         month_rules = rules.load(folder / "rules.toml")
     except (config.ConfigError, rules.RulesError) as e:
         print(f"summary: {e}", file=sys.stderr)
+        return 1
+    sender, recipient = settings.gmail_account, settings.summary_to
+    if email and (sender is None or recipient is None):
+        print(
+            "summary: to email it, config.toml needs gmail_account (the sender) and "
+            "summary_to (the recipient)",
+            file=sys.stderr,
+        )
         return 1
 
     targets, note = None, None
@@ -338,7 +352,18 @@ def _summary(as_of: datetime.date | None) -> int:
         summary.Roth(settings.roth_limit, settings.roth_elsewhere),
         note,
     )
-    print(summary.format_summary(result))
+    text = summary.format_summary(result)
+    print(text)
+    if not email or sender is None or recipient is None:
+        return 0
+    link = f"https://docs.google.com/spreadsheets/d/{settings.sheet_id}"
+    msg = mailer.message(sender, recipient, summary.title(result), f"{text}\n\nBudget: {link}\n")
+    try:
+        mailer.send(sender, gmail.load_password(gmail_password_file()), msg)
+    except (gmail.GmailError, mailer.MailError) as e:
+        print(f"summary: not emailed: {e}", file=sys.stderr)
+        return 1
+    print(f"\nEmailed to {recipient}.")
     return 0
 
 
