@@ -1,14 +1,17 @@
+import datetime
 from pathlib import Path
 
 import pytest
 
 from tally import store
-from tally.alerts import Alert
+from tally.alerts import Alert, discover
 from tally.cli import main
 
 FIXTURES = Path(__file__).parent / "fixtures"
 DISCOVER = FIXTURES / "discover_alert.eml"
 BOFA = FIXTURES / "bofa_alert.eml"
+DEPOSIT = FIXTURES / "bofa_deposit_alert.eml"
+NOW = datetime.datetime(2026, 3, 21, tzinfo=datetime.UTC)
 
 
 @pytest.fixture
@@ -18,8 +21,8 @@ def data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return data
 
 
-def save(data: Path, name: str, raw: bytes) -> None:
-    folder = data / "alerts"
+def save(data: Path, name: str, raw: bytes, *, folder_name: str = "alerts") -> None:
+    folder = data / folder_name
     folder.mkdir(parents=True, exist_ok=True)
     (folder / name).write_bytes(raw)
 
@@ -117,3 +120,38 @@ def test_alert_the_csv_should_show_is_not_found(
     assert "Not found: 1 alert(s) the CSVs should show by now" in out
     assert "  2026-03-02  discover         -42.10  MAPLE MARKET #0412" in out
     assert "Waiting: 0 alert(s)" in out
+
+
+def test_reread_reads_the_emails_fetched_from_the_mailbox(
+    data: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A deposit fetched before deposits were supported was kept, skipped, and never fetched
+    # again; reread stores it, and only counts the alert it already had.
+    save(data, "18a1.eml", DISCOVER.read_bytes(), folder_name="alerts/gmail")
+    save(data, "18a2.eml", DEPOSIT.read_bytes(), folder_name="alerts/gmail")
+    save(data, "dropped.eml", BOFA.read_bytes())
+    alert = discover.parse(DISCOVER.read_bytes())
+    assert alert is not None
+    conn = store.connect(data / "tally.db")
+    try:
+        store.save_alert(conn, alert, now=NOW)
+    finally:
+        conn.close()
+
+    assert main(["alerts", "--reread"]) == 0
+    out = capsys.readouterr().out
+    assert "18a1.eml: already stored  discover" in out
+    assert "18a2.eml: added  bofa_checking  2026-03-20  2345.67  Acme Payroll 123456" in out
+    assert "dropped.eml" not in out
+    assert "1 added, 1 already stored, 0 skipped, 0 refused." in out
+    assert [a.account for a in stored(data)] == ["discover", "bofa_checking"]
+
+
+def test_reread_with_nothing_fetched(data: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["alerts", "--reread"]) == 0
+    assert "Nothing to read: no .eml files" in capsys.readouterr().out
+
+
+def test_reread_and_gmail_are_not_both_allowed(data: Path) -> None:
+    with pytest.raises(SystemExit):
+        main(["alerts", "--gmail", "--reread"])

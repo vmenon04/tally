@@ -34,6 +34,15 @@ password (never your account password). The mailbox is opened read-only, so noth
 marked, moved or deleted. Each email read is kept in `data/alerts/gmail/`, so it's never
 fetched twice; a refused email isn't kept, so it's reported on every run.
 
+An email that arrives before tally supports its kind of alert is kept there too, as
+skipped, and isn't fetched again. After deploying a parser for it, read the kept emails
+again (alerts already stored are only counted):
+
+```sh
+uv run tally alerts --reread --dry-run   # show what would be stored
+uv run tally alerts --reread
+```
+
 ## Notifications
 
 ```sh

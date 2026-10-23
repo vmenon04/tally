@@ -54,8 +54,15 @@ def main(argv: list[str] | None = None) -> int:
         "folder (or, with --gmail, in the alerts mailbox), store each alert once, and list the "
         "alerts no imported CSV row explains yet.",
     )
-    alerts_parser.add_argument(
+    source = alerts_parser.add_mutually_exclusive_group()
+    source.add_argument(
         "--gmail", action="store_true", help="read the alerts mailbox instead of the folder"
+    )
+    source.add_argument(
+        "--reread",
+        action="store_true",
+        help="read the emails already fetched from the mailbox again, after a new alert "
+        "type is supported",
     )
     alerts_parser.add_argument(
         "--dry-run", action="store_true", help="show what would be stored without saving"
@@ -128,7 +135,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "alerts":
         if args.gmail:
             return _alerts_from_gmail(dry_run=args.dry_run)
-        ok = alert_reading.run(data_dir(), dry_run=args.dry_run, out=sys.stdout, err=sys.stderr)
+        ok = alert_reading.run(
+            data_dir(), dry_run=args.dry_run, out=sys.stdout, err=sys.stderr, reread=args.reread
+        )
         return 0 if ok else 1
     if args.command == "gmail-login":
         return _gmail_login()
