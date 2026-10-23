@@ -1,7 +1,8 @@
 # Alert emails and notifications
 
-Discover "Transaction Alert" and BofA "Your debit card was used" emails, saved as `.eml`
-files in `data/alerts/`, are read with:
+Discover "Transaction Alert" emails and BofA "Your debit card was used" and "A direct
+deposit was credited to your account" emails, saved as `.eml` files in `data/alerts/`, are
+read with:
 
 ```sh
 uv run tally alerts --dry-run   # show what would be stored, save nothing
@@ -12,8 +13,9 @@ An email is only accepted when Gmail's `Authentication-Results` header shows the
 it. Alerts are provisional (the amount can change before it posts) and are kept apart from
 imported transactions. The command matches alerts to imported CSV rows (same account, dated
 a day before to three days after, agreeing merchant name, same amount or up to 30% more for
-a tip; the full rules are at the top of `src/tally/matching.py`) and lists the rest as
-*waiting* (the CSVs don't reach that date yet) or *not found* (they do, but have no such row).
+a tip, exactly the same for a deposit; the full rules are at the top of
+`src/tally/matching.py`) and lists the rest as *waiting* (the CSVs don't reach that date yet)
+or *not found* (they do, but have no such row).
 
 ## Reading the alerts mailbox
 

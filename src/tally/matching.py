@@ -4,6 +4,7 @@ A posted row explains an alert when it is on the same account, dated from a day 
 alert to three days after (the CSVs date a row by the purchase, and alerts sent around
 midnight can land a day off), its merchant name agrees, and its amount is the same, up to
 30% more (a tip), or anything when the alert was a $1.00 authorization (gas stations).
+Money in (a deposit) has no tip or hold, so its amount must be exactly the same.
 
 Names agree when one starts with the other, or both start with the same main word, after
 punctuation and anything with a digit in it (store numbers, phone numbers, reference codes)
@@ -123,6 +124,8 @@ def _in_window(a: Alert, t: Transaction) -> bool:
 def _amount_fits(alerted: Decimal, posted: Decimal) -> bool:
     if (alerted < 0) != (posted < 0):
         return False
+    if alerted > 0:
+        return posted == alerted
     alerted, posted = abs(alerted), abs(posted)
     if alerted == AUTHORIZATION:
         return True

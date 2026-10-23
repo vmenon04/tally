@@ -109,6 +109,23 @@ def test_refund_does_not_match_a_purchase() -> None:
     assert matched([alert(12, "-1.00")], [tx(12, "1.00")]) == []
 
 
+def test_deposit_matches_its_posted_row() -> None:
+    # The alert names the payer; the CSV adds the ACH details after it.
+    a = alert(20, "2345.67", "Acme Payroll 123456", "bofa_checking")
+    t = tx(20, "2345.67", "Acme Payroll DES:123456 ID:0000 INDN:Someone PPD", "bofa_checking")
+    assert matched([a], [t]) == [(a, t)]
+
+
+def test_deposit_needs_the_exact_amount() -> None:
+    # No tips or holds on money in, and a $1.00 deposit is just a dollar.
+    a = alert(20, "2345.67", "Acme Payroll 123456", "bofa_checking")
+    for amount in ("2345.68", "2600.00"):
+        t = tx(20, amount, "Acme Payroll DES:123456 PPD", "bofa_checking")
+        assert matched([a], [t]) == []
+    one = alert(20, "1.00", "Acme Payroll 123456", "bofa_checking")
+    assert matched([one], [tx(20, "48.17", "Acme Payroll DES:123456 PPD", "bofa_checking")]) == []
+
+
 def test_two_identical_charges_with_one_posted() -> None:
     first = alert(12, "-4.09")
     second = dataclasses.replace(first, message_id="<second@example.com>")

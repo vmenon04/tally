@@ -8,10 +8,11 @@ from tally.alerts import Alert, AlertError, bofa, discover
 
 FIXTURES = Path(__file__).parent / "fixtures"
 FIXTURE = FIXTURES / "bofa_alert.eml"
+DEPOSIT = FIXTURES / "bofa_deposit_alert.eml"
 
 
-def fixture(*replacements: tuple[str, str]) -> bytes:
-    text = FIXTURE.read_bytes().decode("ascii")
+def fixture(*replacements: tuple[str, str], path: Path = FIXTURE) -> bytes:
+    text = path.read_bytes().decode("ascii")
     for old, new in replacements:
         assert old in text, old
         text = text.replace(old, new)
@@ -83,3 +84,46 @@ def test_label_without_a_value_is_refused() -> None:
     cut = text[: text.index("March 14, 2026")] + "</a></td></tr></table></body></html>\r\n"
     with pytest.raises(AlertError, match="'Purchase date' line followed by its value"):
         bofa.parse(cut.encode("ascii"))
+
+
+def test_deposit_fixture_is_encoded_like_the_real_email() -> None:
+    raw = DEPOSIT.read_bytes()
+    assert b"\r\n" in raw
+    assert b"Content-Type: text/html" in raw
+    assert b"multipart" not in raw
+
+
+def test_deposit_in_full() -> None:
+    assert bofa.parse(DEPOSIT.read_bytes()) == Alert(
+        account="bofa_checking",
+        date=datetime.date(2026, 3, 20),
+        merchant="Acme Payroll 123456",
+        amount=Decimal("2345.67"),
+        message_id="<00000000-test-alert-0003@example.xt.local>",
+        received=datetime.datetime(
+            2026, 3, 20, 2, 30, 35, tzinfo=datetime.timezone(datetime.timedelta(hours=-6))
+        ),
+    )
+
+
+def test_deposit_signature_is_checked() -> None:
+    raw = fixture(("dkim=pass header.i=@ealerts", "dkim=fail header.i=@ealerts"), path=DEPOSIT)
+    with pytest.raises(AlertError, match="signed by bankofamerica.com"):
+        bofa.parse(raw)
+
+
+def test_deposit_with_a_changed_layout_is_refused() -> None:
+    raw = fixture(("\r\n          From\r\n", "\r\n          Payer\r\n"), path=DEPOSIT)
+    with pytest.raises(AlertError, match="'From'"):
+        bofa.parse(raw)
+
+
+def test_balance_email_is_not_an_alert() -> None:
+    raw = fixture(
+        (
+            "Subject: A direct deposit was credited to your account",
+            "Subject: Your Available Balance",
+        ),
+        path=DEPOSIT,
+    )
+    assert bofa.parse(raw) is None

@@ -1,7 +1,9 @@
-"""Bank of America "Your debit card was used" emails, for purchases on the checking debit card.
+"""Bank of America alert emails for the checking account: "Your debit card was used" for
+purchases on the debit card, and "A direct deposit was credited to your account" for
+paychecks and other direct deposits.
 
-The email is HTML only, laid out as a table with each label in one cell and its value in
-the next, so its text reads:
+Both are HTML only, laid out as a table with each label in one cell and its value in the
+next, so a debit card alert's text reads:
 
     Your debit card was used
     Your debit card was used online, by phone, by mail or at a location where ...
@@ -14,7 +16,20 @@ the next, so its text reads:
     Purchase date
     October 17, 2026
 
-Other emails from Bank of America (statements, deposits, offers) are not alerts and give None.
+and a deposit alert's (the payer is named as it is in the CSV, without the DES: details):
+
+    A direct deposit was
+    credited to your account
+    Amount
+    $1,234.56
+    Account
+    PERSONAL CHECKING/SAVINGS ACCOUNT - 1234
+    Date
+    October 23, 2026
+    From
+    Acme Payroll 123456
+
+Other emails from Bank of America (statements, balances, offers) are not alerts and give None.
 """
 
 from decimal import Decimal
@@ -33,24 +48,32 @@ from tally.alerts import (
 
 ACCOUNT = "bofa_checking"
 DOMAIN = "bankofamerica.com"
-SUBJECT = "Your debit card was used"
+PURCHASE = "Your debit card was used"
+DEPOSIT = "A direct deposit was credited to your account"
 
 
 def parse(raw: bytes) -> Alert | None:
     """The alert in one email from Bank of America, or None if it's another kind of email."""
     message = read(raw)
     check_sender(message, DOMAIN)
-    if " ".join(str(message["Subject"] or "").split()) != SUBJECT:
+    subject = " ".join(str(message["Subject"] or "").split())
+    if subject not in (PURCHASE, DEPOSIT):
         return None
     html = message.get_body(("html",))
     if html is None:
-        raise AlertError("debit card alert has no HTML part")
+        raise AlertError(f"{subject!r} alert has no HTML part")
     lines = html_lines(html.get_content())
+    amount = parse_amount(_after(lines, "Amount"))
+    if subject == PURCHASE:
+        date_label, merchant_label = "Purchase date", "Purchase made at"
+        amount = Decimal(0) - amount
+    else:
+        date_label, merchant_label = "Date", "From"
     return Alert(
         account=ACCOUNT,
-        date=parse_date(_after(lines, "Purchase date")),
-        merchant=_after(lines, "Purchase made at"),
-        amount=Decimal(0) - parse_amount(_after(lines, "Amount")),
+        date=parse_date(_after(lines, date_label)),
+        merchant=_after(lines, merchant_label),
+        amount=amount,
         message_id=message_id(message),
         received=received(message),
     )

@@ -1,0 +1,76 @@
+Delivered-To: someone@example.com
+Received: by 2002:a05:6000:0:b0:0:0:0 with SMTP id test789;
+        Fri, 20 Mar 2026 01:30:38 -0700 (PDT)
+Authentication-Results: mx.google.com;
+       dkim=pass header.i=@ealerts.bankofamerica.com header.s=testselector header.b=GhIjKl34;
+       spf=pass (google.com: domain of bounce-test@bounce.ealerts.bankofamerica.com designates 192.0.2.20 as permitted sender) smtp.mailfrom=bounce-test@bounce.ealerts.bankofamerica.com;
+       dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=ealerts.bankofamerica.com
+From: "Bank of America" <onlinebanking@ealerts.bankofamerica.com>
+To: <someone@example.com>
+Subject: A direct deposit was credited to your account
+Date: Fri, 20 Mar 2026 02:30:35 -0600
+MIME-Version: 1.0
+Message-ID: <00000000-test-alert-0003@example.xt.local>
+Content-Type: text/html;
+	charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+<head>
+ <meta charset="utf-8" />
+ <style type="text/css">
+ #outlook a{padding:0;}
+ </style>
+</head>
+<body>
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+  <tr><td align="center"><img src="https://www.bankofamerica.com/deposit-70x70.png" alt="Deposit Alert icon">
+     </td></tr>
+  <tr><td align="top" valign="top" style="width: 568px; text-align: center; color: black; font-size: 24px; font-family: Connections,arial; font-weight: 400; line-height: 29px;padding-bottom:25px;">
+   A direct deposit was <br class="deposit-text"> credited to your account
+</td></tr>
+</table>
+      <table class="tblMobWidth" style="border-collapse: separate !important; width: 600px; border-radius: 12px;background: white;" valign="bottom" cellpadding="0" cellspacing="0" border="0" align="center">
+         <tr>
+          <td class="leftalignment new2" width="120" style="border-bottom: 1px solid #D5D5D5;width:272px; padding-top: 16px; text-align: left; font-size: 16px;font-weight: 400; font-family: Connections,arial;white-space: nowrap;color: rgb(0, 0, 0);" valign="bottom" align="left">
+          Amount
+          </td>
+           <td class="rightalignment new1" style="border-bottom: 1px solid #D5D5D5;width:280px; padding-top:16px; font-size: 16px; font-weight: 700; text-align: right;font-family: Connections,arial;white-space: nowrap;color: rgb(0, 0, 0);" valign="top" align="left">
+           <b> $2,345.67 </b>
+          </td>
+         </tr>
+ 
+         <tr>
+          <td class="leftalignment" width="120" style="border-bottom: 1px solid #D5D5D5;width:286px; padding-top: 16px; text-align: left; font-size: 16px;font-family: Connections,arial;white-space: nowrap;color: rgb(0, 0, 0);" valign="top" align="left">
+          Account
+          </td>
+          <td class="rightalignment" style="border-bottom: 1px solid #D5D5D5;width:286px; padding-top:16px; font-family: Connections, arial; font-weight:normal; text-align:right; font-size:16px; color:#000000;" valign="top" align="left">
+          <b>
+          PERSONAL CHECKING/SAVINGS ACCOUNT - 0000</b>
+          </td>
+         </tr>
+ <tr>
+          <td class="leftalignment" width="120" style="border-bottom: 1px solid #D5D5D5;width:286px; padding-top: 16px; text-align: left; font-size: 16px;font-family: Connections,arial;white-space: nowrap;color: rgb(0, 0, 0);" valign="top" align="left">
+          Date
+          </td>
+          <td class="rightalignment" style="border-bottom: 1px solid #D5D5D5;width:286px; font-family: Connections, arial; font-weight:400; text-align:right; font-size:16px; color:rgb(0, 0, 0); padding-top:16px;">
+         <b> March 20, 2026 </b>
+          </td>
+         </tr>
+
+         <tr>
+          <td class="leftalignment" width="120" style="width:286px; padding-top: 16px; text-align: left; font-size: 16px;font-family: Connections,arial;white-space: nowrap;color: rgb(0, 0, 0);" valign="bottom" align="left">
+          From
+          </td>
+          <td class="rightalignment" style="width:286px;padding-top:16px; font-size: 16px; text-align: right;font-family: Connections,arial;white-space: nowrap;color: rgb(0, 0, 0);" valign="bottom" align="left">
+        <b>  Acme Payroll 123456 </b>
+          </td>
+         </tr> 
+ 
+       </table>
+<a style="color: #ffffff; text-decoration: none; display: inline-block; background-color: #012169;" href="https://www.bankofamerica.com/"><b>VIEW DETAILS</b></a>
+<p>Please don't reply to this automatically generated service email.</p>
+<p>Bank of America, N.A. Member FDIC.</p>
+</body>
+</html>
