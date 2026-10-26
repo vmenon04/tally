@@ -257,7 +257,7 @@ def dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 def test_command_needs_gmail_account(dirs: Path, capsys: pytest.CaptureFixture[str]) -> None:
     (dirs / "data" / "config.toml").write_text('sheet_id = "s"\n')
-    assert main(["alerts", "--gmail"]) == 1
+    assert main(["alerts"]) == 1
     assert "set gmail_account in config.toml" in capsys.readouterr().err
 
 
@@ -267,7 +267,7 @@ def config_with_account(dirs: Path) -> None:
 
 def test_command_needs_the_app_password(dirs: Path, capsys: pytest.CaptureFixture[str]) -> None:
     config_with_account(dirs)
-    assert main(["alerts", "--gmail"]) == 1
+    assert main(["alerts"]) == 1
     assert "no app password" in capsys.readouterr().err
 
 

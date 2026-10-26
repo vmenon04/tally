@@ -18,7 +18,6 @@ import json
 import os
 import re
 import tomllib
-from collections import Counter
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
@@ -38,7 +37,6 @@ _RULE_START = re.compile(r"^\[\[rule\]\]", re.MULTILINE)
 class Result:
     text: str  # the whole new rules file
     messages: list[str]
-    suggestions: list[str]
 
 
 def apply(text: str, corrections: list[tuple[Transaction, str]], today: datetime.date) -> Result:
@@ -63,7 +61,7 @@ def apply(text: str, corrections: list[tuple[Transaction, str]], today: datetime
         text = _insert(text, _rule_text(t, category, today))
         messages.append(f"Added rule: {label} → {category}")
     rules.parse(text)  # never hand back a file that doesn't load
-    return Result(text, messages, _suggestions(text))
+    return Result(text, messages)
 
 
 def carry_over(
@@ -76,7 +74,7 @@ def carry_over(
     """
     rules.parse(text)  # a broken file is reported as such, not as a broken correction
     if SECTION_START not in text:
-        return Result(text, [], [])
+        return Result(text, [])
     messages = []
     for alert, row in posted_alerts:
         category = _pinned_category(text, alert)
@@ -93,7 +91,7 @@ def carry_over(
             messages.append(f"Posted, correction carried over: {label} → {category}")
     if messages:
         rules.parse(text)
-    return Result(text, messages, _suggestions(text))
+    return Result(text, messages)
 
 
 def save(path: Path, text: str) -> None:
@@ -177,20 +175,3 @@ def _rule_text(
 
 def _allowed(text: str) -> tuple[str, ...]:
     return (*rules.parse(text).categories, *rules.NOT_SPENDING)
-
-
-def _suggestions(text: str) -> list[str]:
-    """A merchant-wide rule for each merchant corrected to the same category twice or more."""
-    _, inside, _ = _section(text)
-    counts: Counter[tuple[str, str]] = Counter()
-    for block in _blocks(inside):
-        data = tomllib.loads(block)["rule"][0]
-        if "merchant" in data and "date" in data:
-            counts[(data["merchant"], data["category"])] += 1
-    return [
-        f"You've corrected {merchant} to {category} {n} times. To make that the rule for every "
-        f"purchase there, add this to rules.toml (below the corrections section):\n"
-        f"  [[rule]]\n  merchant = {json.dumps(merchant)}\n  category = {json.dumps(category)}"
-        for (merchant, category), n in sorted(counts.items())
-        if n >= 2
-    ]

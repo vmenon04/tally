@@ -256,9 +256,9 @@ def test_gmail_run_notifies_new_alerts_once(
     post = FakePost()
     monkeypatch.setattr(requests, "post", post)
     mailbox["m1"] = DISCOVER
-    assert main(["alerts", "--gmail"]) == 0
+    assert main(["alerts"]) == 0
     assert "Notified: 1 new card alert" in capsys.readouterr().out
-    assert main(["alerts", "--gmail"]) == 0
+    assert main(["alerts"]) == 0
     assert [c["data"] for c in post.calls] == [b"1 new card alert"]
 
 
@@ -269,7 +269,7 @@ def test_gmail_dry_run_sends_nothing(
     post = FakePost()
     monkeypatch.setattr(requests, "post", post)
     mailbox["m1"] = DISCOVER
-    assert main(["alerts", "--gmail", "--dry-run"]) == 0
+    assert main(["alerts", "--dry-run"]) == 0
     assert post.calls == []
 
 
@@ -277,7 +277,7 @@ def test_without_a_topic_the_run_still_works(
     dirs: Path, mailbox: dict[str, bytes], capsys: pytest.CaptureFixture[str]
 ) -> None:
     mailbox["m1"] = DISCOVER
-    assert main(["alerts", "--gmail"]) == 0
+    assert main(["alerts"]) == 0
     out = capsys.readouterr().out
     assert "1 added" in out
     assert "Notifications are off: run `tally ntfy-setup`" in out
@@ -296,14 +296,14 @@ def test_unreachable_mailbox_is_announced_until_it_recovers(
         raise gmail.GmailError("Gmail refused the app password")
 
     monkeypatch.setattr(gmail.ImapMailbox, "connect", refuse)
-    assert main(["alerts", "--gmail"]) == 1
-    assert main(["alerts", "--gmail"]) == 1
+    assert main(["alerts"]) == 1
+    assert main(["alerts"]) == 1
     assert [c["data"] for c in post.calls] == [b"can't read the alerts mailbox"]
 
     monkeypatch.setattr(gmail.ImapMailbox, "connect", lambda a, p: FakeImapMailbox({}))
-    assert main(["alerts", "--gmail"]) == 0
+    assert main(["alerts"]) == 0
     monkeypatch.setattr(gmail.ImapMailbox, "connect", refuse)
-    assert main(["alerts", "--gmail"]) == 1
+    assert main(["alerts"]) == 1
     assert len(post.calls) == 2  # announced again: it had recovered in between
 
 
@@ -319,8 +319,8 @@ def test_one_failed_run_is_not_announced(
         raise gmail.GmailError("Gmail didn't respond while signing in (timed out)")
 
     monkeypatch.setattr(gmail.ImapMailbox, "connect", time_out)
-    assert main(["alerts", "--gmail"]) == 1
-    assert main(["alerts", "--gmail"]) == 1
+    assert main(["alerts"]) == 1
+    assert main(["alerts"]) == 1
     assert post.calls == []  # still within the grace period
 
     conn = store.connect(dirs / "data" / "tally.db")
@@ -329,5 +329,5 @@ def test_one_failed_run_is_not_announced(
         store.record_notifications(conn, [notify.FAILING_SINCE], old)
     finally:
         conn.close()
-    assert main(["alerts", "--gmail"]) == 1
+    assert main(["alerts"]) == 1
     assert [c["data"] for c in post.calls] == [b"can't read the alerts mailbox"]

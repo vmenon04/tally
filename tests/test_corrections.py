@@ -121,20 +121,6 @@ def test_quotes_in_merchant_names_are_escaped() -> None:
     assert rules.parse(result.text).categorize(odd) == "Income"
 
 
-def test_suggests_a_merchant_rule_after_two_matching_corrections() -> None:
-    first = corrections.apply(RULES, [(tx(), "Home / apartment stuff")], TODAY)
-    assert first.suggestions == []
-    second = corrections.apply(first.text, [(tx(day=9), "Home / apartment stuff")], TODAY)
-    [suggestion] = second.suggestions
-    assert suggestion.startswith("You've corrected MAPLE MARKET to Home / apartment stuff 2 times")
-    assert 'merchant = "MAPLE MARKET"' in suggestion
-
-
-def test_no_suggestion_for_different_categories() -> None:
-    text = corrections.apply(RULES, [(tx(), "Home / apartment stuff")], TODAY).text
-    assert corrections.apply(text, [(tx(day=9), "Income")], TODAY).suggestions == []
-
-
 def test_save_replaces_the_file_owner_only(tmp_path: Path) -> None:
     path = tmp_path / "rules.toml"
     path.write_text("old")
@@ -165,9 +151,7 @@ def test_carry_over_moves_the_alerts_correction() -> None:
 def test_carry_over_without_corrections_changes_nothing() -> None:
     assert corrections.carry_over(RULES, [(ALERT, POSTED)], TODAY).text == RULES
     text = corrections.apply(RULES, [(tx("OTHER"), "Groceries")], TODAY).text
-    assert corrections.carry_over(text, [(ALERT, POSTED)], TODAY) == corrections.Result(
-        text, [], []
-    )
+    assert corrections.carry_over(text, [(ALERT, POSTED)], TODAY) == corrections.Result(text, [])
 
 
 def test_posted_rows_own_correction_wins() -> None:

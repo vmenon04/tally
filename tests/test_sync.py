@@ -220,16 +220,6 @@ def test_clearing_a_correction_undoes_it(ready: Path, capsys: pytest.CaptureFixt
     assert "[[rule]]  # corrected" not in (ready / "rules.toml").read_text()
 
 
-def test_nudge_after_two_corrections(ready: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    assert sync(capsys)[0] == 0
-    for row in [r for r in tab() if r[2] == "VENMO"]:
-        row[4] = "Groceries"
-    code, out, _ = sync(capsys)
-    assert code == 0
-    assert "You've corrected VENMO to Groceries 2 times" in out
-    assert '  merchant = "VENMO"\n  category = "Groceries"' in out
-
-
 def test_correction_blocked_by_budget_conflict_saves_nothing(
     ready: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

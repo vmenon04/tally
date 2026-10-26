@@ -81,7 +81,7 @@ sequenceDiagram
     participant N as notify.py
     participant F as ntfy.sh
 
-    T->>C: tally alerts --gmail
+    T->>C: tally alerts
     C->>G: ImapMailbox.connect(address, app password)
     G->>M: LOGIN, LIST, find \All, EXAMINE All Mail
     alt can't connect or log in
@@ -146,7 +146,7 @@ flowchart TD
     write --> record[("tally.db: sheet_writes,<br/>sheet_categories")]
 
     gsheet -- "you change a Category cell" --> edits["transactions_tab.find_edits"]
-    edits --> corr["corrections.py<br/>one-transaction rule in rules.toml,<br/>suggest merchant rule after 2"]
+    edits --> corr["corrections.py<br/>one-transaction rule in rules.toml,<br/>or Claude's merchant rule changed"]
     corr --> categorize
     categorize -- "merchants no rule covers" --> claude["categorizing.py<br/>claude -p, no tools;<br/>answers become merchant rules<br/>at the end of rules.toml"]
     claude --> categorize

@@ -11,8 +11,7 @@ changing them. It never overwrites a value it didn't write itself (such as one y
 writes nothing until you clear them. It also rewrites a Transactions tab (created on the
 first sync) listing every transaction, newest first, with its category. Changing a category
 there is how you correct one: the next sync saves it as a rule for that one transaction in a
-marked section at the top of `rules.toml` (clearing the category removes it again), and
-suggests a merchant-wide rule once you've corrected the same merchant the same way twice.
+marked section at the top of `rules.toml` (clearing the category removes it again).
 Rows added to that tab by hand stop the sync.
 
 Before writing, sync asks Claude to categorize the merchants no rule covers. It runs Claude

@@ -51,16 +51,12 @@ def main(argv: list[str] | None = None) -> int:
 
     alerts_parser = commands.add_parser(
         "alerts",
-        help="read saved alert emails",
-        description="Read the Discover and BofA alert emails saved as .eml files in the alerts "
-        "folder (or, with --gmail, in the alerts mailbox), store each alert once, and list the "
-        "alerts no imported CSV row explains yet.",
+        help="read the alerts mailbox",
+        description="Fetch the Discover and BofA alert emails tally hasn't read yet from the "
+        "alerts mailbox, store each alert once, and list the alerts no imported CSV row "
+        "explains yet.",
     )
-    source = alerts_parser.add_mutually_exclusive_group()
-    source.add_argument(
-        "--gmail", action="store_true", help="read the alerts mailbox instead of the folder"
-    )
-    source.add_argument(
+    alerts_parser.add_argument(
         "--reread",
         action="store_true",
         help="read the emails already fetched from the mailbox again, after a new alert "
@@ -135,11 +131,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0 if ok else 1
     if args.command == "alerts":
-        if args.gmail:
+        if not args.reread:
             return _alerts_from_gmail(dry_run=args.dry_run)
-        ok = alert_reading.run(
-            data_dir(), dry_run=args.dry_run, out=sys.stdout, err=sys.stderr, reread=args.reread
-        )
+        ok = alert_reading.reread(data_dir(), dry_run=args.dry_run, out=sys.stdout, err=sys.stderr)
         return 0 if ok else 1
     if args.command == "gmail-login":
         return _gmail_login()
@@ -478,7 +472,7 @@ def _sync(dry_run: bool) -> int:
         ]
         text = rules_path.read_text(encoding="utf-8")
         try:
-            fixes = corrections.Result(text, [], [])
+            fixes = corrections.Result(text, [])
             if changed and not added:
                 fixes = corrections.apply(text, changed, today)
             carried = corrections.carry_over(fixes.text, pending.posted(alerts, stored), today)
@@ -488,9 +482,7 @@ def _sync(dry_run: bool) -> int:
             except categorizing.ClaudeError as e:
                 print(f"{CLAUDE_FAILED}: {e}", file=sys.stderr)
                 guessed = categorizing.Result(carried.text, [])
-            fixes = corrections.Result(
-                guessed.text, [*fixes.messages, *carried.messages], carried.suggestions
-            )
+            fixes = corrections.Result(guessed.text, [*fixes.messages, *carried.messages])
             month_rules = rules.parse(fixes.text)
         except rules.RulesError as e:
             print(f"sync: correcting rules.toml: {e}", file=sys.stderr)
@@ -512,8 +504,6 @@ def _sync(dry_run: bool) -> int:
             saved = "not saved, dry run" if dry_run else "saved to rules.toml"
             print(f"\nCorrections ({saved}):")
             print("\n".join(f"  {message}" for message in fixes.messages))
-            for suggestion in fixes.suggestions:
-                print(f"\n{suggestion}")
         if guessed.messages:
             saved = "not saved, dry run" if dry_run else "saved to rules.toml"
             print(f"\nCategorized by Claude ({saved}):")

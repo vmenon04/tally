@@ -25,14 +25,13 @@ _PARSERS: dict[str, Callable[[bytes], Alert | None]] = {
 QUERY = "from:(" + " OR ".join(_PARSERS) + ")"
 
 
-def run(data_dir: Path, *, dry_run: bool, out: TextIO, err: TextIO, reread: bool = False) -> bool:
-    """Read every .eml file in data_dir/alerts and store the alerts in them.
+def reread(data_dir: Path, *, dry_run: bool, out: TextIO, err: TextIO) -> bool:
+    """Read again the emails already fetched from the alerts mailbox, and store their alerts.
 
-    With reread, read the emails already fetched from the alerts mailbox instead, so ones
-    skipped before a parser for them existed are stored too (alerts already stored are only
+    For emails skipped before a parser for them existed (alerts already stored are only
     counted). The files are left in place. Returns False if any email was refused.
     """
-    folder = data_dir / "alerts" / "gmail" if reread else data_dir / "alerts"
+    folder = data_dir / "alerts" / "gmail"
     paths = sorted(folder.glob("*.eml")) if folder.is_dir() else []
     if not paths:
         print(f"Nothing to read: no .eml files in {folder}.", file=out)
