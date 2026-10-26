@@ -3,7 +3,9 @@
 A correction becomes a rule pinned to that one transaction (account, date, amount and the
 exact merchant), in a marked section at the top of the rules file so it wins over the
 general rules. tally only ever edits inside that section; the rest of the file is yours.
-Clearing a category on the Sheet removes its correction.
+Clearing a category on the Sheet removes its correction. Correcting a transaction that one
+of Claude's rules categorized changes that rule instead, so the merchant's later purchases
+follow the correction too (see categorizing).
 
 A pending row (a card alert no CSV reaches yet) can be corrected too; its rule is pinned to
 the alert's merchant, date and amount. The bank's row for the purchase may be named, dated
@@ -21,7 +23,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 
-from tally import rules
+from tally import categorizing, rules
 from tally.transaction import Transaction
 
 SECTION_START = (
@@ -51,6 +53,10 @@ def apply(text: str, corrections: list[tuple[Transaction, str]], today: datetime
             continue
         if category not in _allowed(text):
             raise rules.RulesError(f"{label}: {category!r} is not a category")
+        text, followed = categorizing.follow_correction(text, t, category)
+        if followed:
+            messages.append(f"Changed Claude's rule for {t.merchant} to {category}: {label}")
+            continue
         if rules.parse(text).categorize(t) == category:
             messages.append(f"No rule needed, the rules already say {category}: {label}")
             continue

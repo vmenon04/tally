@@ -8,10 +8,12 @@ import os
 import re
 import sys
 from pathlib import Path
+from typing import Any
 
 from tally import (
     alert_reading,
     budget,
+    categorizing,
     config,
     corrections,
     gmail,
@@ -397,6 +399,10 @@ def _summary(as_of: datetime.date | None, *, email: bool, sync: bool) -> int:
     return 0
 
 
+# Said when Claude can't be asked; the sync goes on without it, so it's never why one stopped.
+CLAUDE_FAILED = "sync: Claude didn't categorize"
+
+
 def _quiet_sync() -> str | None:
     """Run a sync without printing it. None if it worked, else why it didn't, in a sentence."""
     out, err = io.StringIO(), io.StringIO()
@@ -409,7 +415,9 @@ def _quiet_sync() -> str | None:
         (
             line
             for line in lines
-            if line.startswith(("sync:", "Nothing written"))
+            if (
+                line.startswith(("sync:", "Nothing written")) and not line.startswith(CLAUDE_FAILED)
+            )
             or "tally didn't write" in line
             or "hold a value tally didn't write" in line
         ),
@@ -474,15 +482,20 @@ def _sync(dry_run: bool) -> int:
             if changed and not added:
                 fixes = corrections.apply(text, changed, today)
             carried = corrections.carry_over(fixes.text, pending.posted(alerts, stored), today)
+            counted = [t for _, t in [*pairs, *waiting]]
+            try:
+                guessed = categorizing.add(carried.text, counted, _ask_claude, today)
+            except categorizing.ClaudeError as e:
+                print(f"{CLAUDE_FAILED}: {e}", file=sys.stderr)
+                guessed = categorizing.Result(carried.text, [])
             fixes = corrections.Result(
-                carried.text, [*fixes.messages, *carried.messages], carried.suggestions
+                guessed.text, [*fixes.messages, *carried.messages], carried.suggestions
             )
             month_rules = rules.parse(fixes.text)
         except rules.RulesError as e:
             print(f"sync: correcting rules.toml: {e}", file=sys.stderr)
             return 1
 
-        counted = [t for _, t in [*pairs, *waiting]]
         months = sorted({(t.date.year, t.date.month) for t in counted})
         reports = [report.build(counted, month_rules, year, month) for year, month in months]
         try:
@@ -501,6 +514,10 @@ def _sync(dry_run: bool) -> int:
             print("\n".join(f"  {message}" for message in fixes.messages))
             for suggestion in fixes.suggestions:
                 print(f"\n{suggestion}")
+        if guessed.messages:
+            saved = "not saved, dry run" if dry_run else "saved to rules.toml"
+            print(f"\nCategorized by Claude ({saved}):")
+            print("\n".join(f"  {message}" for message in guessed.messages))
         print()
         print(budget.format_plan(result, conflicts))
         uncategorized = sum(r.category == rules.UNCATEGORIZED for r in tab_rows)
@@ -548,6 +565,11 @@ def _sync(dry_run: bool) -> int:
         return 0
     finally:
         conn.close()
+
+
+def _ask_claude(question: str, schema: dict[str, Any]) -> Any:
+    token = categorizing.load_token(config.secrets_dir() / "claude-token")
+    return categorizing.ask_claude(question, schema, token)
 
 
 def _unused_tab_id(tabs: dict[str, int]) -> int:

@@ -148,6 +148,8 @@ flowchart TD
     gsheet -- "you change a Category cell" --> edits["transactions_tab.find_edits"]
     edits --> corr["corrections.py<br/>one-transaction rule in rules.toml,<br/>suggest merchant rule after 2"]
     corr --> categorize
+    categorize -- "merchants no rule covers" --> claude["categorizing.py<br/>claude -p, no tools;<br/>answers become merchant rules<br/>at the end of rules.toml"]
+    claude --> categorize
 ```
 
 ## Modules
@@ -183,6 +185,7 @@ flowchart TD
         budget["budget.py<br/>Budget tab plan"]
         transactions_tab["transactions_tab.py<br/>Transactions tab"]
         corrections["corrections.py<br/>Sheet edits to rules"]
+        categorizing["categorizing.py<br/>Claude's merchant rules"]
         summary["summary.py<br/>weekly summary and advice"]
         sheet["sheet.py<br/>Sheets API"]
     end
@@ -193,6 +196,7 @@ flowchart TD
 
     cli --> alert_reading & importing & notify & gmail & config & store & pending
     cli --> rules & report & budget & transactions_tab & corrections & sheet & summary
+    cli --> categorizing
 
     alert_reading --> gmail & matching & store & alerts_pkg & alerts_discover & alerts_bofa
     alert_reading --> importing
@@ -211,7 +215,8 @@ flowchart TD
     report --> rules & transaction
     budget --> report & sheet
     transactions_tab --> rules & sheet & transaction & pending
-    corrections --> rules & transaction
+    corrections --> categorizing & rules & transaction
+    categorizing --> rules & transaction
     summary --> budget & report & pending & rules & transactions_tab
 
     store --> alerts_pkg & transaction

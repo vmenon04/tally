@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from test_mailer import FakeSMTP
 
-from tally import budget, gmail, sheet, store, transactions_tab
+from tally import budget, categorizing, gmail, sheet, store, transactions_tab
 from tally.alerts import Alert
 from tally.cli import main
 from tally.sheet import Grid
@@ -596,3 +596,56 @@ def test_summary_names_a_row_added_by_hand(
         "The Sheet wasn't updated before this summary: Transactions tab: 1 row(s) tally didn't "
         "write. Run `tally sync`" in capsys.readouterr().out
     )
+
+
+@pytest.fixture
+def claude(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Claude puts Remitly under Rent + fees and can't tell the rest; returns its questions."""
+    questions: list[str] = []
+
+    def answer(question: str, schema: dict[str, Any], token: str | None) -> Any:
+        questions.append(question)
+        return {"answers": [{"merchant": "REMITLY INC", "category": "Rent + fees"}]}
+
+    monkeypatch.setattr(categorizing, "ask_claude", answer)
+    return questions
+
+
+def test_claude_categorizes_during_sync(
+    ready: Path, claude: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    code, out, _ = sync(capsys, "--dry-run")
+    assert code == 0
+    assert "Categorized by Claude (not saved, dry run):\n  REMITLY INC → Rent + fees" in out
+    assert "by Claude" not in (ready / "rules.toml").read_text()
+
+    code, out, _ = sync(capsys)
+    assert code == 0
+    assert "Categorized by Claude (saved to rules.toml):" in out
+    assert next(r for r in tab() if r[2] == "REMITLY INC")[4] == "Rent + fees"
+    assert budget_cell("C5") == 75.25
+    assert 'merchant = "REMITLY INC"' in (ready / "rules.toml").read_text()
+
+    # Only the merchants still uncategorized are asked about again.
+    sync(capsys)
+    assert "REMITLY INC" in claude[1] and "REMITLY INC" not in claude[2]
+
+
+def test_correcting_claudes_category_on_the_sheet(
+    ready: Path, claude: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert sync(capsys)[0] == 0
+    next(r for r in tab() if r[2] == "REMITLY INC")[4] = "Groceries"
+    code, out, _ = sync(capsys)
+    assert code == 0
+    assert "Changed Claude's rule for REMITLY INC to Groceries" in out
+    text = (ready / "rules.toml").read_text()
+    assert 'category = "Rent + fees"' not in text
+    assert "corrected on the Sheet" not in text
+
+
+def test_sync_goes_on_without_claude(ready: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    code, out, err = sync(capsys)
+    assert code == 0
+    assert "sync: Claude didn't categorize: not asked in tests" in err
+    assert "Updated 2 Budget cells" in out

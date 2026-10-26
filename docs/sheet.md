@@ -15,6 +15,15 @@ marked section at the top of `rules.toml` (clearing the category removes it agai
 suggests a merchant-wide rule once you've corrected the same merchant the same way twice.
 Rows added to that tab by hand stop the sync.
 
+Before writing, sync asks Claude to categorize the merchants no rule covers. It runs Claude
+Code with every tool turned off (`claude -p`, logged in with the token from `claude
+setup-token` saved in `secrets/claude-token`), sends only the merchant names, amounts and
+accounts, with your categories and merchant rules as examples, and saves each answer as a
+rule for that merchant in a marked section at the bottom of `rules.toml`, so your own rules
+and corrections always win. Claude can answer only with one of your categories, or leave a
+merchant uncategorized. Correcting a row Claude categorized also corrects its rule for that merchant.
+If Claude can't be reached, sync says so and goes on without it.
+
 Card alerts that no imported CSV reaches yet count as *pending*, in the report and on both
 tabs, so the Sheet stays current between imports. They're shown in grey italics with
 "(pending)" after the account, and the next import replaces each with its posted row (whose
