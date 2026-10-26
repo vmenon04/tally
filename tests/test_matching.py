@@ -126,6 +126,14 @@ def test_deposit_needs_the_exact_amount() -> None:
     assert matched([one], [tx(20, "48.17", "Acme Payroll DES:123456 PPD", "bofa_checking")]) == []
 
 
+def test_refund_is_matched_by_its_posting_date() -> None:
+    # The alert gives the day the refund posted; the CSV dates it days earlier, by the merchant.
+    a = alert(16, "16.06")
+    t = tx(10, "16.06", posted_after=6)
+    assert matched([a], [t]) == [(a, t)]
+    assert matched([a], [tx(16, "16.06", posted_after=4)]) == []  # posted too late
+
+
 def test_two_identical_charges_with_one_posted() -> None:
     first = alert(12, "-4.09")
     second = dataclasses.replace(first, message_id="<second@example.com>")

@@ -27,7 +27,7 @@ _HIDDEN = {"head", "script", "style", "title"}
 @dataclass(frozen=True, slots=True)
 class Alert:
     account: str
-    date: datetime.date  # the day of the purchase, as the alert states it
+    date: datetime.date  # the day the alert states: of the purchase, or when money in posted
     merchant: str
     amount: Decimal  # negative = money out
     message_id: str  # unique per email, so reading the same email twice is noticed

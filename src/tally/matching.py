@@ -4,7 +4,9 @@ A posted row explains an alert when it is on the same account, dated from a day 
 alert to three days after (the CSVs date a row by the purchase, and alerts sent around
 midnight can land a day off), its merchant name agrees, and its amount is the same, up to
 30% more (a tip), or anything when the alert was a $1.00 authorization (gas stations).
-Money in (a deposit) has no tip or hold, so its amount must be exactly the same.
+Money in (a deposit, a refund) has no tip or hold, so its amount must be exactly the same,
+and its alert gives the day it posted, so the window is counted from the row's posted date
+(a refund's CSV date is the merchant's, which can be days earlier).
 
 Names agree when one starts with the other, or both start with the same main word, after
 punctuation and anything with a digit in it (store numbers, phone numbers, reference codes)
@@ -71,7 +73,7 @@ def match(alerts: Sequence[Alert], transactions: Sequence[Transaction]) -> Resul
     def rank(candidate: tuple[bool, int, int]) -> tuple[bool, Decimal, int, int, int]:
         by_amount_only, i, j = candidate
         a, t = alerts[i], transactions[j]
-        return (by_amount_only, abs(t.amount - a.amount), abs((t.date - a.date).days), i, j)
+        return (by_amount_only, abs(t.amount - a.amount), abs((_row_day(a, t) - a.date).days), i, j)
 
     used_alerts: set[int] = set()
     used_rows: set[int] = set()
@@ -118,7 +120,12 @@ def _main_word(words: list[str]) -> str:
 
 
 def _in_window(a: Alert, t: Transaction) -> bool:
-    return -DAYS_BEFORE <= (t.date - a.date).days <= DAYS_AFTER
+    return -DAYS_BEFORE <= (_row_day(a, t) - a.date).days <= DAYS_AFTER
+
+
+def _row_day(a: Alert, t: Transaction) -> datetime.date:
+    """The row's date to compare with the alert's: posted for money in, else the purchase's."""
+    return (t.posted or t.date) if a.amount > 0 else t.date
 
 
 def _amount_fits(alerted: Decimal, posted: Decimal) -> bool:

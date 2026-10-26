@@ -7,15 +7,17 @@ import pytest
 from tally.alerts import Alert, AlertError, html_lines
 from tally.alerts.discover import parse
 
-FIXTURE = Path(__file__).parent / "fixtures" / "discover_alert.eml"
+FIXTURES = Path(__file__).parent / "fixtures"
+FIXTURE = FIXTURES / "discover_alert.eml"
+REFUND = FIXTURES / "discover_refund_alert.eml"
 GMAIL_CHECK = (
     "Authentication-Results: mx.google.com;\r\n"
     '       dkim=pass header.i=@discover.com header.s=testselector header.b="AbCdEf12";'
 )
 
 
-def fixture(*replacements: tuple[str, str]) -> bytes:
-    text = FIXTURE.read_bytes().decode("ascii")
+def fixture(*replacements: tuple[str, str], path: Path = FIXTURE) -> bytes:
+    text = path.read_bytes().decode("ascii")
     for old, new in replacements:
         assert old in text, old
         text = text.replace(old, new)
@@ -89,6 +91,42 @@ def test_changed_layout_is_refused() -> None:
 def test_bad_date_is_refused() -> None:
     with pytest.raises(AlertError, match="bad date"):
         parse(fixture(("Date: March 12, 2026", "Date: 2026-03-12")))
+
+
+def test_refund_in_full() -> None:
+    # Money in, dated the day the refund posted.
+    assert parse(REFUND.read_bytes()) == Alert(
+        account="discover",
+        date=datetime.date(2026, 3, 16),
+        merchant="MAPLE MARKET #0412 SPRINGFIELD IL",
+        amount=Decimal("16.06"),
+        message_id="<0100000000000000-test-alert-0004@email.amazonses.com>",
+        received=datetime.datetime(2026, 3, 17, 11, 47, 12, tzinfo=datetime.UTC),
+    )
+
+
+def test_refund_signature_is_checked() -> None:
+    raw = fixture(
+        ("dkim=pass header.i=@discover.com", "dkim=fail header.i=@discover.com"), path=REFUND
+    )
+    with pytest.raises(AlertError, match="signed by discover.com"):
+        parse(raw)
+
+
+def test_refund_with_a_changed_layout_is_refused() -> None:
+    raw = fixture((">Amount Credited:<", ">Amount:<"), path=REFUND)
+    with pytest.raises(AlertError, match="'Amount Credited:'"):
+        parse(raw)
+
+
+def test_refund_with_a_missing_value_is_refused() -> None:
+    # The merchant's cell is the last line; without it there's nothing after the label.
+    raw = fixture(
+        ("MAPLE MARKET #0412 SPRINGFIELD IL</td></tr></table>", "</td></tr></table>"), path=REFUND
+    )
+    raw = raw.replace(b"See Transactions", b"")
+    with pytest.raises(AlertError, match="'Merchant:'"):
+        parse(raw)
 
 
 def test_html_lines() -> None:
