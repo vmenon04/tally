@@ -2,7 +2,7 @@
 # Runs tally on the server from this machine. The server holds the only copy of the data.
 #
 #     tally-remote import FILE...     send bank CSVs to the server and import them
-#     tally-remote deploy             install this repo's last commit on the server
+#     tally-remote deploy             push this repo's last commit, then install it on the server
 #     tally-remote COMMAND ...        any other tally command, e.g. report 2026-10, sync --dry-run
 #
 # TALLY_HOST names the server (default: myserver). See docs/server.md.
@@ -40,6 +40,7 @@ deploy() {
         echo "tally-remote: commit or stash your changes first; only committed code is deployed" >&2
         exit 1
     fi
+    git -C "$repo" push origin HEAD
     commit=$(git -C "$repo" rev-parse HEAD)
     archive=$(ssh -q "$HOST" 'f=$(mktemp /tmp/tally-app.XXXXXX) && chmod 644 "$f" && echo "$f"')
     git -C "$repo" archive --format=tar.gz HEAD | ssh -q "$HOST" "cat >$archive"

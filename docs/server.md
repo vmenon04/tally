@@ -32,7 +32,8 @@ tally deploy                      # install the last commit (asks for your sudo 
 moves the dropped files into `data/inbox` first, so the usual inbox rules apply: a file that
 fails stays there, and a dry run leaves them there.
 
-`deploy` sends `git archive HEAD` (so only committed code, and it refuses to run with
+`deploy` first pushes the commit to `origin`, and stops if that fails, so GitHub always has what
+the server runs. It then sends `git archive HEAD` (so only committed code, and it refuses to run with
 uncommitted changes). On the server, `tally-deploy` unpacks it into `app.new/`, runs the tests
 there, and only if they pass swaps it in and updates `venv/`. Installing code needs your
 password, unlike running tally, because new code can read the secrets.
