@@ -86,6 +86,27 @@ def test_label_without_a_value_is_refused() -> None:
         bofa.parse(cut.encode("ascii"))
 
 
+def repeated_details(*changes_to_copy: tuple[str, str]) -> bytes:
+    """The alert with its block of details repeated, as some real alerts have it."""
+    text = FIXTURE.read_bytes().decode("ascii")
+    start = text.index("<table", text.index("</table>"))
+    end = text.index("</table>", start) + len("</table>")
+    copy = text[start:end]
+    for old, new in changes_to_copy:
+        assert old in copy, old
+        copy = copy.replace(old, new)
+    return (text[:end] + copy + text[end:]).encode("ascii")
+
+
+def test_repeated_details_are_one_alert() -> None:
+    assert bofa.parse(repeated_details()) == bofa.parse(FIXTURE.read_bytes())
+
+
+def test_repeated_details_that_disagree_are_refused() -> None:
+    with pytest.raises(AlertError, match="'Amount' line followed by its value"):
+        bofa.parse(repeated_details((">$23.45<", ">$99.99<")))
+
+
 def test_deposit_fixture_is_encoded_like_the_real_email() -> None:
     raw = DEPOSIT.read_bytes()
     assert b"\r\n" in raw

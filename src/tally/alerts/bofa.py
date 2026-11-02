@@ -80,8 +80,10 @@ def parse(raw: bytes) -> Alert | None:
 
 
 def _after(lines: list[str], label: str) -> str:
-    """The line after the one that is exactly label."""
+    """The line after the one that is exactly label. Some alerts repeat the whole block of
+    details, so the label can appear more than once if its value is the same each time."""
     positions = [i for i, line in enumerate(lines) if line == label]
-    if len(positions) != 1 or positions[0] + 1 == len(lines):
+    values = {lines[i + 1] for i in positions if i + 1 < len(lines)}
+    if len(values) != 1 or positions[-1] + 1 == len(lines):
         raise AlertError(f"expected one {label!r} line followed by its value in the alert")
-    return lines[positions[0] + 1]
+    return values.pop()
