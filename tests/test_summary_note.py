@@ -5,7 +5,10 @@ import pytest
 from tally import summary_note
 from tally.categorizing import ClaudeError
 
-SUMMARY = "Spent $366.47 on 20 purchases\n  LYFT *TEMP AUTH HOLD  $25.95\nOver plan by $1,498.10"
+SUMMARY = (
+    "Spent $366.47 on 20 purchases\n  LYFT *TEMP AUTH HOLD  $25.95\n"
+    "Over plan by $1,498.10 of $75.00"
+)
 
 
 def answering(answer: Any) -> Any:
@@ -20,6 +23,11 @@ def test_note_quoting_the_summarys_amounts() -> None:
     assert summary_note.write(SUMMARY, answering({"note": note})) == (
         "The $25.95 Lyft charge looks like a hold."
     )
+
+
+def test_same_amount_without_its_cents_is_accepted() -> None:
+    note = "Keep it under $75."
+    assert summary_note.write(SUMMARY, answering({"note": note})) == note
 
 
 def test_question_holds_the_summary_and_treats_merchants_as_names() -> None:

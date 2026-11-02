@@ -30,7 +30,7 @@ from tally.transaction import Transaction
 SECTION_START = "# ---- Categorized by Claude (tally sync adds these; edit or delete freely) ----"
 SECTION_END = "# ---- End of Claude's rules ----"
 
-MODEL = "sonnet"
+MODEL = "opus"
 TIMEOUT = 300  # seconds for one answer
 EXAMPLES = 80  # at most this many of your merchant rules go in the question
 

@@ -6,6 +6,7 @@ show is refused, so a sum it worked out itself never reaches you.
 """
 
 import re
+from decimal import Decimal
 from typing import Any
 
 from tally.categorizing import Ask, ClaudeError
@@ -22,11 +23,16 @@ def write(summary_text: str, ask: Ask) -> str | None:
     note = " ".join(output["note"].split())
     if len(note) > MAX_LENGTH:
         raise ClaudeError(f"its note was too long ({len(note)} characters)")
-    shown = set(_MONEY.findall(summary_text))
-    made_up = [amount for amount in _MONEY.findall(note) if amount not in shown]
+    shown = {_value(amount) for amount in _MONEY.findall(summary_text)}
+    made_up = [amount for amount in _MONEY.findall(note) if _value(amount) not in shown]
     if made_up:
         raise ClaudeError(f"its note quoted amounts the summary doesn't show: {made_up}")
     return note or None
+
+
+def _value(amount: str) -> Decimal:
+    """So $75 is the same amount as the summary's $75.00, while $25 isn't its $25.95."""
+    return Decimal(amount.removeprefix("$").replace(",", "").rstrip("."))
 
 
 def _question(summary_text: str) -> str:
