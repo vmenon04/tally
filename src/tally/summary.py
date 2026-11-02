@@ -1,8 +1,9 @@
 """The weekly summary: the past week's spending, the month so far against the plan, what to look
 out for, and what's coming up.
 
-The advice comes from fixed rules here, worked out from the stored transactions, the pending
-alerts and the numbers typed on the Budget tab, so nothing is sent anywhere to produce it:
+The numbers and advice come from fixed rules here, worked out from the stored transactions, the
+pending alerts and the numbers typed on the Budget tab. Claude only adds a note on the finished
+summary (see summary_note):
 
 - A category is *over plan* when the month's spending passes its "Plan / mo".
 - It's *ahead of pace* when the share of its plan used is more than AHEAD above the share of
@@ -65,6 +66,7 @@ class Summary:
     look_out: list[str]
     coming_up: list[str]
     note: str | None  # why the plan comparisons are missing, if they are
+    claude_note: str | None = None  # what Claude thinks stands out (see summary_note)
 
     @property
     def week_total(self) -> Decimal:
@@ -138,6 +140,8 @@ def format_summary(s: Summary) -> str:
     lines = [title(s)]
     if s.note:
         lines += ["", s.note]
+    if s.claude_note:
+        lines += ["", "CLAUDE'S NOTE", f"  {s.claude_note}"]
 
     plan_total = sum((c.plan for c in s.month if c.plan is not None), Decimal(0))
     days = calendar.monthrange(s.today.year, s.today.month)[1]

@@ -639,3 +639,28 @@ def test_sync_goes_on_without_claude(ready: Path, capsys: pytest.CaptureFixture[
     assert code == 0
     assert "sync: Claude didn't categorize: not asked in tests" in err
     assert "Updated 2 Budget cells" in out
+
+
+def test_summary_carries_claudes_note(
+    ready: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def answer(question: str, schema: dict[str, Any], token: str | None, **_: Any) -> Any:
+        return {"note": "That charge looks like a hold."}
+
+    monkeypatch.setattr(categorizing, "ask_claude", answer)
+    assert main(["summary"]) == 0
+    assert "CLAUDE'S NOTE\n  That charge looks like a hold." in capsys.readouterr().out
+
+
+def test_summary_goes_out_without_claudes_note(
+    ready: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["summary"]) == 0
+    out = capsys.readouterr().out
+    assert "CLAUDE'S NOTE" not in out
+    assert "No note from Claude: not asked in tests" in out
+
+
+def test_past_summary_asks_claude_nothing(ready: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["summary", "--as-of", "2026-03-15"]) == 0
+    assert "No note from Claude" not in capsys.readouterr().out

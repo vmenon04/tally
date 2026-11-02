@@ -98,7 +98,9 @@ def follow_correction(text: str, t: Transaction, category: str) -> tuple[str, bo
     return text, False
 
 
-def ask_claude(question: str, schema: dict[str, Any], token: str | None) -> Any:
+def ask_claude(
+    question: str, schema: dict[str, Any], token: str | None, timeout: int = TIMEOUT
+) -> Any:
     """Ask Claude Code, with no tools, and return its structured answer.
 
     token is a long-lived token from `claude setup-token`; without one, Claude Code uses
@@ -132,7 +134,7 @@ def ask_claude(question: str, schema: dict[str, Any], token: str | None) -> Any:
                 input=question,
                 capture_output=True,
                 text=True,
-                timeout=TIMEOUT,
+                timeout=timeout,
                 cwd=empty,
                 env=env,
                 check=False,
@@ -140,7 +142,7 @@ def ask_claude(question: str, schema: dict[str, Any], token: str | None) -> Any:
     except FileNotFoundError:
         raise ClaudeError(f"Claude Code isn't installed (no {program})") from None
     except subprocess.TimeoutExpired:
-        raise ClaudeError(f"no answer within {TIMEOUT} seconds") from None
+        raise ClaudeError(f"no answer within {timeout} seconds") from None
     try:
         output = json.loads(done.stdout)
     except json.JSONDecodeError:

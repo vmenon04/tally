@@ -28,6 +28,7 @@ from tally import (
     store,
     summary,
     summary_email,
+    summary_note,
     transactions_tab,
 )
 from tally.alerts import Alert
@@ -372,6 +373,8 @@ def _summary(as_of: datetime.date | None, *, email: bool, sync: bool) -> int:
     )
     if sync_problem:
         result = dataclasses.replace(result, look_out=[sync_problem, *result.look_out])
+    if as_of is None:
+        result = _with_claude_note(result)
     text = summary.format_summary(result)
     print(text)
     if not email or sender is None or recipient is None:
@@ -395,6 +398,8 @@ def _summary(as_of: datetime.date | None, *, email: bool, sync: bool) -> int:
 
 # Said when Claude can't be asked; the sync goes on without it, so it's never why one stopped.
 CLAUDE_FAILED = "sync: Claude didn't categorize"
+# Seconds for the summary's note: much less than the summary service's time limit.
+NOTE_TIMEOUT = 60
 
 
 def _quiet_sync() -> str | None:
@@ -555,6 +560,20 @@ def _sync(dry_run: bool) -> int:
         return 0
     finally:
         conn.close()
+
+
+def _with_claude_note(result: summary.Summary) -> summary.Summary:
+    """The summary with Claude's note, or saying why there isn't one; it's sent either way."""
+    try:
+        note = summary_note.write(summary.format_summary(result), _ask_claude_quickly)
+    except categorizing.ClaudeError as e:
+        return dataclasses.replace(result, look_out=[*result.look_out, f"No note from Claude: {e}"])
+    return dataclasses.replace(result, claude_note=note)
+
+
+def _ask_claude_quickly(question: str, schema: dict[str, Any]) -> Any:
+    token = categorizing.load_token(config.secrets_dir() / "claude-token")
+    return categorizing.ask_claude(question, schema, token, timeout=NOTE_TIMEOUT)
 
 
 def _ask_claude(question: str, schema: dict[str, Any]) -> Any:

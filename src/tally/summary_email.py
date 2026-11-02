@@ -28,6 +28,9 @@ def format_html(s: Summary, sheet_link: str) -> str:
     parts = [_header(s, plan_total, days)]
     if s.note:
         parts.append(_callout(s.note, _AMBER, "#fef7e0"))
+    if s.claude_note:
+        parts.append(_heading("Claude's note"))
+        parts.append(_callout(s.claude_note, _BLUE, "#e8f0fe"))
     parts.append(_heading("This week"))
     parts.append(_week(s.week))
     month = calendar.month_name[s.today.month]

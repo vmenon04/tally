@@ -1,3 +1,4 @@
+import dataclasses
 import datetime
 
 from test_summary import NO_LIMIT, RULES, SUNDAY, TARGETS, tx
@@ -58,3 +59,10 @@ def test_empty_category_has_an_empty_bar() -> None:
     page = html(tx(3, "MARKET", "-12.00"))
     assert 'width="0%"' not in page  # Fun and Rent: nothing spent, only the grey track
     assert 'width="100%" style="background:#e8eaed' in page
+
+
+def test_claudes_note_is_escaped() -> None:
+    s = summary.build(SUNDAY, [], RULES, TARGETS, [], NO_LIMIT)
+    page = summary_email.format_html(dataclasses.replace(s, claude_note="<b>odd</b>"), LINK)
+    assert "Claude&#x27;s note" in page or "Claude's note" in page
+    assert "&lt;b&gt;odd&lt;/b&gt;" in page
