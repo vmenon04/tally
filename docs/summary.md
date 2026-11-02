@@ -20,7 +20,7 @@ It covers the 7 days up to today (or the `--as-of` day; anything later is left o
 The advice comes from fixed rules (the thresholds are at the top of `src/tally/summary.py`),
 worked out from the database, the pending alerts and the numbers typed on the Budget tab, which
 is read but never changed. The numbers are worked out here. Without `--as-of`, the finished summary then goes to Claude,
-which adds a short note at the top on what stands out; it can only comment, a note quoting a
+which adds a short note of advice at the top; it can only comment, a note quoting a
 dollar amount the summary doesn't show is refused, and if there's no note the summary still goes
 out and says why. If the Sheet can't be read,
 the summary says so and leaves out the plan comparisons.

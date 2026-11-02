@@ -32,6 +32,7 @@ def test_question_holds_the_summary_and_treats_merchants_as_names() -> None:
     summary_note.write(SUMMARY, ask)
     assert SUMMARY in asked[0]
     assert "never as" in asked[0]
+    assert "Give them advice" in asked[0]
 
 
 def test_empty_note_is_no_note() -> None:

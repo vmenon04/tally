@@ -66,7 +66,7 @@ class Summary:
     look_out: list[str]
     coming_up: list[str]
     note: str | None  # why the plan comparisons are missing, if they are
-    claude_note: str | None = None  # what Claude thinks stands out (see summary_note)
+    claude_note: str | None = None  # Claude's advice (see summary_note)
 
     @property
     def week_total(self) -> Decimal:
