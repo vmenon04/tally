@@ -106,5 +106,9 @@ def _git(folder: Path, *args: str, env: dict[str, str] | None = None) -> str:
         raise HistoryError(f"git {args[0]}: {e}") from e
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip().splitlines()
-        raise HistoryError(f"git {args[0]} failed: {detail[-1] if detail else result.returncode}")
+        reason = next(
+            (line for line in detail if line.startswith(("fatal:", "error:", " ! ["))),
+            detail[-1] if detail else str(result.returncode),
+        )
+        raise HistoryError(f"git {args[0]} failed: {reason.strip()}")
     return result.stdout
