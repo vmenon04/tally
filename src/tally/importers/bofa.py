@@ -22,6 +22,7 @@ import csv
 import datetime
 import io
 import re
+from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 
@@ -54,11 +55,26 @@ _NOISE = [
 type _Row = tuple[int, list[str]]
 
 
+@dataclass(frozen=True, slots=True)
+class Statement:
+    """A whole export: its rows, and the balance at the start and end of the period it covers."""
+
+    transactions: list[Transaction]
+    start: datetime.date  # balance before any row of this day
+    beginning: Decimal
+    end: datetime.date  # balance after every row of this day
+    ending: Decimal
+
+
 def load(path: Path) -> list[Transaction]:
     return parse(path.read_text(encoding="utf-8"))
 
 
 def parse(text: str) -> list[Transaction]:
+    return parse_statement(text).transactions
+
+
+def parse_statement(text: str) -> Statement:
     reader = csv.reader(io.StringIO(text.removeprefix("﻿"), newline=""))
     rows = [(reader.line_num, row) for row in reader]
     if not rows:
@@ -68,11 +84,14 @@ def parse(text: str) -> list[Transaction]:
     if row != SUMMARY_HEADER:
         raise ParseError(f"expected summary header {SUMMARY_HEADER}, got {row}", line)
     summary: dict[str, Decimal] = {}
+    as_of: dict[str, datetime.date] = {}
     for i, (key, label) in enumerate(_SUMMARY, start=1):
         line, row = _row_at(rows, i)
         if len(row) != 3 or not label.fullmatch(row[0]) or row[1]:
             raise ParseError(f"expected summary row {label.pattern!r}, got {row}", line)
         summary[key] = parse_amount(row[2], line)
+        if key in ("beginning", "ending"):
+            as_of[key] = parse_date(row[0].rsplit(" ", 1)[1], line)
 
     i = _skip_blank(rows, len(_SUMMARY) + 1)
     line, row = _row_at(rows, i)
@@ -118,7 +137,14 @@ def parse(text: str) -> list[Transaction]:
         )
 
     _check_totals(transactions, balance, summary)
-    return transactions
+    if as_of["ending"] < as_of["beginning"]:
+        raise ParseError(f"ending date {as_of['ending']} is before {as_of['beginning']}")
+    for t in transactions:
+        if not as_of["beginning"] <= (t.posted or t.date) <= as_of["ending"]:
+            raise ParseError(f"row posted {t.posted} is outside the summary's dates")
+    return Statement(
+        transactions, as_of["beginning"], summary["beginning"], as_of["ending"], summary["ending"]
+    )
 
 
 def event_date(description: str, posted: datetime.date) -> datetime.date:

@@ -5,6 +5,8 @@ description = "Personal finance tracker: imports transactions, categorizes them,
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "beancount>=3.2",
+    "beangulp>=0.2",
     "google-auth>=2.62.0",
     "requests>=2.34.2",
 ]

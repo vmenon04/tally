@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from tally.importers import ParseError
-from tally.importers.bofa import clean_merchant, event_date, load, parse
+from tally.importers.bofa import clean_merchant, event_date, load, parse, parse_statement
 from tally.transaction import Transaction
 
 FIXTURE = Path(__file__).parent / "fixtures" / "bofa_checking.csv"
@@ -229,4 +229,17 @@ def test_bad_amount_is_rejected(bad: str) -> None:
     text = make_file(['03/02/2026,"SHOP","-1.00","99.00"'])
     text = text.replace(',"SHOP","-1.00"', f',"SHOP","{bad}"')
     with pytest.raises(ParseError, match="line 9: bad amount"):
+        parse(text)
+
+
+def test_statement_gives_the_balances_at_both_ends() -> None:
+    statement = parse_statement(fixture_text())
+    assert len(statement.transactions) == 13
+    assert (statement.start, statement.beginning) == (datetime.date(2026, 3, 1), Decimal("1200.00"))
+    assert (statement.end, statement.ending) == (datetime.date(2026, 3, 14), Decimal("1698.53"))
+
+
+def test_row_outside_the_summary_dates_is_rejected() -> None:
+    text = make_file(['04/02/2026,"MAPLE MARKET","-1.00","99.00"'])
+    with pytest.raises(ParseError, match="outside the summary's dates"):
         parse(text)
