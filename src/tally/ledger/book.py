@@ -62,9 +62,7 @@ def exists(data_dir: Path) -> bool:
 
 def load(path: Path, rules: Rules) -> Ledger:
     """Load the ledger in path, creating pending.beancount if it's missing."""
-    pending = path / PENDING
-    if not pending.exists():
-        _write(pending, _PENDING_HEADER)
+    ensure_pending(path)
     loaded, errors, _ = loader.load_file(str(path / MAIN))
     try:
         found = accounts.from_entries(loaded)
@@ -72,6 +70,12 @@ def load(path: Path, rules: Rules) -> Ledger:
     except accounts.AccountsError as e:
         raise LedgerError(f"{path / MAIN}: {e}") from e
     return Ledger(path, loaded, [_message(e) for e in errors], found)
+
+
+def ensure_pending(path: Path) -> None:
+    """pending.beancount isn't in git, but main.beancount includes it, so a clone needs one."""
+    if not (path / PENDING).exists():
+        _write(path / PENDING, _PENDING_HEADER)
 
 
 def check(path: Path) -> list[str]:

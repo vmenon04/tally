@@ -22,6 +22,7 @@ def serve(data_dir: Path, *, socket: Path | None, port: int) -> None:
     main = book.folder(data_dir) / book.MAIN
     if not main.is_file():
         raise book.LedgerError(f"no ledger at {main}")
+    book.ensure_pending(main.parent)
     app = create_app([str(main)])
     if socket is None:
         server = make_server("127.0.0.1", port, app, threaded=True)
