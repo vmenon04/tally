@@ -117,16 +117,22 @@ def run(
             print(f"Nothing to import: {inbox} is empty.", file=out)
             return True
 
+    folder = book.folder(data_dir)
+    if not dry_run and book.exists(data_dir) and history.is_repo(folder):
+        # Edits made elsewhere (on your machine, on Forgejo) come in before tally adds to it.
+        try:
+            history.commit(folder, "Save changes made outside tally")
+            history.pull(folder)
+        except history.Unreachable as e:
+            print(f"ledger: {e}; importing without the latest from Forgejo", file=err)
+        except history.HistoryError as e:
+            print(f"Nothing imported: the ledger can't be brought up to date: {e}", file=err)
+            return False
     try:
         ledger = updating.open_session(data_dir)
     except (book.LedgerError, rules.RulesError) as e:
         print(f"Nothing imported: the ledger can't be read: {e}", file=err)
         return False
-    if ledger is not None and not dry_run and history.is_repo(ledger.ledger.folder):
-        try:
-            history.commit(ledger.ledger.folder, "Save changes made outside tally")
-        except history.HistoryError as e:
-            print(f"ledger: {e}", file=err)
 
     ok = True
     parsed: list[ParsedFile] = []

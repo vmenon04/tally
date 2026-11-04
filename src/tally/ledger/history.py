@@ -4,6 +4,7 @@ The ledger folder is a git clone. Changes you made since tally last committed (s
 category fixed in Fava) are committed on their own first, so tally's commits hold only what
 tally wrote. Commit messages give counts, never merchants or amounts.
 
+Before an import, tally pulls from origin, so edits made elsewhere come in first.
 Pushing goes to the clone's `origin`, with the Forgejo access token in
 secrets/forgejo-token. The token reaches git through its environment, never its command
 line (which other accounts can see) or the remote URL (which is saved in .git/config).
@@ -11,6 +12,7 @@ A failed push is reported and left for the next import to retry; the commit stay
 """
 
 import base64
+import contextlib
 import os
 import subprocess
 from pathlib import Path
@@ -30,6 +32,10 @@ class HistoryError(RuntimeError):
     """git failed."""
 
 
+class Unreachable(HistoryError):
+    """origin couldn't be reached; the ledger can still be changed and pushed later."""
+
+
 def is_repo(folder: Path) -> bool:
     return (folder / ".git").exists()
 
@@ -41,6 +47,25 @@ def commit(folder: Path, message: str) -> bool:
         return False
     _git(folder, "commit", "--quiet", "--message", message)
     return True
+
+
+def pull(folder: Path) -> None:
+    """Bring in commits from origin, putting tally's unpushed ones on top of them."""
+    if "origin" not in _git(folder, "remote").split():
+        return
+    branch = _git(folder, "branch", "--show-current").strip()
+    try:
+        heads = _git(folder, "ls-remote", "--heads", "origin", branch, env=_auth_env())
+    except HistoryError as e:
+        raise Unreachable(str(e)) from e
+    if not heads.strip():
+        return  # origin doesn't have this branch yet
+    try:
+        _git(folder, "pull", "--quiet", "--rebase", "origin", branch, env=_auth_env())
+    except HistoryError:
+        with contextlib.suppress(HistoryError):
+            _git(folder, "rebase", "--abort")
+        raise
 
 
 def push(folder: Path) -> None:

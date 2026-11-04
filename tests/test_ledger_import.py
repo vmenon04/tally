@@ -207,5 +207,40 @@ def test_a_failed_push_keeps_the_commit_and_the_import(tmp_path: Path) -> None:
     shutil.rmtree(bare)
     ok, _, err = run(data_dir, BOFA)
     assert ok
+    assert "importing without the latest" in err
     assert "git push failed" in err
     assert git(data_dir / "ledger", "log", "-1", "--format=%s") == "Import 15 entries\n"
+
+
+def test_import_pulls_edits_made_elsewhere_first(tmp_path: Path) -> None:
+    data_dir = make_data_dir(tmp_path)
+    bare = make_repo(data_dir, tmp_path)
+    elsewhere = tmp_path / "mac"
+    git(tmp_path, "clone", "--quiet", str(bare), str(elsewhere))
+    (elsewhere / "statements.beancount").write_text(
+        "2026-03-15 balance Assets:BofA:Checking 1698.53 USD\n"
+    )
+    git(elsewhere, "add", "--all")
+    git(elsewhere, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "-m", "Mac")
+    git(elsewhere, "push", "--quiet", "origin", "HEAD")
+    ok, _, err = run(data_dir, BOFA)
+    assert ok, err
+    assert (data_dir / "ledger" / "statements.beancount").exists()
+    assert git(bare, "log", "--format=%s").splitlines() == ["Import 15 entries", "Mac", "Start"]
+
+
+def test_a_conflicting_pull_stops_the_import(tmp_path: Path) -> None:
+    data_dir = make_data_dir(tmp_path)
+    bare = make_repo(data_dir, tmp_path)
+    elsewhere = tmp_path / "mac"
+    git(tmp_path, "clone", "--quiet", str(bare), str(elsewhere))
+    (elsewhere / "accounts.beancount").write_text(OPENS + "; mac\n")
+    git(elsewhere, "add", "--all")
+    git(elsewhere, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "-m", "Mac")
+    git(elsewhere, "push", "--quiet", "origin", "HEAD")
+    (data_dir / "ledger" / "accounts.beancount").write_text(OPENS + "; server\n")
+    ok, _, err = run(data_dir, BOFA)
+    assert not ok
+    assert "can't be brought up to date" in err
+    assert not (data_dir / "tally.db").exists()
+    assert git(data_dir / "ledger", "status", "--porcelain") == ""  # rebase was undone
