@@ -36,6 +36,16 @@ The amounts typed in the Budget tab's Roth IRA row for the coming months count a
 `tally sync` keeps the current month's planned amount there until a contribution goes in, then
 replaces it with the actual one.
 
+## From the ledger
+
+With a ledger ([The Beancount ledger](ledger.md)), the summary ends with a report worked out
+from it with bean-query: spending per category this month so far, the same days last month
+and all of last month, and the year's Roth IRA contributions against `roth_limit` (adding
+`roth_elsewhere`). It counts by purchase day, as the Sheet does, and includes pending
+alerts, so its numbers should match the ones above it. It's there to be compared with them
+until the Sheet is retired; if the ledger can't be read, a line says why and the rest of the
+summary goes out as usual.
+
 ## By email
 
 `--email` sends the same text, with a link to the Sheet, from the alerts mailbox

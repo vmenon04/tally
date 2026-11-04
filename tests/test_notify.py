@@ -331,3 +331,49 @@ def test_one_failed_run_is_not_announced(
         conn.close()
     assert main(["alerts"]) == 1
     assert [c["data"] for c in post.calls] == [b"can't read the alerts mailbox"]
+
+
+def _import_at(db: sqlite3.Connection, when: datetime.datetime) -> None:
+    from tally.importers import bofa
+
+    rows = bofa.parse((FIXTURES / "bofa_checking.csv").read_text(newline=""))
+    store.save(db, rows, account="bofa_checking", file_name="a.csv", file_sha256="x", now=when)
+
+
+def test_nothing_imported_yet_is_not_stale(db: sqlite3.Connection) -> None:
+    assert notify.stale(db, NOW) == []
+
+
+def test_stale_after_seven_quiet_days_announced_once(db: sqlite3.Connection) -> None:
+    _import_at(db, NOW - datetime.timedelta(days=6, hours=23))
+    assert notify.stale(db, NOW) == []
+    later = NOW + datetime.timedelta(hours=2)
+    events = notify.stale(db, later)
+    assert [e.kind for e in events] == ["stale"]
+    sender = FakeSender()
+    send(db, sender, events, later)
+    send(db, sender, notify.stale(db, later + datetime.timedelta(hours=1)), later)
+    assert sender.sent == [
+        ("no new transactions for a week, check the alerts and exports", "default")
+    ]
+
+
+def test_a_new_alert_ends_the_quiet_spell(db: sqlite3.Connection) -> None:
+    from tally.alerts import discover
+
+    _import_at(db, NOW - datetime.timedelta(days=10))
+    first = notify.stale(db, NOW)
+    send(db, FakeSender(), first)
+    alert = discover.parse(DISCOVER)
+    assert alert is not None
+    store.save_alert(db, alert, now=NOW)
+    assert notify.stale(db, NOW + datetime.timedelta(days=1)) == []
+    # Another quiet week later, it's a new spell with its own announcement.
+    again = notify.stale(db, NOW + datetime.timedelta(days=8))
+    assert again and again[0].key != first[0].key
+
+
+def test_an_import_with_no_new_rows_does_not_count(db: sqlite3.Connection) -> None:
+    _import_at(db, NOW - datetime.timedelta(days=10))
+    _import_at(db, NOW - datetime.timedelta(days=1))  # same file again: nothing new
+    assert [e.kind for e in notify.stale(db, NOW)] == ["stale"]

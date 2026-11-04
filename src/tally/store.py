@@ -408,3 +408,13 @@ def replace_sheet_categories(
             "INSERT INTO sheet_categories (sheet_id, transaction_id, category) VALUES (?, ?, ?)",
             [(sheet_id, tid, category) for tid, category in categories.items()],
         )
+
+
+def last_new_transaction(conn: sqlite3.Connection) -> datetime.datetime | None:
+    """When tally last took in a transaction it didn't have: from an export, or an alert."""
+    row = conn.execute(
+        "SELECT max(t) FROM ("
+        " SELECT max(imported_at) AS t FROM imports WHERE rows_new > 0"
+        " UNION ALL SELECT max(read_at) FROM alerts)"
+    ).fetchone()
+    return datetime.datetime.fromisoformat(row[0]) if row and row[0] else None

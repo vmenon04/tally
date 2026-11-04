@@ -281,6 +281,7 @@ def _notify(events: list[notify.Event], *, mailbox_ok: bool) -> None:
             notify.mailbox_read(conn)
         else:
             events = [*events, *notify.mailbox_failed(conn, now)]
+        events = [*events, *notify.stale(conn, now)]
         for message in notify.send_new(conn, sender, events, now, sys.stderr):
             print(f"Notified: {message}")
     finally:

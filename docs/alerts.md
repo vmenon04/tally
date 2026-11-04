@@ -45,8 +45,9 @@ uv run tally notify-test          # check your phone gets it
 
 Subscribe to the printed topic in the ntfy app. After each `tally alerts` run (not a
 dry run), tally sends headlines only, never merchants or amounts: new card alerts, refused
-alert emails, purchases missing from the bank export, and a mailbox it can't read. Each is
-sent once (a mailbox failure only once it has lasted 15 minutes, so a single timed-out run
+alert emails, purchases missing from the bank export, a mailbox it can't read, and a week
+with no new transactions at all (no new alert and no export adding a row, which means
+something upstream has stopped). Each is sent once (a quiet week once per quiet spell; a mailbox failure only once it has lasted 15 minutes, so a single timed-out run
 stays quiet, then again every 6 hours while it lasts); one that fails to send is
 retried on the next run. `ntfy_server` in `config.toml` changes the server (default
 `https://ntfy.sh`). Anyone with the topic can read the notifications, so keep it private.

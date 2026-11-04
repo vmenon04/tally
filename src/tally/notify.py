@@ -25,6 +25,9 @@ import requests
 from tally import config, store
 
 REPEAT_FAILURE = datetime.timedelta(hours=6)
+# Nothing new for this long means something upstream stopped: the alerts filter, the
+# mailbox, or the monthly exports.
+STALE_AFTER = datetime.timedelta(days=7)
 MAILBOX_GRACE = datetime.timedelta(minutes=15)
 MAILBOX_FAILURE = "mailbox-failure"
 # When the current run of mailbox failures began, kept alongside the sent notifications.
@@ -49,6 +52,11 @@ KINDS = {
     "not_found": _Kind(
         "1 purchase missing from the bank export",
         "{n} purchases missing from the bank export",
+        "default",
+    ),
+    "stale": _Kind(
+        "no new transactions for a week, check the alerts and exports",
+        "no new transactions for a week, check the alerts and exports",
         "default",
     ),
     "new": _Kind("1 new card alert", "{n} new card alerts", "low"),
@@ -115,6 +123,17 @@ def mailbox_failed(conn: sqlite3.Connection, now: datetime.datetime) -> list[Eve
     if now - since < MAILBOX_GRACE:
         return []
     return [Event("mailbox", MAILBOX_FAILURE)]
+
+
+def stale(conn: sqlite3.Connection, now: datetime.datetime) -> list[Event]:
+    """The stale event if no new transaction has come in for STALE_AFTER.
+
+    Its key is when the last one came in, so it's announced once per quiet spell.
+    """
+    last = store.last_new_transaction(conn)
+    if last is None or now - last < STALE_AFTER:
+        return []
+    return [Event("stale", f"stale:{last.isoformat()}")]
 
 
 def mailbox_read(conn: sqlite3.Connection) -> None:
