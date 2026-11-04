@@ -381,7 +381,10 @@ def _summary(as_of: datetime.date | None, *, email: bool, sync: bool) -> int:
 
     waiting = pending.transactions(alerts, posted)
     not_found = matching.match([a for _, a in alerts], posted).not_found
-    ledger_problems = _ledger_problems([t for _, t in [*pairs, *waiting]], month_rules)
+    waiting_alerts = matching.match([a for _, a in alerts], posted).waiting
+    ledger_problems = _ledger_problems(
+        [t for _, t in [*pairs, *waiting]], waiting_alerts, month_rules
+    )
     result = summary.build(
         today,
         [*pairs, *waiting],
@@ -418,10 +421,12 @@ def _summary(as_of: datetime.date | None, *, email: bool, sync: bool) -> int:
     return 0
 
 
-def _ledger_problems(counted: list[Transaction], month_rules: rules.Rules) -> list[str]:
+def _ledger_problems(
+    counted: list[Transaction], waiting: list[Alert], month_rules: rules.Rules
+) -> list[str]:
     """For the weekly summary: how the ledger and tally disagree, if they do."""
     try:
-        found = updating.check(data_dir(), counted, month_rules)
+        found = updating.check(data_dir(), counted, waiting, month_rules)
     except (book.LedgerError, accounts.AccountsError, OSError) as e:
         return [f"The ledger couldn't be checked: {e}"]
     return found.problems() if found is not None else []
@@ -491,6 +496,7 @@ def _sync(dry_run: bool) -> int:
         alerts = store.alerts_with_ids(conn)
         stored = [t for _, t in pairs]
         waiting = pending.transactions(alerts, stored)
+        waiting_alerts = matching.match([a for _, a in alerts], stored).waiting
         # Every alert can be corrected under its pending row's ID, even one that has posted
         # since the tab was written: carry_over then moves the correction to the posted row.
         by_id = dict(pairs) | {-i: pending.as_transaction(a) for i, a in alerts}
@@ -560,7 +566,7 @@ def _sync(dry_run: bool) -> int:
         if conflicts or added:
             return 1
         if dry_run:
-            _sync_ledger(counted, month_rules, dry_run=True)
+            _sync_ledger(counted, waiting_alerts, month_rules, dry_run=True)
             return 0
         if result.missing_rows or result.missing_months:
             print("\nNothing written: the Budget tab is missing rows or columns.", file=sys.stderr)
@@ -589,16 +595,20 @@ def _sync(dry_run: bool) -> int:
             f"\nUpdated {len(result.changes)} Budget cells and wrote {len(tab_rows)} rows "
             "to the Transactions tab."
         )
-        _sync_ledger(counted, month_rules, dry_run=False)
+        _sync_ledger(counted, waiting_alerts, month_rules, dry_run=False)
         return 0
     finally:
         conn.close()
 
 
-def _sync_ledger(counted: list[Transaction], month_rules: rules.Rules, *, dry_run: bool) -> None:
+def _sync_ledger(
+    counted: list[Transaction], waiting: list[Alert], month_rules: rules.Rules, *, dry_run: bool
+) -> None:
     """The ledger's part of a sync. Its problems are reported, never a reason the sync failed."""
     try:
-        done = updating.sync(data_dir(), counted, month_rules, dry_run=dry_run, err=sys.stderr)
+        done = updating.sync(
+            data_dir(), counted, waiting, month_rules, dry_run=dry_run, err=sys.stderr
+        )
     except (book.LedgerError, accounts.AccountsError, updating.NotUpToDate, OSError) as e:
         print(f"\nLedger: not updated: {e}", file=sys.stderr)
         return

@@ -35,9 +35,10 @@ corrections on the Sheet and Claude's guesses go there. After a successful `tall
 1. moves the other side of each imported entry whose category has changed to the right
    account, changing only the account name on that line (a dry run lists the moves), then
    commits and pushes;
-2. compares the ledger with the database: every posted row and pending alert has exactly
-   one entry, each month's spending per category matches what the Sheet gets, and
-   bean-check is clean.
+2. rewrites `pending.beancount` with the current categories, then compares the ledger with
+   the database: every posted row and pending alert has exactly one entry, in the category
+   the Sheet gives it, each month's spending per category matches the Sheet's, and
+   bean-check is clean. A dry run compares the ledger as its moves would leave it.
 
 The sync prints the result, and the weekly summary lists any difference under "look out
 for". A ledger problem is reported but never stops the sync or the summary. Entries you

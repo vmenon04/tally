@@ -12,7 +12,7 @@ tally only appends to imported/ and rewrites pending.beancount; every other file
 """
 
 import datetime
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -107,13 +107,15 @@ def add(ledger: Ledger, new: Sequence[data.Directive]) -> list[Path]:
     return changed
 
 
-def write_pending(ledger: Ledger, waiting: Sequence[Alert], rules: Rules) -> bool:
-    """Rewrite pending.beancount with these alerts. Returns whether it changed.
+def pending_entries(
+    ledger: Ledger, waiting: Sequence[Alert], rules: Rules
+) -> list[data.Transaction]:
+    """The alerts as flagged entries, the way pending.beancount holds them.
 
     An alert is dated no earlier than its account's latest balance assertion: no export
     has it, so it posts after the period they cover, and a balance mustn't count it.
     """
-    floors = _latest_balances(ledger.entries)
+    floors = _latest_balances(e for e in ledger.entries if not _is_pending(ledger, e))
     pending = []
     for a in waiting:
         t = as_transaction(a)
@@ -125,6 +127,12 @@ def write_pending(ledger: Ledger, waiting: Sequence[Alert], rules: Rules) -> boo
             entry = entry._replace(date=floor)
         pending.append(entry)
     pending.sort(key=lambda e: (e.date, e.payee or "", e.meta[entries.ID_KEY]))
+    return pending
+
+
+def write_pending(ledger: Ledger, waiting: Sequence[Alert], rules: Rules) -> bool:
+    """Rewrite pending.beancount with these alerts. Returns whether it changed."""
+    pending = pending_entries(ledger, waiting, rules)
     text = _PENDING_HEADER + "".join("\n" + _format(e) for e in pending)
     path = ledger.folder / PENDING
     if path.exists() and path.read_text(encoding="utf-8") == text:
@@ -133,7 +141,18 @@ def write_pending(ledger: Ledger, waiting: Sequence[Alert], rules: Rules) -> boo
     return True
 
 
-def _latest_balances(loaded: Sequence[data.Directive]) -> dict[str, datetime.date]:
+def with_pending(ledger: Ledger, pending: Sequence[data.Directive]) -> Ledger:
+    """The ledger with these pending entries in place of the ones on disk, for comparing."""
+    kept = [e for e in ledger.entries if not _is_pending(ledger, e)]
+    return Ledger(ledger.folder, [*kept, *pending], ledger.errors, ledger.accounts)
+
+
+def _is_pending(ledger: Ledger, entry: data.Directive) -> bool:
+    filename = (entry.meta or {}).get("filename", "")
+    return bool(filename) and Path(filename).resolve() == (ledger.folder / PENDING).resolve()
+
+
+def _latest_balances(loaded: Iterable[data.Directive]) -> dict[str, datetime.date]:
     latest: dict[str, datetime.date] = {}
     for e in loaded:
         if isinstance(e, data.Balance) and e.date > latest.get(e.account, datetime.date.min):

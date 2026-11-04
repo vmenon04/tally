@@ -72,6 +72,27 @@ def apply(changes: Sequence[Change]) -> None:
         book.write_text(path, "".join(lines))
 
 
+def applied(ledger: book.Ledger, changes: Sequence[Change]) -> book.Ledger:
+    """The ledger as it would be after these changes, without writing anything."""
+    moves: dict[tuple[str, object], str] = {(str(c.path), c.line): c.new for c in changes}
+    result: list[data.Directive] = []
+    for entry in ledger.entries:
+        if isinstance(entry, data.Transaction):
+            postings = [
+                p._replace(
+                    account=moves.get(
+                        (str(p.meta.get("filename")), p.meta.get("lineno")), p.account
+                    )
+                )
+                if p.meta
+                else p
+                for p in entry.postings
+            ]
+            entry = entry._replace(postings=postings)
+        result.append(entry)
+    return book.Ledger(ledger.folder, result, ledger.errors, ledger.accounts)
+
+
 def describe(change: Change) -> str:
     return f"{change.payee}: {_short(change.old)} → {_short(change.new)}"
 

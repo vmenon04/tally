@@ -6,6 +6,7 @@ exists, so tally works as before without a ledger.
 """
 
 import sqlite3
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
@@ -13,6 +14,7 @@ from typing import TextIO
 from beancount.core import data
 
 from tally import matching, rules, store
+from tally.alerts import Alert
 from tally.ledger import accounts, book, categories, history, importers, parity
 from tally.transaction import Transaction
 
@@ -104,12 +106,17 @@ class SyncResult:
 def sync(
     data_dir: Path,
     counted: list[Transaction],
+    waiting: Sequence[Alert],
     month_rules: rules.Rules,
     *,
     dry_run: bool,
     err: TextIO,
 ) -> SyncResult | None:
     """For `tally sync`: move imported entries to their current categories, then compare.
+
+    counted: posted rows and waiting alerts as tally counts them; waiting: those alerts.
+    Pending entries are rebuilt from the current rules first, rather than trusting the last
+    alerts run. A dry run compares the ledger as the moves would leave it.
 
     None if there's no ledger. Raises LedgerError, AccountsError or NotUpToDate.
     """
@@ -119,17 +126,27 @@ def sync(
         bring_up_to_date(data_dir, err)
     ledger = book.load(book.folder(data_dir), month_rules)
     changes = categories.plan(ledger, counted, month_rules)
-    if changes and not dry_run:
+    if dry_run:
+        after = categories.applied(ledger, changes)
+        after = book.with_pending(after, book.pending_entries(after, waiting, month_rules))
+        return SyncResult(changes, parity.compare(after, counted, month_rules))
+    if changes:
         categories.apply(changes)
         save(ledger.folder, f"Recategorize {len(changes)} entries", err)
-        ledger = book.load(ledger.folder, month_rules)
+    book.write_pending(ledger, waiting, month_rules)
+    ledger = book.load(ledger.folder, month_rules)
     return SyncResult(changes, parity.compare(ledger, counted, month_rules))
 
 
 def check(
-    data_dir: Path, counted: list[Transaction], month_rules: rules.Rules
+    data_dir: Path,
+    counted: list[Transaction],
+    waiting: Sequence[Alert],
+    month_rules: rules.Rules,
 ) -> parity.Parity | None:
-    """parity.compare for the ledger as it is, without changing anything. None if no ledger."""
+    """parity.compare without changing anything, with pending entries rebuilt in memory."""
     if not book.exists(data_dir):
         return None
-    return parity.compare(book.load(book.folder(data_dir), month_rules), counted, month_rules)
+    ledger = book.load(book.folder(data_dir), month_rules)
+    ledger = book.with_pending(ledger, book.pending_entries(ledger, waiting, month_rules))
+    return parity.compare(ledger, counted, month_rules)

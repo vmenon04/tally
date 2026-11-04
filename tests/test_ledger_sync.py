@@ -99,6 +99,8 @@ def test_a_rule_change_moves_the_ledger_entry_too(
     assert code == 0
     assert "Ledger: would move 1 entries to their current category:" in out
     assert "MAPLE MARKET SPRINGFIELD IL: Groceries → Uncategorized" in out
+    # Compared as the moves would leave it, so the dry run says what the sync will find.
+    assert "rows and every month's totals match" in out
     assert "Expenses:Groceries" in imported(ledger_ready)
 
     code, out, _ = sync(capsys)
@@ -192,9 +194,70 @@ def test_parity_counts_rows_from_the_database(ledger_ready: Path) -> None:
     conn = store.connect(ledger_ready / "tally.db")
     rows = store.transactions(conn)
     conn.close()
-    found = updating.check(ledger_ready, rows, rules.parse(RULES))
+    found = updating.check(ledger_ready, rows, [], rules.parse(RULES))
     assert found is not None
     assert found.ok
     assert found.rows == 13
-    extra = updating.check(ledger_ready, rows[1:], rules.parse(RULES))
+    extra = updating.check(ledger_ready, rows[1:], [], rules.parse(RULES))
     assert extra is not None and extra.extra == 1
+
+
+def test_check_names_entries_in_a_different_category(ledger_ready: Path) -> None:
+    from tally.ledger import updating
+
+    conn = store.connect(ledger_ready / "tally.db")
+    rows = store.transactions(conn)
+    conn.close()
+    changed = rules.parse(RULES.replace("MAPLE MARKET", "NO SUCH SHOP"))
+    found = updating.check(ledger_ready, rows, [], changed)
+    assert found is not None
+    assert [(t.merchant, ours, theirs) for t, ours, theirs in found.recategorized] == [
+        ("MAPLE MARKET SPRINGFIELD IL", "Groceries", "Uncategorized")
+    ]
+    assert "1 ledger entries have a different category from the Sheet's." in found.problems()
+    assert any(
+        "MAPLE MARKET SPRINGFIELD IL: ledger Groceries, Sheet Uncategorized" in line
+        for line in found.details()
+    )
+
+
+def test_sync_rebuilds_pending_entries_before_comparing(
+    ledger_ready: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import datetime
+    from decimal import Decimal
+
+    from tally.alerts import Alert
+    from tally.ledger import updating
+
+    conn = store.connect(ledger_ready / "tally.db")
+    store.save_alert(
+        conn,
+        Alert(
+            "bofa_checking",
+            datetime.date(2026, 3, 18),
+            "MAPLE MARKET",
+            Decimal("-9.00"),
+            "<1@example.com>",
+            datetime.datetime(2026, 3, 18, tzinfo=datetime.UTC),
+        ),
+        now=datetime.datetime(2026, 3, 18, tzinfo=datetime.UTC),
+    )
+    session = updating.open_session(ledger_ready)
+    assert session is not None
+    updating.refresh_pending(session, conn)  # the alerts run, with the old rules
+    conn.close()
+    pending_file = ledger_ready / "ledger" / "pending.beancount"
+    assert "Expenses:Groceries" in pending_file.read_text()
+
+    # The rules change; the next alerts run hasn't happened yet.
+    (ledger_ready / "rules.toml").write_text(RULES.replace("MAPLE MARKET", "NO SUCH SHOP"))
+    code, out, _ = sync(capsys, "--dry-run")
+    assert code == 0
+    assert "rows and every month's totals match" in out
+    assert "Expenses:Groceries" in pending_file.read_text()  # a dry run writes nothing
+
+    code, out, _ = sync(capsys)
+    assert code == 0
+    assert "rows and every month's totals match" in out
+    assert "Expenses:Groceries" not in pending_file.read_text()
