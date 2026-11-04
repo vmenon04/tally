@@ -74,15 +74,21 @@ def mark_duplicates(entries: Sequence[data.Directive], existing: Iterable[data.D
 
     Identical rows are real (two equal coffees on one day), so of the new entries sharing a
     tally-id, only as many are marked as the ledger already holds. A balance is a duplicate
-    when the ledger already asserts the same amount for that account on that day.
+    when the ledger already asserts the same amount for that account on that day, and a
+    price when the ledger already has it.
     """
     have: Counter[str] = Counter()
     balances: set[tuple[datetime.date, str, Decimal | None]] = set()
+    prices: set[tuple[datetime.date, str, Decimal | None]] = set()
     for entry in existing:
         if isinstance(entry, data.Transaction) and ID_KEY in entry.meta:
             have[entry.meta[ID_KEY]] += 1
         elif isinstance(entry, data.Balance):
-            balances.add((entry.date, entry.account, entry.amount.number))
+            balances.add(
+                (entry.date, f"{entry.account} {entry.amount.currency}", entry.amount.number)
+            )
+        elif isinstance(entry, data.Price):
+            prices.add((entry.date, entry.currency, entry.amount.number))
     for entry in entries:
         if isinstance(entry, data.Transaction) and ID_KEY in entry.meta:
             key = entry.meta[ID_KEY]
@@ -90,5 +96,9 @@ def mark_duplicates(entries: Sequence[data.Directive], existing: Iterable[data.D
                 have[key] -= 1
                 entry.meta[DUPLICATE_KEY] = True
         elif isinstance(entry, data.Balance):
-            if (entry.date, entry.account, entry.amount.number) in balances:
+            key = (entry.date, f"{entry.account} {entry.amount.currency}", entry.amount.number)
+            if key in balances:
+                entry.meta[DUPLICATE_KEY] = True
+        elif isinstance(entry, data.Price):
+            if (entry.date, entry.currency, entry.amount.number) in prices:
                 entry.meta[DUPLICATE_KEY] = True

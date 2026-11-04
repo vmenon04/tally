@@ -1,0 +1,13 @@
+﻿Account number,Account name,Symbol,Description,Quantity,Last price,Last price change,Current value,Today's gain/loss dollar,Today's gain/loss percent,Total gain/loss dollar,Total gain/loss percent,Percent of account,Cost basis total,Average cost basis,Type
+Z00001111,ROTH IRA,SPAXX**,HELD IN MONEY MARKET,,,,$12.50,,,,,0.20%,,,Cash,
+Z00001111,ROTH IRA,FXAIX,FIDELITY 500 INDEX FUND,10.5,$200.00,+$1.00,$2100.00,+$10.50,+0.50%,+$100.00,+5.00%,60.00%,$2000.00,$190.48,Cash,
+Z00001111,ROTH IRA,ABCD,EXAMPLE HOLDINGS INC CLASS A,3,$150.25,-$2.00,$450.75,-$6.00,-1.31%,-$49.25,-9.85%,13.00%,$500.00,$166.67,Cash,
+22222,EXAMPLE RET SAVINGS,FFTGX,FID FREEDOM 2060 PR,100.123,$15.00,$0.00,$1501.85,$0.00,0.00%,+$1.85,+0.12%,100.00%,$1500.00,$14.98,,
+X00003333,Example Individual Fidelity Go,FLGXX**,HELD IN MONEY MARKET,,,,$5.00,,,,,0.50%,,,Cash,
+X00003333,Example Individual Fidelity Go,FDFIX,FIDELITY FLEX 500 INDEX FUND,30,$30.00,+$0.10,$900.00,+$3.00,+0.33%,+$150.00,+20.00%,99.50%,$750.00,$25.00,Cash,
+
+"The data and information in this spreadsheet is provided to you solely for your use and is not for distribution."
+
+"Brokerage services are provided by Fidelity Brokerage Services LLC (FBS), 900 Salem Street, Smithfield, RI 02917."
+
+"Date downloaded Mar-20-2026 4:19 p.m ET"

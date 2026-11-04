@@ -19,7 +19,7 @@ from typing import TextIO
 from beancount.core import data
 
 from tally import rules, store
-from tally.importers import ParseError, bofa, discover
+from tally.importers import ParseError, bofa, discover, fidelity
 from tally.ledger import accounts, book, updating
 from tally.transaction import Transaction
 
@@ -36,6 +36,9 @@ _SOURCES = {
 }
 
 
+FIDELITY = "fidelity_positions"
+
+
 @dataclass(frozen=True, slots=True)
 class ParsedFile:
     path: Path
@@ -46,16 +49,21 @@ class ParsedFile:
 
 
 def read(path: Path) -> ParsedFile:
-    """Parse a Discover or BofA export, whichever it is."""
+    """Parse a Discover, BofA or Fidelity positions export, whichever it is."""
     data = path.read_bytes()
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError as e:
         raise ParseError(f"not a text file ({e.reason})") from e
     first_line = next(csv.reader(io.StringIO(text.removeprefix("﻿"))), [])
+    if fidelity.is_positions(first_line):
+        # Investments go to the ledger only; the database and the Sheet track spending.
+        return ParsedFile(path, hashlib.sha256(data).hexdigest(), FIDELITY, [], text)
     source = _SOURCES.get(tuple(first_line))
     if source is None:
-        raise ParseError(f"not a Discover or BofA export; first line is {first_line}", line=1)
+        raise ParseError(
+            f"not a Discover, BofA or Fidelity positions export; first line is {first_line}", line=1
+        )
     return ParsedFile(
         path, hashlib.sha256(data).hexdigest(), source.account, source.parse(text), text
     )
@@ -158,6 +166,42 @@ def run(
     return ok
 
 
+def _import_positions(
+    p: ParsedFile,
+    data_dir: Path,
+    ledger: updating.Session | None,
+    dry_run: bool,
+    from_inbox: bool,
+    today: datetime.date,
+    out: TextIO,
+    err: TextIO,
+) -> bool:
+    if ledger is None:
+        print(
+            f"{p.path.name}: not imported: Fidelity positions go to the ledger, and there's none",
+            file=err,
+        )
+        return False
+    try:
+        snapshot = fidelity.parse(p.text)
+        new = updating.extract(ledger, FIDELITY, p.text, p.path.name)
+    except (ParseError, accounts.AccountsError) as e:
+        print(f"{p.path.name}: not imported: {e}", file=err)
+        return False
+    print(
+        f"{p.path.name}  Fidelity positions as of {snapshot.date:%m/%d}  "
+        f"{len(snapshot.accounts)} accounts\n  ledger: {len(new)} new entries",
+        file=out,
+    )
+    if dry_run:
+        return True
+    updating.add(ledger, new)
+    archive(p, data_dir, today)
+    if from_inbox:
+        p.path.unlink()
+    return True
+
+
 def _finish_ledger(ledger: updating.Session, conn: sqlite3.Connection, err: TextIO) -> bool:
     """Bring pending alerts up to date, then report anything bean-check finds."""
     try:
@@ -186,6 +230,8 @@ def _import_one(
     out: TextIO,
     err: TextIO,
 ) -> bool:
+    if p.account == FIDELITY:
+        return _import_positions(p, data_dir, ledger, dry_run, from_inbox, today, out, err)
     new_entries: list[data.Directive] = []
     if ledger is not None:
         try:

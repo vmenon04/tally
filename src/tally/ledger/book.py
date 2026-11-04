@@ -12,6 +12,7 @@ tally only appends to imported/ and rewrites pending.beancount; every other file
 """
 
 import datetime
+import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +26,7 @@ from tally.ledger import accounts, entries
 from tally.pending import as_transaction
 from tally.rules import Rules
 
+_TOTAL_COST = re.compile(r"\{# ([^}]+)\}")
 MAIN = "main.beancount"
 PENDING = "pending.beancount"
 IMPORTED = "imported"
@@ -163,7 +165,9 @@ def _latest_balances(loaded: Iterable[data.Directive]) -> dict[str, datetime.dat
 def _format(entry: data.Directive) -> str:
     # Drop the filename and line number beangulp-style metadata carries.
     meta = {k: v for k, v in entry.meta.items() if k not in ("filename", "lineno")}
-    return str(printer.format_entry(entry._replace(meta=meta)))
+    text = str(printer.format_entry(entry._replace(meta=meta)))
+    # The printer writes a total cost as {# 10.00 USD}, which Beancount 3 doesn't read back.
+    return _TOTAL_COST.sub(r"{{\1}}", text)
 
 
 def _message(error: object) -> str:

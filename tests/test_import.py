@@ -120,7 +120,10 @@ def test_bad_file_stays_in_inbox_and_others_still_import(
 
     assert main(["import"]) == 1
     captured = capsys.readouterr()
-    assert "notes.csv: not imported: line 1: not a Discover or BofA export" in captured.err
+    assert (
+        "notes.csv: not imported: line 1: not a Discover, BofA or Fidelity positions export"
+        in captured.err
+    )
     assert "d.csv  discover" in captured.out
     assert [p.name for p in (data / "inbox").iterdir()] == ["notes.csv"]
     assert stored_count(data) == 9

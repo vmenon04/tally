@@ -38,6 +38,10 @@ def extract(
     session: Session, tally_account: str, text: str, file_name: str
 ) -> list[data.Directive]:
     """The entries a file would add to the ledger, without adding them."""
+    if tally_account == "fidelity_positions":
+        positions = importers.FidelityPositions(session.ledger.accounts)
+        extracted = positions.extract_text(text, file_name, session.ledger.entries)
+        return book.new_entries(extracted, session.ledger)
     importer = importers.for_account(tally_account, session.ledger.accounts, session.rules)
     return book.new_entries(importer.extract_text(text, file_name), session.ledger)
 

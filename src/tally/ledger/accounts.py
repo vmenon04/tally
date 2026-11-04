@@ -9,6 +9,9 @@ names accounts and bean-check sees every account tally writes to:
     2026-09-01 open Expenses:Groceries
       category: "Groceries"                 # rows in this category post their other side here
 
+    2026-09-01 open Assets:Fidelity:Roth
+      fidelity-account: "1234"              # Fidelity positions for the account ending 1234
+
     2026-09-01 open Assets:BofA:Savings USD
       category: "Savings transfer"
       merchant-contains: "KEEP THE CHANGE|SAV 1234"  # only merchants containing one of these
@@ -50,6 +53,16 @@ class _Choice:
 class Accounts:
     sources: dict[str, str] = field(default_factory=dict)  # tally account -> ledger account
     categories: dict[str, tuple[_Choice, ...]] = field(default_factory=dict)
+    fidelity_accounts: dict[str, str] = field(default_factory=dict)  # last four -> account
+
+    def fidelity(self, label: str) -> str:
+        try:
+            return self.fidelity_accounts[label]
+        except KeyError:
+            raise AccountsError(
+                f'no open directive has fidelity-account: "{label}" (the account number\'s '
+                "last four)"
+            ) from None
 
     def source(self, tally_account: str) -> str:
         try:
@@ -87,6 +100,7 @@ class Accounts:
 def from_entries(entries: Iterable[data.Directive]) -> Accounts:
     sources: dict[str, str] = {}
     categories: dict[str, list[_Choice]] = {}
+    fidelity: dict[str, str] = {}
     for entry in entries:
         if not isinstance(entry, data.Open):
             continue
@@ -102,6 +116,12 @@ def from_entries(entries: Iterable[data.Directive]) -> Accounts:
                     f"and {entry.account}"
                 )
             sources[tally_account] = entry.account
+        label = meta.get("fidelity-account")
+        if label is not None:
+            _text(entry, "fidelity-account", label)
+            if label in fidelity:
+                raise AccountsError(f'fidelity-account: "{label}" is on two accounts')
+            fidelity[label] = entry.account
         if contains is not None and category is None:
             raise AccountsError(f"{entry.account}: merchant-contains needs a category")
         if category is not None:
@@ -114,7 +134,7 @@ def from_entries(entries: Iterable[data.Directive]) -> Accounts:
                     f'category: "{category}" has two accounts without merchant-contains'
                 )
             choices.append(_Choice(entry.account, contains))
-    return Accounts(sources, {k: tuple(v) for k, v in categories.items()})
+    return Accounts(sources, {k: tuple(v) for k, v in categories.items()}, fidelity)
 
 
 def _text(entry: data.Open, key: str, value: object) -> None:

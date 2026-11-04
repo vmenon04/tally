@@ -13,8 +13,8 @@ from pathlib import Path
 import beangulp
 from beancount.core import data
 
-from tally.importers import ParseError, bofa, discover
-from tally.ledger import entries
+from tally.importers import ParseError, bofa, discover, fidelity
+from tally.ledger import entries, positions
 from tally.ledger.accounts import Accounts
 from tally.rules import Rules
 from tally.transaction import Transaction
@@ -102,6 +102,37 @@ class Discover(_CsvImporter):
 
     def extract_text(self, text: str, filename: str) -> data.Directives:
         return self._transactions(discover.parse(text), filename)
+
+
+class FidelityPositions(beangulp.Importer):  # type: ignore[misc]
+    """Fidelity's positions export: holdings at cost, prices and balances (see positions.py)."""
+
+    def __init__(self, accounts: Accounts) -> None:
+        self.accounts = accounts
+
+    @property
+    def name(self) -> str:
+        return "tally.fidelity_positions"
+
+    def identify(self, filepath: str) -> bool:
+        try:
+            text = Path(filepath).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return False
+        return fidelity.is_positions(next(csv.reader(io.StringIO(text.removeprefix("\ufeff"))), []))
+
+    def account(self, filepath: str) -> str:
+        return "Assets:Fidelity"
+
+    def extract(self, filepath: str, existing: data.Directives) -> data.Directives:
+        text = Path(filepath).read_text(encoding="utf-8")
+        return self.extract_text(text, filepath, existing)
+
+    def extract_text(self, text: str, filename: str, existing: data.Directives) -> data.Directives:
+        return positions.entries(fidelity.parse(text), existing, self.accounts, filename)
+
+    def deduplicate(self, extracted: data.Directives, existing: data.Directives) -> None:
+        entries.mark_duplicates(extracted, existing)
 
 
 def all_importers(accounts: Accounts, rules: Rules) -> list[_CsvImporter]:

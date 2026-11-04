@@ -21,7 +21,7 @@ from pathlib import Path
 import beanquery
 from beancount import loader
 
-from tally.ledger import accounts, book
+from tally.ledger import accounts, book, positions
 
 ROTH_CASH = "Assets:Fidelity:Roth:Cash"
 # The day a purchase happened: `purchased` when the entry has it, else the entry's date.
@@ -102,7 +102,9 @@ def build(
         f"AND {_DAY} >= {first} AND {_DAY} <= {today}"
     )
     roth = query(
+        # Money in from your bank, not the cash a Fidelity snapshot moves into holdings.
         f"SELECT sum(number) WHERE account = '{ROTH_CASH}' AND number > 0 "
+        f"AND NOT ('{positions.TAG}' IN tags) "
         f"AND year({_DAY}) = {today.year} AND {_DAY} <= {today}"
     )
     roth_in = Decimal(str(roth[0][0])) if roth and roth[0][0] is not None else Decimal(0)
