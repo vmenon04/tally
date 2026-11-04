@@ -32,7 +32,7 @@ from tally import (
     transactions_tab,
 )
 from tally.alerts import Alert
-from tally.ledger import book, viewing
+from tally.ledger import accounts, book, categories, updating, viewing
 from tally.transaction import Transaction
 
 
@@ -381,6 +381,7 @@ def _summary(as_of: datetime.date | None, *, email: bool, sync: bool) -> int:
 
     waiting = pending.transactions(alerts, posted)
     not_found = matching.match([a for _, a in alerts], posted).not_found
+    ledger_problems = _ledger_problems([t for _, t in [*pairs, *waiting]], month_rules)
     result = summary.build(
         today,
         [*pairs, *waiting],
@@ -392,6 +393,8 @@ def _summary(as_of: datetime.date | None, *, email: bool, sync: bool) -> int:
     )
     if sync_problem:
         result = dataclasses.replace(result, look_out=[sync_problem, *result.look_out])
+    if ledger_problems:
+        result = dataclasses.replace(result, look_out=[*result.look_out, *ledger_problems])
     if as_of is None:
         result = _with_claude_note(result)
     text = summary.format_summary(result)
@@ -413,6 +416,15 @@ def _summary(as_of: datetime.date | None, *, email: bool, sync: bool) -> int:
         return 1
     print(f"\nEmailed to {recipient}.")
     return 0
+
+
+def _ledger_problems(counted: list[Transaction], month_rules: rules.Rules) -> list[str]:
+    """For the weekly summary: how the ledger and tally disagree, if they do."""
+    try:
+        found = updating.check(data_dir(), counted, month_rules)
+    except (book.LedgerError, accounts.AccountsError, OSError) as e:
+        return [f"The ledger couldn't be checked: {e}"]
+    return found.problems() if found is not None else []
 
 
 # Said when Claude can't be asked; the sync goes on without it, so it's never why one stopped.
@@ -548,6 +560,7 @@ def _sync(dry_run: bool) -> int:
         if conflicts or added:
             return 1
         if dry_run:
+            _sync_ledger(counted, month_rules, dry_run=True)
             return 0
         if result.missing_rows or result.missing_months:
             print("\nNothing written: the Budget tab is missing rows or columns.", file=sys.stderr)
@@ -576,9 +589,33 @@ def _sync(dry_run: bool) -> int:
             f"\nUpdated {len(result.changes)} Budget cells and wrote {len(tab_rows)} rows "
             "to the Transactions tab."
         )
+        _sync_ledger(counted, month_rules, dry_run=False)
         return 0
     finally:
         conn.close()
+
+
+def _sync_ledger(counted: list[Transaction], month_rules: rules.Rules, *, dry_run: bool) -> None:
+    """The ledger's part of a sync. Its problems are reported, never a reason the sync failed."""
+    try:
+        done = updating.sync(data_dir(), counted, month_rules, dry_run=dry_run, err=sys.stderr)
+    except (book.LedgerError, accounts.AccountsError, updating.NotUpToDate, OSError) as e:
+        print(f"\nLedger: not updated: {e}", file=sys.stderr)
+        return
+    if done is None:
+        return
+    if done.changes:
+        verb = "would move" if dry_run else "moved"
+        print(f"\nLedger: {verb} {len(done.changes)} entries to their current category:")
+        print("\n".join(f"  {categories.describe(c)}" for c in done.changes))
+    if done.parity.ok:
+        print(
+            f"\nLedger: all {done.parity.rows} rows and every month's totals match; "
+            "bean-check is clean."
+        )
+    else:
+        print("\nLedger: " + " ".join(done.parity.problems()))
+        print("\n".join(done.parity.details()[:20]))
 
 
 def _with_claude_note(result: summary.Summary) -> summary.Summary:

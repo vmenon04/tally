@@ -26,6 +26,23 @@ Importing an overlapping file adds only rows the ledger doesn't have, counting i
 the way the database does (two equal coffees on one day are both kept). Runs of five or more
 digits in descriptions are cut to their last four, so account and reference numbers stay out.
 
+## Categories, and checking the ledger against the Sheet
+
+Until the Sheet is retired, `rules.toml` decides categories, as it always has: your
+corrections on the Sheet and Claude's guesses go there. After a successful `tally sync`
+(Sundays, or by hand), tally:
+
+1. moves the other side of each imported entry whose category has changed to the right
+   account, changing only the account name on that line (a dry run lists the moves), then
+   commits and pushes;
+2. compares the ledger with the database: every posted row and pending alert has exactly
+   one entry, each month's spending per category matches what the Sheet gets, and
+   bean-check is clean.
+
+The sync prints the result, and the weekly summary lists any difference under "look out
+for". A ledger problem is reported but never stops the sync or the summary. Entries you
+wrote yourself (no `tally-id`) and entries you split into more postings are left alone.
+
 ## Accounts and categories
 
 `accounts.beancount` says where things go, in each account's metadata:
@@ -37,7 +54,7 @@ digits in descriptions are cut to their last four, so account and reference numb
   category: "Groceries"                  ; the other side of rows in this category
 2026-09-01 open Assets:BofA:Savings USD
   category: "Savings transfer"
-  merchant-contains: "KEEP THE CHANGE"   ; only for these merchants
+  merchant-contains: "KEEP THE CHANGE|SAV 1234"   ; only merchants containing one of these
 ```
 
 Every category in `rules.toml`, the built-in ones (Income, Card payment, Savings transfer,

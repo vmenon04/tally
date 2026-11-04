@@ -20,7 +20,7 @@ from beancount.core import data
 
 from tally import rules, store
 from tally.importers import ParseError, bofa, discover
-from tally.ledger import accounts, book, history, updating
+from tally.ledger import accounts, book, updating
 from tally.transaction import Transaction
 
 
@@ -117,15 +117,10 @@ def run(
             print(f"Nothing to import: {inbox} is empty.", file=out)
             return True
 
-    folder = book.folder(data_dir)
-    if not dry_run and book.exists(data_dir) and history.is_repo(folder):
-        # Edits made elsewhere (on your machine, on Forgejo) come in before tally adds to it.
+    if not dry_run:
         try:
-            history.commit(folder, "Save changes made outside tally")
-            history.pull(folder)
-        except history.Unreachable as e:
-            print(f"ledger: {e}; importing without the latest from Forgejo", file=err)
-        except history.HistoryError as e:
+            updating.bring_up_to_date(data_dir, err)
+        except updating.NotUpToDate as e:
             print(f"Nothing imported: the ledger can't be brought up to date: {e}", file=err)
             return False
     try:
@@ -175,13 +170,8 @@ def _finish_ledger(ledger: updating.Session, conn: sqlite3.Connection, err: Text
         print(f"ledger: bean-check found {len(errors)} problem(s):", file=err)
         for message in errors[:10]:
             print(f"  {message}", file=err)
-    folder = ledger.ledger.folder
-    if ledger.added and history.is_repo(folder):
-        try:
-            history.commit(folder, f"Import {ledger.added} entries")
-            history.push(folder)
-        except history.HistoryError as e:
-            print(f"ledger: {e}; the next import tries again", file=err)
+    if ledger.added:
+        updating.save(ledger.ledger.folder, f"Import {ledger.added} entries", err)
     return True
 
 

@@ -13,7 +13,8 @@ from typing import TextIO
 from beancount.core import data
 
 from tally import matching, rules, store
-from tally.ledger import accounts, book, importers
+from tally.ledger import accounts, book, categories, history, importers, parity
+from tally.transaction import Transaction
 
 
 @dataclass(slots=True)
@@ -60,3 +61,75 @@ def refresh_pending_in(data_dir: Path, conn: sqlite3.Connection, err: TextIO) ->
             refresh_pending(session, conn)
     except (book.LedgerError, rules.RulesError, accounts.AccountsError) as e:
         print(f"ledger: pending alerts not written: {e}", file=err)
+
+
+class NotUpToDate(Exception):
+    """The ledger has commits from elsewhere that can't be brought in."""
+
+
+def bring_up_to_date(data_dir: Path, err: TextIO) -> None:
+    """Before tally changes the ledger: commit edits made here, then pull ones made elsewhere.
+
+    Raises NotUpToDate if pulling conflicts; an unreachable Forgejo is only reported.
+    """
+    folder = book.folder(data_dir)
+    if not (book.exists(data_dir) and history.is_repo(folder)):
+        return
+    try:
+        history.commit(folder, "Save changes made outside tally")
+        history.pull(folder)
+    except history.Unreachable as e:
+        print(f"ledger: {e}; going on without the latest from Forgejo", file=err)
+    except history.HistoryError as e:
+        raise NotUpToDate(str(e)) from e
+
+
+def save(folder: Path, message: str, err: TextIO) -> None:
+    """Commit and push what tally changed. A failure is reported; the next run retries."""
+    if not history.is_repo(folder):
+        return
+    try:
+        history.commit(folder, message)
+        history.push(folder)
+    except history.HistoryError as e:
+        print(f"ledger: {e}; the next run tries again", file=err)
+
+
+@dataclass(frozen=True, slots=True)
+class SyncResult:
+    changes: list[categories.Change]
+    parity: parity.Parity
+
+
+def sync(
+    data_dir: Path,
+    counted: list[Transaction],
+    month_rules: rules.Rules,
+    *,
+    dry_run: bool,
+    err: TextIO,
+) -> SyncResult | None:
+    """For `tally sync`: move imported entries to their current categories, then compare.
+
+    None if there's no ledger. Raises LedgerError, AccountsError or NotUpToDate.
+    """
+    if not book.exists(data_dir):
+        return None
+    if not dry_run:
+        bring_up_to_date(data_dir, err)
+    ledger = book.load(book.folder(data_dir), month_rules)
+    changes = categories.plan(ledger, counted, month_rules)
+    if changes and not dry_run:
+        categories.apply(changes)
+        save(ledger.folder, f"Recategorize {len(changes)} entries", err)
+        ledger = book.load(ledger.folder, month_rules)
+    return SyncResult(changes, parity.compare(ledger, counted, month_rules))
+
+
+def check(
+    data_dir: Path, counted: list[Transaction], month_rules: rules.Rules
+) -> parity.Parity | None:
+    """parity.compare for the ledger as it is, without changing anything. None if no ledger."""
+    if not book.exists(data_dir):
+        return None
+    return parity.compare(book.load(book.folder(data_dir), month_rules), counted, month_rules)

@@ -207,7 +207,8 @@ def test_a_failed_push_keeps_the_commit_and_the_import(tmp_path: Path) -> None:
     shutil.rmtree(bare)
     ok, _, err = run(data_dir, BOFA)
     assert ok
-    assert "importing without the latest" in err
+    assert "going on without the latest" in err
+    assert "fatal:" in err
     assert "git push failed" in err
     assert git(data_dir / "ledger", "log", "-1", "--format=%s") == "Import 15 entries\n"
 

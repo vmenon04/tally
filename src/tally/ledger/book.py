@@ -75,7 +75,7 @@ def load(path: Path, rules: Rules) -> Ledger:
 def ensure_pending(path: Path) -> None:
     """pending.beancount isn't in git, but main.beancount includes it, so a clone needs one."""
     if not (path / PENDING).exists():
-        _write(path / PENDING, _PENDING_HEADER)
+        write_text(path / PENDING, _PENDING_HEADER)
 
 
 def check(path: Path) -> list[str]:
@@ -102,7 +102,7 @@ def add(ledger: Ledger, new: Sequence[data.Directive]) -> list[Path]:
         text = path.read_text(encoding="utf-8") if path.exists() else ""
         text = text if text.strip() else _HEADER
         text = text.rstrip("\n") + "\n\n" + "\n".join(_format(e) for e in year_entries)
-        _write(path, text)
+        write_text(path, text)
         changed.append(path)
     return changed
 
@@ -129,7 +129,7 @@ def write_pending(ledger: Ledger, waiting: Sequence[Alert], rules: Rules) -> boo
     path = ledger.folder / PENDING
     if path.exists() and path.read_text(encoding="utf-8") == text:
         return False
-    _write(path, text)
+    write_text(path, text)
     return True
 
 
@@ -155,7 +155,8 @@ def _message(error: object) -> str:
     return f"{where}{getattr(error, 'message', error)}"
 
 
-def _write(path: Path, text: str) -> None:
+def write_text(path: Path, text: str) -> None:
+    """Replace a file in one step, owner-only."""
     temporary = path.with_name(path.name + ".tmp")
     temporary.write_text(text, encoding="utf-8")
     temporary.chmod(0o600)

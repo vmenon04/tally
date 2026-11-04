@@ -11,10 +11,11 @@ names accounts and bean-check sees every account tally writes to:
 
     2026-09-01 open Assets:BofA:Savings USD
       category: "Savings transfer"
-      merchant-contains: "KEEP THE CHANGE"  # only for merchants containing this (any case)
+      merchant-contains: "KEEP THE CHANGE|SAV 1234"  # only merchants containing one of these
 
-A category can have several accounts told apart by merchant-contains, plus at most one
-without it, which takes every other merchant.
+merchant-contains matches any case, and | separates alternatives. A category can have
+several accounts told apart by merchant-contains, plus at most one without it, which takes
+every other merchant.
 """
 
 from collections.abc import Iterable
@@ -34,6 +35,16 @@ class _Choice:
     account: str
     merchant_contains: str | None
 
+    def takes(self, merchant: str) -> bool:
+        if self.merchant_contains is None:
+            return False
+        folded = merchant.casefold()
+        return any(
+            part.strip().casefold() in folded
+            for part in self.merchant_contains.split("|")
+            if part.strip()
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class Accounts:
@@ -49,14 +60,20 @@ class Accounts:
     def counter(self, category: str, merchant: str) -> str:
         """The account a row's other side posts to."""
         choices = self.categories.get(category, ())
-        folded = merchant.casefold()
         for choice in choices:
-            if choice.merchant_contains and choice.merchant_contains.casefold() in folded:
+            if choice.takes(merchant):
                 return choice.account
         for choice in choices:
             if choice.merchant_contains is None:
                 return choice.account
         raise AccountsError(f'no open directive has category: "{category}" for {merchant!r}')
+
+    def category_of(self, account: str) -> str | None:
+        """The category whose rows post their other side to this account, if any."""
+        for category, choices in self.categories.items():
+            if any(c.account == account for c in choices):
+                return category
+        return None
 
     def check(self, spending: Iterable[str]) -> None:
         """Every category tally can produce must have a catch-all account."""
