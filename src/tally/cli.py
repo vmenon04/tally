@@ -32,6 +32,7 @@ from tally import (
     transactions_tab,
 )
 from tally.alerts import Alert
+from tally.ledger import book, viewing
 from tally.transaction import Transaction
 
 
@@ -125,6 +126,17 @@ def main(argv: list[str] | None = None) -> int:
         "--dry-run", action="store_true", help="show what would change without changing it"
     )
 
+    fava_parser = commands.add_parser(
+        "fava",
+        help="browse the ledger in Fava",
+        description="Serve Fava for the ledger in data/ledger until stopped. It listens only "
+        "on this machine; from your own machine, use `tally-remote fava`.",
+    )
+    fava_parser.add_argument(
+        "--socket", type=Path, help="listen on this Unix socket instead of 127.0.0.1"
+    )
+    fava_parser.add_argument("--port", type=int, default=5000, help="default: 5000")
+
     args = parser.parse_args(argv)
     if args.command == "import":
         ok = importing.run(
@@ -148,6 +160,13 @@ def main(argv: list[str] | None = None) -> int:
         return _summary(args.as_of, email=args.email, sync=args.sync)
     if args.command == "sync":
         return _sync(dry_run=args.dry_run)
+    if args.command == "fava":
+        try:
+            viewing.serve(data_dir(), socket=args.socket, port=args.port)
+        except (book.LedgerError, OSError) as e:
+            print(f"fava: {e}", file=sys.stderr)
+            return 1
+        return 0
     parser.print_help()
     return 0
 

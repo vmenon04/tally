@@ -3,6 +3,7 @@
 #
 #     tally-remote import FILE...     send bank CSVs to the server and import them
 #     tally-remote deploy             push this repo's last commit, then install it on the server
+#     tally-remote fava [PORT]        browse the ledger at http://localhost:PORT (default 5000)
 #     tally-remote COMMAND ...        any other tally command, e.g. report 2026-10, sync --dry-run
 #
 # TALLY_HOST names the server (default: myserver). See docs/server.md.
@@ -53,10 +54,18 @@ deploy() {
 
 case ${1:-} in
     "" | -h | --help)
-        sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'
+        sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
         ;;
     deploy)
         deploy
+        ;;
+    fava)
+        # Fava runs on the server only while this is open, on a socket in the drop folder,
+        # which only your account and tally can open; this forwards a local port to it.
+        port=${2:-5000}
+        echo "Fava: http://localhost:$port  (Ctrl-C to stop)"
+        exec ssh -t -q -o ExitOnForwardFailure=yes -L "127.0.0.1:$port:$DROP/fava.sock" "$HOST" \
+            "sudo -n -u tally /usr/local/bin/tally-run fava --socket $DROP/fava.sock"
         ;;
     import)
         shift
