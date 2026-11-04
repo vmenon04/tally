@@ -129,10 +129,10 @@ def alert(date: datetime.date, merchant: str, amount: str, n: int) -> Alert:
 
 def test_waiting_alerts_go_to_pending_after_the_last_balance(tmp_path: Path) -> None:
     data_dir = make_data_dir(tmp_path)
-    run(data_dir, BOFA)  # covers 03/01-03/14; balance asserted on 03/15
+    run(data_dir, BOFA)  # covers 03/01-03/14; settled balance asserted on 03/12
     conn = store.connect(data_dir / "tally.db")
     now = datetime.datetime(2026, 3, 20, tzinfo=datetime.UTC)
-    store.save_alert(conn, alert(datetime.date(2026, 3, 13), "SNACK BAR", "-4.00", 1), now=now)
+    store.save_alert(conn, alert(datetime.date(2026, 3, 11), "SNACK BAR", "-4.00", 1), now=now)
     store.save_alert(conn, alert(datetime.date(2026, 3, 18), "MAPLE MARKET", "-9.00", 2), now=now)
     session = updating.open_session(data_dir)
     assert session is not None
@@ -141,8 +141,8 @@ def test_waiting_alerts_go_to_pending_after_the_last_balance(tmp_path: Path) -> 
 
     pending = (data_dir / "ledger" / "pending.beancount").read_text()
     assert pending.count(" ! ") == 2
-    assert '2026-03-15 ! "SNACK BAR"' in pending
-    assert "purchased: 2026-03-13" in pending
+    assert '2026-03-12 ! "SNACK BAR"' in pending
+    assert "purchased: 2026-03-11" in pending
     assert '2026-03-18 ! "MAPLE MARKET"' in pending
     assert book.check(data_dir / "ledger") == []
 

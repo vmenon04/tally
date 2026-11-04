@@ -19,6 +19,9 @@ from tally.ledger.accounts import Accounts
 from tally.rules import Rules
 from tally.transaction import Transaction
 
+# Days before an export's end after which BofA no longer adds rows dated earlier.
+SETTLE_DAYS = 3
+
 
 class _CsvImporter(beangulp.Importer):  # type: ignore[misc]
     tally_account: str
@@ -60,7 +63,14 @@ class _CsvImporter(beangulp.Importer):  # type: ignore[misc]
 
 
 class BofaChecking(_CsvImporter):
-    """BofA checking: its rows, plus the balance at the start and end of the file's period."""
+    """BofA checking: its rows, plus the balance at the start of the file's period and as it
+    stood SETTLE_DAYS before its end.
+
+    BofA dates some rows by the day they happened even when they post later, so the last
+    days of an export can still gain rows after you download it (an export "as of 10/19"
+    taken on 10/20 lacked two rows later dated 10/19). Its ending balance would then fail
+    once a later export brings them in.
+    """
 
     tally_account = bofa.ACCOUNT
     header = bofa.SUMMARY_HEADER
@@ -69,13 +79,19 @@ class BofaChecking(_CsvImporter):
         statement = bofa.parse_statement(text)
         account = self.account(filename)
         meta = data.new_metadata(filename, 0)
-        return [
+        result: list[data.Directive] = [
             entries.balance(dict(meta), statement.start, account, statement.beginning),
             *self._transactions(statement.transactions, filename),
-            entries.balance(
-                dict(meta), statement.end + datetime.timedelta(days=1), account, statement.ending
-            ),
         ]
+        settled = statement.end - datetime.timedelta(days=SETTLE_DAYS)
+        if settled >= statement.start:
+            value = statement.beginning
+            for t in statement.transactions:
+                if (t.posted or t.date) <= settled and t.balance is not None:
+                    value = t.balance
+            day_after = settled + datetime.timedelta(days=1)
+            result.append(entries.balance(dict(meta), day_after, account, value))
+        return result
 
 
 class Discover(_CsvImporter):

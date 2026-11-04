@@ -144,12 +144,38 @@ def test_bofa_file_passes_bean_check() -> None:
     assert check(extract(BOFA)) == []
 
 
-def test_bofa_asserts_balance_at_both_ends() -> None:
+def test_bofa_asserts_the_start_and_a_settled_end() -> None:
+    # The fixture ends 03/14; three days before that, after the 03/11 row, it held 1873.78.
     balances = [e for e in extract(BOFA) if isinstance(e, data.Balance)]
     assert [(b.date, b.amount.number) for b in balances] == [
         (datetime.date(2026, 3, 1), Decimal("1200.00")),
-        (datetime.date(2026, 3, 15), Decimal("1698.53")),
+        (datetime.date(2026, 3, 12), Decimal("1873.78")),
     ]
+
+
+def test_rows_posted_late_into_the_last_days_pass_the_settled_balance() -> None:
+    # An export as of 03/14 taken before a row dated 03/14 posted, then a later one with it.
+    early = make_bofa_file(['03/02/2026,"SHOP A 03/02 PURCHASE","-10.00","90.00"'], "03/14")
+    late = make_bofa_file(
+        [
+            '03/02/2026,"SHOP A 03/02 PURCHASE","-10.00","90.00"',
+            '03/14/2026,"SHOP B 03/14 PURCHASE","-5.00","85.00"',
+        ],
+        "03/20",
+    )
+    found, parsed = setup()
+    bofa, _ = importers.all_importers(found, parsed)
+    first = list(bofa.extract_text(early, "early.csv"))
+    second = list(bofa.extract_text(late, "late.csv"))
+    bofa.deduplicate(second, first)
+    fresh = [e for e in second if not e.meta.get(entries.DUPLICATE_KEY)]
+    opening = (
+        '2026-02-28 * "Opening"\n  Assets:BofA:Checking  100.00 USD\n  Equity:Opening-Balances\n'
+    )
+    text = OPENS.split("2026-02-28 *")[0] + opening
+    text += "\n".join(printer.format_entry(e) for e in [*first, *fresh])
+    _, errors, _ = loader.load_string(text)
+    assert [e.message for e in errors] == []
 
 
 def test_dated_by_posting_with_purchase_day_kept() -> None:
@@ -237,7 +263,8 @@ def test_a_row_written_twice_fails_bean_check() -> None:
 
 def test_a_dropped_row_fails_bean_check() -> None:
     bofa = extract(BOFA)
-    dropped = [e for e in bofa if not (isinstance(e, data.Transaction) and "REMITLY" in text(e))]
+    # A row before the settled balance (03/11); later ones are checked by the next export.
+    dropped = [e for e in bofa if not (isinstance(e, data.Transaction) and "MAPLE" in text(e))]
     assert any("Balance failed" in e for e in check(dropped))
 
 
@@ -270,3 +297,23 @@ def test_merchant_contains_needs_a_category() -> None:
     )
     with pytest.raises(accounts.AccountsError, match="needs a category"):
         accounts.from_entries(opens)
+
+
+def make_bofa_file(rows: list[str], end: str) -> str:
+    amounts = [Decimal(row.split('","')[1]) for row in rows]
+    ending = Decimal("100.00") + sum(amounts, Decimal(0))
+    debits = sum((a for a in amounts if a < 0), Decimal(0))
+    return "\r\n".join(
+        [
+            "Description,,Summary Amt.",
+            'Beginning balance as of 03/01/2026,,"100.00"',
+            'Total credits,,"0.00"',
+            f'Total debits,,"{debits:.2f}"',
+            f'Ending balance as of {end}/2026,,"{ending:.2f}"',
+            "",
+            "Date,Description,Amount,Running Bal.",
+            '03/01/2026,Beginning balance as of 03/01/2026,,"100.00"',
+            *rows,
+            "",
+        ]
+    )

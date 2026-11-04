@@ -8,8 +8,9 @@ exists, so tally works as before without one.
 ## What tally writes
 
 - **`tally import`** adds each export's rows to `imported/YEAR.beancount`, after the database
-  accepts the file. BofA files also add a balance assertion for the start and end of the
-  period they cover. A file the ledger can't take (an account or category with no ledger
+  accepts the file. BofA files also add a balance assertion for the start of the period
+  they cover, and for three days before its end: BofA dates some rows by the day they
+  happened even when they post later, so an export's last days can still gain rows. A file the ledger can't take (an account or category with no ledger
   account) isn't imported anywhere. Afterwards it runs bean-check and reports any problem,
   commits the ledger and pushes it.
 - **`tally alerts`** (and `import`) rewrites `pending.beancount`: alert emails no export has
