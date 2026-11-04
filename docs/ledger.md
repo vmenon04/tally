@@ -65,6 +65,26 @@ A transfer between two accounts that both have exports (a Discover payment from 
 both sides to an `Assets:Transfers:...` account, so it isn't counted twice and a missing side
 shows up as a non-zero balance there.
 
+## Fidelity positions
+
+Download Accounts → Positions (all accounts) from Fidelity and import it like any export:
+`tally-remote import Portfolio_Positions_*.csv`. It goes to the ledger only. Each account in
+it, matched by `fidelity-account:` (the account number's last four) on an open directive,
+gets one transaction tagged `#fidelity-positions` that brings the ledger to the snapshot:
+
+- each holding whose quantity or cost basis changed is closed and reopened at Fidelity's
+  quantity and total cost basis, so the ledger's cost basis is exactly Fidelity's;
+- the money market balance becomes the account's `:Cash` balance (Roth contributions from
+  BofA already land there, so money moved into holdings balances itself);
+- what's left comes from `Equity:Opening-Balances` the first time, and from
+  `Income:Fidelity:Unreconciled` after that (dividends, fees, 401(k) payroll contributions:
+  a snapshot can't tell them apart), flagged `!`.
+
+It also records each holding's price, so Fava shows market value, and asserts every holding
+and cash balance the next day. A snapshot older than one already imported is refused, and
+the same file twice adds nothing. Fidelity's activity export would say exactly what each
+change was; importing it is a possible next step.
+
 ## Catching dropped and duplicated rows
 
 bean-check fails when an account's balance doesn't match an assertion. BofA exports assert
