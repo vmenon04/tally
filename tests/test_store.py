@@ -49,7 +49,7 @@ def test_new_database_has_schema_version(db: sqlite3.Connection) -> None:
 
 
 def test_round_trip_keeps_every_field(db: sqlite3.Connection) -> None:
-    rows = discover.load(FIXTURES / "discover_recent.csv")
+    rows = discover.parse((FIXTURES / "discover_recent.csv").read_text(newline=""))
     result = save(db, rows)
     assert (result.rows_in_file, result.rows_new) == (9, 9)
     assert store.transactions(db) == rows
@@ -62,21 +62,21 @@ def test_round_trip_keeps_two_decimal_places(db: sqlite3.Connection) -> None:
 
 
 def test_bofa_round_trip_keeps_balances(db: sqlite3.Connection) -> None:
-    rows = bofa.load(FIXTURES / "bofa_checking.csv")
+    rows = bofa.parse((FIXTURES / "bofa_checking.csv").read_text(newline=""))
     save(db, rows, account="bofa_checking")
     assert store.transactions(db, account="bofa_checking") == rows
     assert store.transactions(db, account="discover") == []
 
 
 def test_same_file_twice_adds_nothing(db: sqlite3.Connection) -> None:
-    rows = discover.load(FIXTURES / "discover_recent.csv")
+    rows = discover.parse((FIXTURES / "discover_recent.csv").read_text(newline=""))
     save(db, rows)
     assert save(db, rows).rows_new == 0
     assert len(store.transactions(db)) == 9
 
 
 def test_overlapping_file_adds_only_new_rows(db: sqlite3.Connection) -> None:
-    rows = discover.load(FIXTURES / "discover_recent.csv")
+    rows = discover.parse((FIXTURES / "discover_recent.csv").read_text(newline=""))
     save(db, rows[4:])
     assert save(db, rows).rows_new == 4
     assert sorted(store.transactions(db), key=rows.index) == rows
@@ -122,7 +122,7 @@ def test_missing_posted_date_is_part_of_identity(db: sqlite3.Connection) -> None
 
 
 def test_overlapping_balances_must_agree(db: sqlite3.Connection) -> None:
-    rows = bofa.load(FIXTURES / "bofa_checking.csv")
+    rows = bofa.parse((FIXTURES / "bofa_checking.csv").read_text(newline=""))
     save(db, rows, account="bofa_checking")
     changed = [*rows[:-1], dataclasses.replace(rows[-1], balance=Decimal("1.00"))]
     expected = "balance 1.00 doesn't match the stored balance 1698.53"
@@ -179,7 +179,7 @@ def test_unknown_schema_version_is_rejected(tmp_path: Path) -> None:
 
 
 def bofa_rows() -> list[Transaction]:
-    return bofa.load(FIXTURES / "bofa_checking.csv")
+    return bofa.parse((FIXTURES / "bofa_checking.csv").read_text(newline=""))
 
 
 def test_bofa_file_continuing_history_without_overlap_is_accepted(db: sqlite3.Connection) -> None:

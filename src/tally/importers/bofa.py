@@ -24,7 +24,6 @@ import io
 import re
 from dataclasses import dataclass
 from decimal import Decimal
-from pathlib import Path
 
 from tally.importers import ParseError, parse_amount, parse_date
 from tally.transaction import Transaction
@@ -64,10 +63,6 @@ class Statement:
     beginning: Decimal
     end: datetime.date  # balance after every row of this day
     ending: Decimal
-
-
-def load(path: Path) -> list[Transaction]:
-    return parse(path.read_text(encoding="utf-8"))
 
 
 def parse(text: str) -> list[Transaction]:

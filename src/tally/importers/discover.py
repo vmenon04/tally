@@ -13,7 +13,6 @@ import csv
 import io
 import re
 from decimal import Decimal
-from pathlib import Path
 
 from tally.importers import ParseError, parse_amount, parse_date
 from tally.transaction import Transaction
@@ -25,10 +24,6 @@ HEADER = ["Trans. Date", "Post Date", "Description", "Amount", "Category"]
 _APPLE_PAY = re.compile(r"APPLE PAY ENDING IN\s*\S*$")
 # Some processors glue a reference code onto the state: "SPRINGFIELD IL00012345ABCD...".
 _REFERENCE = re.compile(r" ([A-Z]{2})\d[A-Z0-9]{5,}$")
-
-
-def load(path: Path) -> list[Transaction]:
-    return parse(path.read_text(encoding="utf-8"))
 
 
 def parse(text: str) -> list[Transaction]:

@@ -181,7 +181,7 @@ def _import_one(
     new_entries: list[data.Directive] = []
     if ledger is not None:
         try:
-            new_entries = updating.extract(ledger, p.text, p.path.name)
+            new_entries = updating.extract(ledger, p.account, p.text, p.path.name)
         except (ParseError, accounts.AccountsError) as e:
             print(f"{p.path.name}: not imported: ledger: {e}", file=err)
             return False

@@ -96,10 +96,14 @@ def setup() -> tuple[accounts.Accounts, rules.Rules]:
     return found, parsed
 
 
-def extract(path: Path) -> list[data.Directive]:
+def importer_for(path: Path) -> importers.BofaChecking | importers.Discover:
     found, parsed = setup()
-    importer = importers.for_text(path.read_text(newline=""), found, parsed)
-    return list(importer.extract(str(path), []))
+    bofa, discover = importers.all_importers(found, parsed)
+    return bofa if path == BOFA else discover
+
+
+def extract(path: Path) -> list[data.Directive]:
+    return list(importer_for(path).extract(str(path), []))
 
 
 def check(*extracted: list[data.Directive]) -> list[str]:
@@ -130,10 +134,10 @@ def test_identify_by_first_line() -> None:
     assert bofa.account(str(BOFA)) == "Assets:BofA:Checking"
 
 
-def test_unknown_file_is_refused() -> None:
+def test_unknown_account_has_no_importer() -> None:
     found, parsed = setup()
-    with pytest.raises(ParseError, match="not a Discover or BofA export"):
-        importers.for_text("Date,Amount\n", found, parsed)
+    with pytest.raises(ParseError, match="no ledger importer"):
+        importers.for_account("capital_one", found, parsed)
 
 
 def test_bofa_file_passes_bean_check() -> None:
@@ -198,8 +202,7 @@ def test_mask() -> None:
 
 
 def test_reimporting_a_file_marks_everything_duplicate() -> None:
-    found, parsed = setup()
-    importer = importers.for_text(BOFA.read_text(newline=""), found, parsed)
+    importer = importer_for(BOFA)
     first = list(importer.extract(str(BOFA), []))
     again = list(importer.extract(str(BOFA), []))
     importer.deduplicate(again, first)
@@ -209,8 +212,7 @@ def test_reimporting_a_file_marks_everything_duplicate() -> None:
 def test_identical_rows_count_like_tally_db() -> None:
     # The fixture has two identical 8.25 NOODLE HOUSE rows. A ledger holding one of them
     # gets exactly one more.
-    found, parsed = setup()
-    importer = importers.for_text(DISCOVER.read_text(newline=""), found, parsed)
+    importer = importer_for(DISCOVER)
     new = list(importer.extract(str(DISCOVER), []))
     noodles = [t for t in transactions(new) if number(t.postings[1]) == Decimal("8.25")]
     assert len(noodles) == 2

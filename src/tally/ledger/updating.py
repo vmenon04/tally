@@ -31,9 +31,11 @@ def open_session(data_dir: Path) -> Session | None:
     return Session(book.load(book.folder(data_dir), month_rules), month_rules)
 
 
-def extract(session: Session, text: str, file_name: str) -> list[data.Directive]:
+def extract(
+    session: Session, tally_account: str, text: str, file_name: str
+) -> list[data.Directive]:
     """The entries a file would add to the ledger, without adding them."""
-    importer = importers.for_text(text, session.ledger.accounts, session.rules)
+    importer = importers.for_account(tally_account, session.ledger.accounts, session.rules)
     return book.new_entries(importer.extract_text(text, file_name), session.ledger)
 
 

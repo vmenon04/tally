@@ -92,9 +92,9 @@ def all_importers(accounts: Accounts, rules: Rules) -> list[_CsvImporter]:
     return [BofaChecking(accounts, rules), Discover(accounts, rules)]
 
 
-def for_text(text: str, accounts: Accounts, rules: Rules) -> _CsvImporter:
-    first = next(csv.reader(io.StringIO(text.removeprefix("﻿"))), [])
+def for_account(tally_account: str, accounts: Accounts, rules: Rules) -> _CsvImporter:
+    """The importer for the export importing.read recognized as this account."""
     for importer in all_importers(accounts, rules):
-        if first == importer.header:
+        if importer.tally_account == tally_account:
             return importer
-    raise ParseError(f"not a Discover or BofA export; first line is {first}", line=1)
+    raise ParseError(f"no ledger importer for {tally_account}")

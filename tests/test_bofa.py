@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from tally.importers import ParseError
-from tally.importers.bofa import clean_merchant, event_date, load, parse, parse_statement
+from tally.importers.bofa import clean_merchant, event_date, parse, parse_statement
 from tally.transaction import Transaction
 
 FIXTURE = Path(__file__).parent / "fixtures" / "bofa_checking.csv"
@@ -43,13 +43,13 @@ def test_fixture_has_crlf_line_endings() -> None:
 
 
 def test_parses_every_row() -> None:
-    transactions = load(FIXTURE)
+    transactions = parse(FIXTURE.read_text(newline=""))
     assert len(transactions) == 13
     assert {t.account for t in transactions} == {"bofa_checking"}
 
 
 def test_first_row_in_full() -> None:
-    assert load(FIXTURE)[0] == Transaction(
+    assert parse(FIXTURE.read_text(newline=""))[0] == Transaction(
         account="bofa_checking",
         date=datetime.date(2026, 3, 2),
         posted=datetime.date(2026, 3, 2),
@@ -62,24 +62,26 @@ def test_first_row_in_full() -> None:
 
 
 def test_amounts_keep_bank_sign_and_thousands() -> None:
-    amounts = [t.amount for t in load(FIXTURE)]
+    amounts = [t.amount for t in parse(FIXTURE.read_text(newline=""))]
     assert Decimal("3456.78") in amounts
     assert Decimal("-1250.00") in amounts
     assert sum(amounts) == Decimal("498.53")
 
 
 def test_card_purchase_uses_the_day_it_happened() -> None:
-    purchase = next(t for t in load(FIXTURE) if t.merchant.startswith("MAPLE MARKET"))
+    purchase = next(
+        t for t in parse(FIXTURE.read_text(newline="")) if t.merchant.startswith("MAPLE MARKET")
+    )
     assert purchase.date == datetime.date(2026, 3, 7)
     assert purchase.posted == datetime.date(2026, 3, 9)
 
 
 def test_running_balance_is_kept() -> None:
-    assert load(FIXTURE)[-1].balance == Decimal("1698.53")
+    assert parse(FIXTURE.read_text(newline=""))[-1].balance == Decimal("1698.53")
 
 
 def test_identical_payments_are_all_kept() -> None:
-    venmo = [t for t in load(FIXTURE) if t.merchant == "VENMO"]
+    venmo = [t for t in parse(FIXTURE.read_text(newline="")) if t.merchant == "VENMO"]
     assert [t.amount for t in venmo] == [Decimal("-25.00"), Decimal("-25.00")]
 
 
@@ -133,7 +135,7 @@ def test_event_date(description: str, posted: datetime.date, expected: datetime.
 
 def test_accepts_lf_line_endings_and_byte_order_mark() -> None:
     text = "﻿" + fixture_text().replace("\r\n", "\n")
-    assert parse(text) == load(FIXTURE)
+    assert parse(text) == parse(FIXTURE.read_text(newline=""))
 
 
 def test_no_transactions() -> None:

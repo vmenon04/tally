@@ -6,7 +6,6 @@ import socket
 import subprocess
 import sys
 import tempfile
-import time
 from pathlib import Path
 
 import pytest
@@ -44,11 +43,9 @@ def test_serves_on_a_socket_until_hung_up(tmp_path: Path) -> None:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        deadline = time.monotonic() + 30
-        while not sock.exists():
-            assert proc.poll() is None, proc.stderr.read() if proc.stderr else ""
-            assert time.monotonic() < deadline
-            time.sleep(0.1)
+        assert proc.stdout is not None
+        line = proc.stdout.readline().decode()  # printed once the socket is ready
+        assert "serving on" in line, proc.stderr.read() if proc.stderr else ""
         assert sock.stat().st_mode & 0o777 == 0o666
         connection = _UnixConnection(sock)
         connection.request("GET", "/")

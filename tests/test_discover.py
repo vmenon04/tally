@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from tally.importers import ParseError
-from tally.importers.discover import clean_merchant, load, parse
+from tally.importers.discover import clean_merchant, parse
 from tally.transaction import Transaction
 
 FIXTURE = Path(__file__).parent / "fixtures" / "discover_recent.csv"
@@ -18,13 +18,13 @@ def test_fixture_has_crlf_line_endings() -> None:
 
 
 def test_parses_every_row() -> None:
-    transactions = load(FIXTURE)
+    transactions = parse(FIXTURE.read_text(newline=""))
     assert len(transactions) == 9
     assert {t.account for t in transactions} == {"discover"}
 
 
 def test_first_row_in_full() -> None:
-    assert load(FIXTURE)[0] == Transaction(
+    assert parse(FIXTURE.read_text(newline=""))[0] == Transaction(
         account="discover",
         date=datetime.date(2026, 3, 12),
         posted=datetime.date(2026, 3, 12),
@@ -36,30 +36,38 @@ def test_first_row_in_full() -> None:
 
 
 def test_purchases_are_negative_and_payments_positive() -> None:
-    transactions = load(FIXTURE)
+    transactions = parse(FIXTURE.read_text(newline=""))
     payment = next(t for t in transactions if t.description == "INTERNET PAYMENT - THANK YOU")
     assert payment.amount == Decimal("1250.00")
     assert all(t.amount < 0 for t in transactions if t is not payment)
 
 
 def test_amounts_are_exact() -> None:
-    purchases = [t.amount for t in load(FIXTURE) if t.amount < 0]
+    purchases = [t.amount for t in parse(FIXTURE.read_text(newline="")) if t.amount < 0]
     assert sum(purchases) == Decimal("-122.43")
 
 
 def test_weekend_purchase_keeps_both_dates() -> None:
-    bistro = next(t for t in load(FIXTURE) if t.merchant.startswith("TST*HARBOR BISTRO"))
+    bistro = next(
+        t
+        for t in parse(FIXTURE.read_text(newline=""))
+        if t.merchant.startswith("TST*HARBOR BISTRO")
+    )
     assert bistro.date == datetime.date(2026, 3, 7)
     assert bistro.posted == datetime.date(2026, 3, 9)
 
 
 def test_identical_rows_are_all_kept() -> None:
-    noodles = [t for t in load(FIXTURE) if t.merchant == "NOODLE HOUSE 118 SPRINGFIELD IL"]
+    noodles = [
+        t
+        for t in parse(FIXTURE.read_text(newline=""))
+        if t.merchant == "NOODLE HOUSE 118 SPRINGFIELD IL"
+    ]
     assert [t.amount for t in noodles] == [Decimal("-8.25"), Decimal("-8.25"), Decimal("-19.10")]
 
 
 def test_bank_category_kept_as_written() -> None:
-    categories = {t.bank_category for t in load(FIXTURE)}
+    categories = {t.bank_category for t in parse(FIXTURE.read_text(newline=""))}
     assert "Travel/ Entertainment" in categories
 
 
@@ -94,7 +102,7 @@ def test_clean_merchant(description: str, merchant: str) -> None:
 
 def test_accepts_lf_line_endings_and_byte_order_mark() -> None:
     text = "﻿" + FIXTURE.read_text().replace("\r\n", "\n")
-    assert parse(text) == load(FIXTURE)
+    assert parse(text) == parse(FIXTURE.read_text(newline=""))
 
 
 def test_header_only_means_no_transactions() -> None:
