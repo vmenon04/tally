@@ -14,6 +14,7 @@ uv run tally --help
 - [Alert emails and notifications](docs/alerts.md)
 - [Reports and the Google Sheet](docs/sheet.md)
 - [Weekly summary](docs/summary.md)
+- [The Beancount ledger](docs/ledger.md)
 - [Architecture](docs/architecture.md)
 - [Running on a server](docs/server.md)
 - [Development](docs/development.md)
