@@ -16,6 +16,7 @@ from typing import TextIO
 from tally import gmail, matching, store
 from tally.alerts import Alert, AlertError, bofa, discover, is_from, read
 from tally.importing import private_dir
+from tally.ledger import updating
 
 _PARSERS: dict[str, Callable[[bytes], Alert | None]] = {
     discover.DOMAIN: discover.parse,
@@ -49,6 +50,8 @@ def reread(data_dir: Path, *, dry_run: bool, out: TextIO, err: TextIO) -> bool:
                 continue
             counts[_read_one(conn, path.name, raw, out, err)[0]] += 1
         _summary(conn, counts, out)
+        if not dry_run:
+            updating.refresh_pending_in(data_dir, conn, err)
     finally:
         conn.close()
     return counts["refused"] == 0
@@ -112,6 +115,8 @@ def run_gmail(
             elif not dry_run:
                 _keep(data_dir, message_id, raw)
         result = _summary(conn, counts, out)
+        if not dry_run:
+            updating.refresh_pending_in(data_dir, conn, err)
     finally:
         conn.close()
     return GmailRun(added, refused, result.not_found, failure)

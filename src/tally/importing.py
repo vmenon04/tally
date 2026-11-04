@@ -16,8 +16,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
 
-from tally import store
+from beancount.core import data
+
+from tally import rules, store
 from tally.importers import ParseError, bofa, discover
+from tally.ledger import accounts, book, updating
 from tally.transaction import Transaction
 
 
@@ -39,6 +42,7 @@ class ParsedFile:
     sha256: str
     account: str
     transactions: list[Transaction]
+    text: str
 
 
 def read(path: Path) -> ParsedFile:
@@ -52,7 +56,9 @@ def read(path: Path) -> ParsedFile:
     source = _SOURCES.get(tuple(first_line))
     if source is None:
         raise ParseError(f"not a Discover or BofA export; first line is {first_line}", line=1)
-    return ParsedFile(path, hashlib.sha256(data).hexdigest(), source.account, source.parse(text))
+    return ParsedFile(
+        path, hashlib.sha256(data).hexdigest(), source.account, source.parse(text), text
+    )
 
 
 def archive(parsed: ParsedFile, data_dir: Path, today: datetime.date) -> Path:
@@ -111,6 +117,12 @@ def run(
             print(f"Nothing to import: {inbox} is empty.", file=out)
             return True
 
+    try:
+        ledger = updating.open_session(data_dir)
+    except (book.LedgerError, rules.RulesError) as e:
+        print(f"Nothing imported: the ledger can't be read: {e}", file=err)
+        return False
+
     ok = True
     parsed: list[ParsedFile] = []
     for path in paths:
@@ -132,22 +144,47 @@ def run(
         conn = store.connect(db_path)
     try:
         for p in parsed:
-            ok = _import_one(conn, p, data_dir, dry_run, from_inbox, today, out, err) and ok
+            ok = _import_one(conn, p, data_dir, ledger, dry_run, from_inbox, today, out, err) and ok
+        if ledger is not None and not dry_run:
+            ok = _finish_ledger(ledger, conn, err) and ok
     finally:
         conn.close()
     return ok
+
+
+def _finish_ledger(ledger: updating.Session, conn: sqlite3.Connection, err: TextIO) -> bool:
+    """Bring pending alerts up to date, then report anything bean-check finds."""
+    try:
+        updating.refresh_pending(ledger, conn)
+    except accounts.AccountsError as e:
+        print(f"ledger: pending alerts not written: {e}", file=err)
+        return False
+    errors = book.check(ledger.ledger.folder)
+    if errors:
+        print(f"ledger: bean-check found {len(errors)} problem(s):", file=err)
+        for message in errors[:10]:
+            print(f"  {message}", file=err)
+    return True
 
 
 def _import_one(
     conn: sqlite3.Connection,
     p: ParsedFile,
     data_dir: Path,
+    ledger: updating.Session | None,
     dry_run: bool,
     from_inbox: bool,
     today: datetime.date,
     out: TextIO,
     err: TextIO,
 ) -> bool:
+    new_entries: list[data.Directive] = []
+    if ledger is not None:
+        try:
+            new_entries = updating.extract(ledger, p.text, p.path.name)
+        except (ParseError, accounts.AccountsError) as e:
+            print(f"{p.path.name}: not imported: ledger: {e}", file=err)
+            return False
     try:
         result = store.save(
             conn,
@@ -167,11 +204,15 @@ def _import_one(
         f"{result.rows_new} new, {result.rows_in_file - result.rows_new} already imported",
         file=out,
     )
+    if ledger is not None:
+        print(f"  ledger: {len(new_entries)} new entries", file=out)
     if dry_run:
         for t in result.new:
             print(f"  {t.date}  {t.amount:>10}  {t.merchant}", file=out)
         return True
 
+    if ledger is not None:
+        updating.add(ledger, new_entries)
     archive(p, data_dir, today)
     if from_inbox:
         p.path.unlink()
