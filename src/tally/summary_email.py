@@ -22,7 +22,8 @@ _RED = "#d93025"
 _BLUE = "#1a73e8"
 
 
-def format_html(s: Summary, sheet_link: str) -> str:
+def format_html(s: Summary, sheet_link: str, extra: str = "") -> str:
+    """extra: more HTML for the end, already escaped (the ledger's report)."""
     days = calendar.monthrange(s.today.year, s.today.month)[1]
     plan_total = sum((c.plan for c in s.month if c.plan is not None), Decimal(0))
     parts = [_header(s, plan_total, days)]
@@ -46,6 +47,8 @@ def format_html(s: Summary, sheet_link: str) -> str:
     if s.coming_up:
         parts.append(_heading("Coming up"))
         parts += [_callout(line, _BLUE, "#e8f0fe") for line in s.coming_up]
+    if extra:
+        parts.append(extra)
     parts.append(
         f'<p style="margin:28px 0 4px;"><a href="{escape(sheet_link)}" '
         f'style="background:{_BLUE};color:#ffffff;padding:10px 18px;border-radius:6px;'

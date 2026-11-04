@@ -3,6 +3,7 @@ import contextlib
 import dataclasses
 import datetime
 import getpass
+import html
 import io
 import os
 import re
@@ -32,7 +33,7 @@ from tally import (
     transactions_tab,
 )
 from tally.alerts import Alert
-from tally.ledger import accounts, book, categories, updating, viewing
+from tally.ledger import accounts, book, categories, updating, viewing, weekly
 from tally.transaction import Transaction
 
 
@@ -401,6 +402,9 @@ def _summary(as_of: datetime.date | None, *, email: bool, sync: bool) -> int:
     if as_of is None:
         result = _with_claude_note(result)
     text = summary.format_summary(result)
+    ledger_text, ledger_html = _ledger_report(today, settings)
+    if ledger_text:
+        text = f"{text}\n\n{ledger_text}"
     print(text)
     if not email or sender is None or recipient is None:
         return 0
@@ -410,7 +414,7 @@ def _summary(as_of: datetime.date | None, *, email: bool, sync: bool) -> int:
         recipient,
         summary.title(result),
         f"{text}\n\nBudget: {link}\n",
-        summary_email.format_html(result, link),
+        summary_email.format_html(result, link, ledger_html),
     )
     try:
         mailer.send(sender, gmail.load_password(gmail_password_file()), msg)
@@ -419,6 +423,20 @@ def _summary(as_of: datetime.date | None, *, email: bool, sync: bool) -> int:
         return 1
     print(f"\nEmailed to {recipient}.")
     return 0
+
+
+def _ledger_report(today: datetime.date, settings: config.Config) -> tuple[str, str]:
+    """The ledger's report as text and HTML, or a line saying why there isn't one."""
+    if not book.exists(data_dir()):
+        return "", ""
+    try:
+        found = weekly.build(
+            book.folder(data_dir()), today, settings.roth_limit, settings.roth_elsewhere
+        )
+    except (weekly.ReportError, OSError) as e:
+        line = f"(No report from the ledger this week: {e})"
+        return line, f"<p>{html.escape(line)}</p>"
+    return weekly.format_text(found), weekly.format_html(found)
 
 
 def _ledger_problems(

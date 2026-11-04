@@ -46,7 +46,7 @@ strict = true
 files = ["src", "tests"]
 
 [[tool.mypy.overrides]]
-module = ["beangulp", "beangulp.*"]
+module = ["beangulp", "beangulp.*", "beanquery", "beanquery.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

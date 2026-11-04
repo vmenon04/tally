@@ -159,7 +159,9 @@ def test_summary_says_nothing_when_the_ledger_matches(
     ledger_ready: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert main(["summary", "--as-of", "2026-03-20"]) == 0
-    assert "ledger" not in capsys.readouterr().out.lower()
+    out = capsys.readouterr().out
+    look_out = out.split("FROM THE LEDGER")[0]
+    assert "ledger" not in look_out.lower()
 
 
 def test_entries_you_wrote_are_left_alone(
@@ -261,3 +263,44 @@ def test_sync_rebuilds_pending_entries_before_comparing(
     assert code == 0
     assert "rows and every month's totals match" in out
     assert "Expenses:Groceries" not in pending_file.read_text()
+
+
+def test_weekly_report_from_the_ledger(ledger_ready: Path) -> None:
+    import datetime
+    from decimal import Decimal
+
+    from tally.ledger import weekly
+
+    found = weekly.build(
+        ledger_ready / "ledger", datetime.date(2026, 4, 9), Decimal(7500), Decimal(140)
+    )
+    lines = {line.category: line for line in found.lines}
+    # March, by purchase day: groceries 42.10 bought 03/07, posted 03/09.
+    assert lines["Groceries"].last_month == Decimal("42.10")
+    assert lines["Groceries"].last_month_so_far == Decimal("42.10")
+    assert lines["Groceries"].this_month == Decimal(0)
+    assert found.roth_in == Decimal("640.00")  # 500 into the Roth in March, 140 elsewhere
+    text = weekly.format_text(found)
+    assert "April so far" in text and "March same days" in text
+    assert "Roth IRA 2026: $640.00 contributed of the $7,500.00 limit; $6,860.00 of room" in text
+    html = weekly.format_html(found)
+    assert "From the ledger" in html and "$42.10" in html
+
+
+def test_the_summary_ends_with_the_ledger_report(
+    ledger_ready: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["summary", "--as-of", "2026-03-20"]) == 0
+    out = capsys.readouterr().out
+    assert "FROM THE LEDGER (bean-query)" in out
+    assert out.index("FROM THE LEDGER") > out.index("LOOK OUT FOR")
+
+
+def test_a_broken_ledger_still_sends_the_summary(
+    ledger_ready: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (ledger_ready / "ledger" / "accounts.beancount").write_text(
+        ACCOUNTS + '2026-01-01 open Assets:Other USD\n  tally-account: "discover"\n'
+    )
+    assert main(["summary", "--as-of", "2026-03-20"]) == 0
+    assert "(No report from the ledger this week:" in capsys.readouterr().out
