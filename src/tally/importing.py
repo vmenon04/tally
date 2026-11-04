@@ -20,7 +20,7 @@ from beancount.core import data
 
 from tally import rules, store
 from tally.importers import ParseError, bofa, discover
-from tally.ledger import accounts, book, updating
+from tally.ledger import accounts, book, history, updating
 from tally.transaction import Transaction
 
 
@@ -122,6 +122,11 @@ def run(
     except (book.LedgerError, rules.RulesError) as e:
         print(f"Nothing imported: the ledger can't be read: {e}", file=err)
         return False
+    if ledger is not None and not dry_run and history.is_repo(ledger.ledger.folder):
+        try:
+            history.commit(ledger.ledger.folder, "Save changes made outside tally")
+        except history.HistoryError as e:
+            print(f"ledger: {e}", file=err)
 
     ok = True
     parsed: list[ParsedFile] = []
@@ -164,6 +169,13 @@ def _finish_ledger(ledger: updating.Session, conn: sqlite3.Connection, err: Text
         print(f"ledger: bean-check found {len(errors)} problem(s):", file=err)
         for message in errors[:10]:
             print(f"  {message}", file=err)
+    folder = ledger.ledger.folder
+    if ledger.added and history.is_repo(folder):
+        try:
+            history.commit(folder, f"Import {ledger.added} entries")
+            history.push(folder)
+        except history.HistoryError as e:
+            print(f"ledger: {e}; the next import tries again", file=err)
     return True
 
 

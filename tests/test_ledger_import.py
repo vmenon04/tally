@@ -1,6 +1,8 @@
 import datetime
 import io
+import os
 import shutil
+import subprocess
 from decimal import Decimal
 from pathlib import Path
 
@@ -153,3 +155,57 @@ def test_pending_is_rewritten_only_when_it_changes(tmp_path: Path) -> None:
     assert session is not None
     assert not updating.refresh_pending(session, conn)  # the import already wrote it
     conn.close()
+
+
+def git(folder: Path, *args: str) -> str:
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    return subprocess.run(
+        ["git", "-C", str(folder), *args], capture_output=True, text=True, check=True, env=env
+    ).stdout
+
+
+def make_repo(data_dir: Path, tmp_path: Path) -> Path:
+    """Make the ledger a clone of a bare 'Forgejo' repo, as on the server."""
+    folder = data_dir / "ledger"
+    (folder / ".gitignore").write_text("pending.beancount\n")
+    bare = tmp_path / "forgejo.git"
+    git(tmp_path, "init", "--quiet", "--bare", str(bare))
+    git(folder, "init", "--quiet")
+    git(folder, "add", "--all")
+    git(folder, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "-m", "Start")
+    git(folder, "remote", "add", "origin", str(bare))
+    git(folder, "push", "--quiet", "origin", "HEAD")
+    return bare
+
+
+def test_import_commits_and_pushes_the_ledger(tmp_path: Path) -> None:
+    data_dir = make_data_dir(tmp_path)
+    bare = make_repo(data_dir, tmp_path)
+    folder = data_dir / "ledger"
+    # An edit you made since the last commit is committed on its own first.
+    (folder / "accounts.beancount").write_text(OPENS + "\n; a note\n")
+    ok, _, err = run(data_dir, BOFA)
+    assert ok, err
+    assert err == ""
+    log = git(bare, "log", "--format=%s %an").splitlines()
+    assert log == ["Import 15 entries tally", "Save changes made outside tally tally", "Start t"]
+    assert "pending.beancount" not in git(folder, "ls-files")
+    assert git(folder, "status", "--porcelain") == ""
+
+
+def test_import_without_new_entries_makes_no_commit(tmp_path: Path) -> None:
+    data_dir = make_data_dir(tmp_path)
+    bare = make_repo(data_dir, tmp_path)
+    run(data_dir, BOFA)
+    run(data_dir, BOFA)
+    assert len(git(bare, "log", "--format=%s").splitlines()) == 2
+
+
+def test_a_failed_push_keeps_the_commit_and_the_import(tmp_path: Path) -> None:
+    data_dir = make_data_dir(tmp_path)
+    bare = make_repo(data_dir, tmp_path)
+    shutil.rmtree(bare)
+    ok, _, err = run(data_dir, BOFA)
+    assert ok
+    assert "git push failed" in err
+    assert git(data_dir / "ledger", "log", "-1", "--format=%s") == "Import 15 entries\n"
