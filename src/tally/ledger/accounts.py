@@ -11,6 +11,7 @@ names accounts and bean-check sees every account tally writes to:
 
     2026-09-01 open Assets:Fidelity:Roth
       fidelity-account: "1234"              # Fidelity positions for the account ending 1234
+                                            # (or its whole number)
 
     2026-09-01 open Assets:BofA:Savings USD
       category: "Savings transfer"
@@ -53,16 +54,20 @@ class _Choice:
 class Accounts:
     sources: dict[str, str] = field(default_factory=dict)  # tally account -> ledger account
     categories: dict[str, tuple[_Choice, ...]] = field(default_factory=dict)
-    fidelity_accounts: dict[str, str] = field(default_factory=dict)  # last four -> account
+    fidelity_accounts: dict[str, str] = field(default_factory=dict)  # label -> account
 
-    def fidelity(self, label: str) -> str:
-        try:
-            return self.fidelity_accounts[label]
-        except KeyError:
-            raise AccountsError(
-                f'no open directive has fidelity-account: "{label}" (the account number\'s '
-                "last four)"
-            ) from None
+    def fidelity(self, number: str) -> tuple[str, str]:
+        """The ledger account for a Fidelity account number, and the label that named it.
+
+        An open directive names the account by its whole number or by its last four.
+        """
+        for label in (number, number[-4:]):
+            if label in self.fidelity_accounts:
+                return self.fidelity_accounts[label], label
+        raise AccountsError(
+            f'no open directive has fidelity-account: "{number[-4:]}" (the account number\'s '
+            "last four, or all of it)"
+        )
 
     def source(self, tally_account: str) -> str:
         try:
