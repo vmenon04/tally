@@ -22,13 +22,14 @@ import datetime
 from dataclasses import dataclass
 from decimal import Decimal
 
-from tally import budget, report
+from tally import plan, report
 from tally.alerts import Alert
-from tally.budget import Targets
 from tally.pending import is_pending
+from tally.plan import Targets
 from tally.rules import UNCATEGORIZED, Rules
 from tally.transaction import Transaction
-from tally.transactions_tab import ACCOUNT_NAMES
+
+ACCOUNT_NAMES = {"discover": "Discover", "bofa_checking": "BofA checking"}
 
 AHEAD = Decimal("0.15")
 PACE_PURCHASES = 3
@@ -310,7 +311,7 @@ def _next_month(today: datetime.date, rules: Rules, targets: Targets | None) -> 
         return []
     year, month = (today.year + 1, 1) if today.month == 12 else (today.year, today.month + 1)
     parts = []
-    paychecks = targets.for_month(budget.PAYCHECKS_ROW, year, month)
+    paychecks = targets.for_month(plan.PAYCHECKS, year, month)
     if paychecks is not None:
         parts.append(f"{paychecks:.0f} paycheck(s)")
     plan_total = sum(
@@ -318,7 +319,7 @@ def _next_month(today: datetime.date, rules: Rules, targets: Targets | None) -> 
     )
     if plan_total:
         parts.append(f"{report.money(plan_total)} of spending planned")
-    roth = targets.for_month(budget.ROTH_ROW, year, month)
+    roth = targets.for_month(plan.ROTH, year, month)
     if roth:
         parts.append(f"{report.money(roth)} to the Roth IRA")
     if not parts:
@@ -332,14 +333,14 @@ def _roth(
     contributed = this_month.investing_year_to_date + roth.elsewhere
     planned = Decimal(0)
     if targets is not None:
-        # This month's cell holds the plan until a contribution goes in (see budget.plan).
-        this = targets.for_month(budget.ROTH_ROW, today.year, today.month) or Decimal(0)
+        # What's still planned this month: the plan less what has gone in already.
+        this = targets.for_month(plan.ROTH, today.year, today.month) or Decimal(0)
         planned = max(this - this_month.investing, Decimal(0))
         planned += sum(
             (
                 amount
                 for m in range(today.month + 1, 13)
-                if (amount := targets.for_month(budget.ROTH_ROW, today.year, m)) is not None
+                if (amount := targets.for_month(plan.ROTH, today.year, m)) is not None
             ),
             Decimal(0),
         )

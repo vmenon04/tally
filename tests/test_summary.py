@@ -1,9 +1,9 @@
 import datetime
 from decimal import Decimal
 
-from tally import budget, rules, summary
+from tally import plan, rules, summary
 from tally.alerts import Alert
-from tally.budget import Targets
+from tally.plan import Targets
 from tally.transaction import Transaction
 
 RULES = rules.parse(
@@ -17,8 +17,8 @@ RULES = rules.parse(
 TARGETS = Targets(
     monthly={"Rent": Decimal(1000), "Groceries": Decimal(300), "Fun": Decimal(100)},
     months={
-        budget.PAYCHECKS_ROW: {"Apr 2026": Decimal(2)},
-        budget.ROTH_ROW: {"Mar 2026": Decimal(500), "Apr 2026": Decimal(500)},
+        plan.PAYCHECKS: {"Apr 2026": Decimal(2)},
+        plan.ROTH: {"Mar 2026": Decimal(500), "Apr 2026": Decimal(500)},
     },
 )
 NO_LIMIT = summary.Roth(None, Decimal(0))
