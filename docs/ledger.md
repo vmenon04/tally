@@ -69,7 +69,7 @@ shows up as a non-zero balance there.
 
 Download Accounts → Positions (all accounts) from Fidelity and import it like any export:
 `tally-remote import Portfolio_Positions_*.csv`. It goes to the ledger only. Each account in
-it, matched by `fidelity-account:` (the account number's last four, or all of it) on an open directive,
+it, matched by `fidelity-account:` (the account number's last four) on an open directive,
 gets one transaction tagged `#fidelity-positions` that brings the ledger to the snapshot:
 
 - each holding whose quantity or cost basis changed is closed and reopened at Fidelity's

@@ -17,7 +17,7 @@ FIDELITY_ACCOUNTS = """
 2026-01-01 open Assets:Fidelity:Roth
   fidelity-account: "1111"
 2026-01-01 open Assets:Fidelity:401k
-  fidelity-account: "22222"
+  fidelity-account: "2222"
 2026-01-01 open Assets:Fidelity:Go
   fidelity-account: "3333"
 2026-01-01 open Assets:Fidelity:Go:Cash USD
@@ -195,15 +195,3 @@ def test_roth_contributions_ignore_snapshot_cash(
     assert import_text(data_dir, tmp_path, later, capsys)[0] == 0
     found = weekly.build(data_dir / "ledger", datetime.date(2026, 3, 31), Decimal(7500), Decimal(0))
     assert found.roth_in == Decimal("500.00")
-
-
-def test_accounts_are_named_by_last_four_or_whole_number(
-    data_dir: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    assert main(["import", str(POSITIONS)]) == 0
-    text = (data_dir / "ledger" / "imported" / "2026.beancount").read_text()
-    # The 401(k) is named by its whole (short) number, the others by their last four.
-    assert 'fidelity-account: "22222"' in text
-    assert 'fidelity-account: "1111"' in text
-    # Long account numbers never reach the ledger.
-    assert "Z00001111" not in text and "X00003333" not in text

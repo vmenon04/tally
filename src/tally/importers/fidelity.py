@@ -10,8 +10,7 @@
 
 It's a snapshot: what each account holds on the day it was downloaded, with each holding's
 total cost basis. A money market row ("**" after the symbol, no quantity) is the account's
-cash. The account number is kept for matching only; the ledger records just the label its
-open directive gives the account (the number's last four, or all of it).
+cash. Only the last four characters of an account number are kept.
 """
 
 import calendar
@@ -43,7 +42,7 @@ class Holding:
 
 @dataclass(frozen=True, slots=True)
 class Account:
-    number: str
+    label: str  # last four characters of the account number
     name: str
     cash: Decimal | None  # money market balance, if the account has one
     holdings: list[Holding]
@@ -79,17 +78,17 @@ def parse(text: str) -> Snapshot:
             continue
         if len(row) < len(header) or not row[column["Symbol"]].strip():
             continue  # blank lines and the disclaimers under the table
-        number = row[0].strip()
-        if len(number) < 4:
-            raise ParseError("an account number is shorter than four characters", line)
-        account = accounts.setdefault(number, Account(number, row[1].strip(), None, []))
+        label = row[0].strip()[-4:]
+        if len(label) < 4:
+            raise ParseError(f"account number {label!r} is too short", line)
+        account = accounts.setdefault(label, Account(label, row[1].strip(), None, []))
         symbol = row[column["Symbol"]].strip()
         quantity = row[column["Quantity"]].strip()
         if symbol.endswith("**") and not quantity:
             if account.cash is not None:
-                raise ParseError(f"account …{number[-4:]} has two money market rows", line)
+                raise ParseError(f"account …{label} has two money market rows", line)
             cash = _money(row[column["Current value"]], line)
-            accounts[number] = Account(number, account.name, cash, account.holdings)
+            accounts[label] = Account(label, account.name, cash, account.holdings)
             continue
         if not _SYMBOL.fullmatch(symbol):
             raise ParseError(f"symbol {symbol!r} can't be a Beancount commodity", line)

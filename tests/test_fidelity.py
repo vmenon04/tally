@@ -17,10 +17,10 @@ def text() -> str:
 def test_parses_every_account_and_the_download_date() -> None:
     snapshot = parse(text())
     assert snapshot.date == datetime.date(2026, 3, 20)
-    assert [(a.number, a.name) for a in snapshot.accounts] == [
-        ("Z00001111", "ROTH IRA"),
-        ("22222", "EXAMPLE RET SAVINGS"),
-        ("X00003333", "Example Individual Fidelity Go"),
+    assert [(a.label, a.name) for a in snapshot.accounts] == [
+        ("1111", "ROTH IRA"),
+        ("2222", "EXAMPLE RET SAVINGS"),
+        ("3333", "Example Individual Fidelity Go"),
     ]
 
 
@@ -33,6 +33,11 @@ def test_money_market_is_cash_and_holdings_keep_cost_basis() -> None:
     ]
     assert savings.cash is None
     assert go.cash == Decimal("5.00")
+
+
+def test_only_the_last_four_of_an_account_number_are_kept() -> None:
+    snapshot = parse(text())
+    assert "Z00001111" not in repr(snapshot)
 
 
 def test_no_download_date_is_refused() -> None:

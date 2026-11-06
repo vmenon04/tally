@@ -15,8 +15,8 @@ transaction (tagged #fidelity-positions) brings the ledger to what the snapshot 
 Money moved between cash and holdings balances itself, so contributions from BofA (already
 in `:Cash`) aren't counted twice. It also adds each holding's price, and balance
 assertions for the day after, so a later snapshot or a hand edit that disagrees fails
-bean-check. Accounts are matched by `fidelity-account:` metadata: the account number's
-last four characters, or all of it.
+bean-check. Accounts are matched by `fidelity-account:` metadata, the last four characters
+of the account number.
 """
 
 import datetime
@@ -45,12 +45,12 @@ def entries(
     after = day + datetime.timedelta(days=1)
     result: list[data.Directive] = []
     for account in snapshot.accounts:
-        holdings_account, label = found.fidelity(account.number)
+        holdings_account = found.fidelity(account.label)
         cash_account = f"{holdings_account}:Cash"
-        earlier = _snapshots(existing, label)
+        earlier = _snapshots(existing, account.label)
         if any(e.date > day for e in earlier):
             raise ParseError(
-                f"the ledger already has a newer Fidelity snapshot for account …{label[-4:]}"
+                f"the ledger already has a newer Fidelity snapshot for account …{account.label}"
             )
         held = _held(existing, holdings_account, day)
         postings: list[data.Posting] = []
@@ -77,7 +77,7 @@ def entries(
             )
             result.append(
                 data.Transaction(
-                    {**meta, LABEL_KEY: label},
+                    {**meta, LABEL_KEY: account.label},
                     day,
                     "*" if first else "!",
                     "Fidelity",
