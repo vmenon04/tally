@@ -98,6 +98,10 @@ def test_identical_payments_are_all_kept() -> None:
             "FID BKG SVC LLC",
         ),
         ("Zelle payment to SAM PLACEHOLDER Conf# zz91kq0ab", "Zelle payment to SAM PLACEHOLDER"),
+        (
+            "Online Banking transfer to SAV 1234 Confirmation# 1000000001",
+            "Online Banking transfer to SAV 1234",
+        ),
         ("MAPLE MARKET 03/07 PURCHASE SPRINGFIELD IL", "MAPLE MARKET SPRINGFIELD IL"),
         (
             "BKOFAMERICA ATM 03/08 #000005678 WITHDRWL SPRINGFIELD MAIN SPRINGFIELD IL",

@@ -48,6 +48,9 @@ _NOISE = [
     (re.compile(r" \d{2}/\d{2} PURCHASE\b"), ""),
     (re.compile(r" \d{2}/\d{2} #\d+ WITHDRWL\b"), " WITHDRWL"),
     (re.compile(r" Conf# \S+$"), ""),
+    # Transfers between your own BofA accounts: "Online Banking transfer to SAV 1234
+    # Confirmation# 5527284505".
+    (re.compile(r" Confirmation# ?\S+$"), ""),
     (re.compile(r" FOR \d{2}/\d{2}/\d{2}$"), ""),
 ]
 
