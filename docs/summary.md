@@ -10,46 +10,37 @@ uv run tally summary --email --sync       # run `tally sync` first, then email i
 It covers the 7 days up to today (or the `--as-of` day; anything later is left out):
 
 - **This week:** every purchase, pending ones marked, against what the plan allows per week.
-- **The month so far:** each category's spending against its "Plan / mo" on the Budget tab, and
-  what's left per day. In a month's first days, how the month before ended.
+- **The month so far:** each category's spending against its plan, and what's left per day.
+  In a month's first days, how the month before ended.
 - **Look out for:** categories over plan or ahead of pace, big purchases, uncategorized
-  transactions, alerts missing from a bank export, and the monthly CSV import when it's due.
+  transactions, alerts missing from a bank export, the monthly import when it's due, and
+  anything wrong with the ledger (a row missing or doubled, a bean-check error).
 - **Coming up:** next month's paychecks, planned spending and Roth IRA transfer, and whether the
   year's planned Roth IRA contributions fit the limit.
+- **From the ledger:** a bean-query report: spending per category this month so far, the same
+  days last month and all of last month, and the year's Roth IRA contributions.
 
-The advice comes from fixed rules (the thresholds are at the top of `src/tally/summary.py`),
-worked out from the database, the pending alerts and the numbers typed on the Budget tab, which
-is read but never changed. The numbers are worked out here. Without `--as-of`, the finished summary then goes to Claude,
-which adds a short note of advice at the top; it can only comment, a note quoting a
-dollar amount the summary doesn't show is refused, and if there's no note the summary still goes
-out and says why. If the Sheet can't be read,
-the summary says so and leaves out the plan comparisons.
+Categories are the ledger's, so a category you set in Fava shows here. The plan comes from the
+ledger's `plan.beancount` ([The Beancount ledger](ledger.md#your-plan)). Spending counts by the
+day a purchase happened and includes pending alerts.
+
+The advice comes from fixed rules (the thresholds are at the top of `src/tally/summary.py`).
+Without `--as-of`, the finished summary then goes to Claude, which adds a short note of advice
+at the top; it can only comment, a note quoting a dollar amount the summary doesn't show is
+refused, and if there's no note the summary still goes out and says why. If the ledger can't
+be read, the summary says so and uses `rules.toml` alone.
 
 For the Roth IRA check, add to `data/config.toml`:
 
 ```toml
 roth_limit = 7500        # this year's contribution limit
-roth_elsewhere = 2240    # contributed this year where tally can't see it (before tally, other accounts)
+roth_elsewhere = 140     # contributed this year where tally can't see it (before tally, other accounts)
 ```
-
-The amounts typed in the Budget tab's Roth IRA row for the coming months count as planned.
-`tally sync` keeps the current month's planned amount there until a contribution goes in, then
-replaces it with the actual one.
-
-## From the ledger
-
-With a ledger ([The Beancount ledger](ledger.md)), the summary ends with a report worked out
-from it with bean-query: spending per category this month so far, the same days last month
-and all of last month, and the year's Roth IRA contributions against `roth_limit` (adding
-`roth_elsewhere`). It counts by purchase day, as the Sheet does, and includes pending
-alerts, so its numbers should match the ones above it. It's there to be compared with them
-until the Sheet is retired; if the ledger can't be read, a line says why and the rest of the
-summary goes out as usual.
 
 ## By email
 
-`--email` sends the same text, with a link to the Sheet, from the alerts mailbox
-(`gmail_account`) to the address in `summary_to`:
+`--email` sends the same text from the alerts mailbox (`gmail_account`) to the address in
+`summary_to`:
 
 ```toml
 summary_to = "you@example.com"
@@ -59,7 +50,6 @@ It signs in to Gmail's SMTP server with the app password `tally gmail-login` sav
 nothing else to set up. The summary is printed either way; if sending fails, the command says
 why and exits with an error.
 
-On the server, `tally-summary.timer` syncs the Sheet and sends it every Sunday at 6pm New York
-time. If the sync is blocked (say, by a value typed into a cell tally fills), the summary
-still goes out, and its first "look out for" item says why. See
-[Running on a server](server.md).
+On the server, `tally-summary.timer` runs `tally sync` and sends it every Sunday at 6pm New York
+time. If the sync fails, the summary still goes out, and its first "look out for" item says
+why. See [Running on a server](server.md).

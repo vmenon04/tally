@@ -36,8 +36,8 @@ RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 RestrictNamespaces=yes
 RestrictRealtime=yes
 LockPersonality=yes
-# No MemoryDenyWriteExecute: with it, uv's Python can't start threads, and the Google
-# client starts one for each Sheets request.
+# No MemoryDenyWriteExecute: with it, uv's Python can't start threads, which some
+# libraries tally uses need.
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes

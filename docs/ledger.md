@@ -26,23 +26,42 @@ Importing an overlapping file adds only rows the ledger doesn't have, counting i
 the way the database does (two equal coffees on one day are both kept). Runs of five or more
 digits in descriptions are cut to their last four, so account and reference numbers stay out.
 
-## Categories, and checking the ledger against the Sheet
+## Categories
 
-Until the Sheet is retired, `rules.toml` decides categories, as it always has: your
-corrections on the Sheet and Claude's guesses go there. After a successful `tally sync`
-(Sundays, or by hand), tally:
+The ledger decides categories. To change one, change the account on the entry's other side,
+in Fava (open the entry, then edit it) or in the file: `Expenses:Groceries` instead of
+`Expenses:Uncategorized`, say. That's all; nothing overwrites it.
 
-1. moves the other side of each imported entry whose category has changed to the right
-   account, changing only the account name on that line (a dry run lists the moves), then
-   commits and pushes;
-2. rewrites `pending.beancount` with the current categories, then compares the ledger with
-   the database: every posted row and pending alert has exactly one entry, in the category
-   the Sheet gives it, each month's spending per category matches the Sheet's, and
-   bean-check is clean. A dry run compares the ledger as its moves would leave it.
+`rules.toml` only fills in what nobody has decided: a new entry gets the category the rules
+give when it's imported, and an entry still in Uncategorized moves once the rules have an
+answer. `tally sync` (Sundays, or by hand) does that:
 
-The sync prints the result, and the weekly summary lists any difference under "look out
-for". A ledger problem is reported but never stops the sync or the summary. Entries you
-wrote yourself (no `tally-id`) and entries you split into more postings are left alone.
+1. a category you set on a pending purchase (in `pending.beancount`) becomes a rule for that
+   one purchase, so the 5-minute refresh keeps it and the posted row gets it too (the alerts
+   run does this as well);
+2. Claude categorizes merchants no rule covers yet, and its answers become merchant rules;
+3. imported entries still in Uncategorized move to the category the rules now give, changing
+   only the account name on that line; tally commits and pushes;
+4. it checks the ledger: every imported row and pending alert has exactly one entry, and
+   bean-check is clean.
+
+`tally sync --dry-run` shows all of it and saves nothing. The weekly summary lists any problem
+under "look out for". Entries you wrote yourself (no `tally-id`) and entries you split into
+more postings are left alone.
+
+## Your plan
+
+`plan.beancount` holds what the weekly summary compares against:
+
+```beancount
+2026-09-01 custom "budget" Expenses:Groceries "monthly" 300.00 USD   ; Fava's budget
+2026-11-01 custom "paychecks" 2                                      ; paychecks that month
+2026-11-01 custom "roth-plan" 600.00 USD                             ; Roth IRA transfer planned
+```
+
+A budget line holds until a later one for the same account; change the plan by adding a line
+dated when the change starts. Fava shows budgets on the Income Statement and on an account's
+**Changes (monthly)** page, with what's left.
 
 ## Accounts and categories
 

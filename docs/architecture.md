@@ -2,8 +2,9 @@
 
 tally runs on one home server. Everything it knows comes from two sources: the CSV exports
 you download from each bank, which are the record of what posted, and the alert emails the
-banks send at purchase time, which are provisional and give early warning. It writes to a
-Google Sheet and sends headline-only push notifications. There are no bank logins and no
+banks send at purchase time, which are provisional and give early warning. It keeps a
+Beancount ledger (pushed to its own repo on Forgejo, browsed with Fava), emails a weekly
+summary and sends headline-only push notifications. There are no bank logins and no
 aggregators.
 
 ## The whole system
@@ -18,18 +19,19 @@ flowchart LR
     subgraph google["Google"]
         main_gmail["Main Gmail<br/>filter forwards bank alerts"]
         alerts_gmail["Alerts Gmail<br/>holds only the bank alerts<br/>2-Step Verification + app password"]
-        sheet["Google Sheet<br/>Budget tab + Transactions tab"]
     end
 
     subgraph mac["Mac"]
         browser["Browser<br/>download CSV exports"]
+        fava_view["Browser<br/>Fava, over an SSH tunnel"]
     end
 
     subgraph server["Home server: myserver"]
         timer["systemd timer<br/>every 5 min"]
         tally["tally<br/>user: tally, sandboxed"]
-        data[("/srv/tally/data<br/>tally.db, rules.toml,<br/>config.toml, emails, CSVs")]
-        secrets[("/srv/tally/secrets<br/>app password, ntfy topic,<br/>service account key")]
+        data[("/srv/tally/data<br/>tally.db, rules.toml, config.toml,<br/>emails, CSVs, ledger/ (git clone)")]
+        secrets[("/srv/tally/secrets<br/>app password, ntfy topic,<br/>Claude token, Forgejo token")]
+        forgejo["Forgejo<br/>ledger repo, localhost:3000"]
     end
 
     ntfy["ntfy.sh<br/>random 128-bit topic"]
@@ -46,8 +48,9 @@ flowchart LR
     alerts_gmail -- "IMAP, read-only" --> tally
     tally <--> data
     secrets --> tally
-    tally -- "Sheets API, service account" --> sheet
-    sheet -- "category corrections" --> tally
+    tally -- "commit and push the ledger" --> forgejo
+    data -. "tally-remote fava: Unix socket, SSH" .-> fava_view
+    tally -- "weekly summary, SMTP" --> main_gmail
     tally -- "headlines only: counts, no merchants or amounts" --> ntfy
     ntfy --> phone
 ```
@@ -61,7 +64,8 @@ Solid lines run on their own; dotted lines are steps you do by hand.
 | Bank → alerts mailbox | Alert emails | An email counts only if Gmail's topmost `Authentication-Results` header shows `dkim=pass` for the bank's domain and the From address is the bank's. A forged email is refused and reported. |
 | Alerts mailbox → tally | Raw emails | An app password for an account that holds nothing but bank alerts. The mailbox is opened with `EXAMINE` and read with `BODY.PEEK`, so tally can't change it. |
 | CSV → database | Posted transactions | The bank is recognized by file contents. BofA running balances must add up, and a gap in its history stops the import. Rows are deduplicated by identity. |
-| tally → Sheet | Category totals, transaction list | A service account that can see only the one Sheet shared with it. Dry runs use a read-only client. tally never overwrites a cell it didn't write. |
+| tally → Forgejo | The ledger | A token for the one repo, in secrets/, given to git through its environment (never its command line or config). Forgejo is reached on localhost. |
+| Fava → you | The ledger, read and edit | Runs only while `tally-remote fava` is open, on a Unix socket in a folder only your account and tally can open; SSH forwards it to your machine. |
 | tally → ntfy | Headlines | ntfy topics have no password, so the topic is 128 random bits and messages carry only kinds and counts. |
 | Server | Everything | A `tally` user with no login, sudo or docker. `/srv/tally` is 700. The systemd sandbox allows writes to `/srv/tally/data` only. Files are 600 and folders 700. |
 
@@ -119,43 +123,42 @@ flowchart TD
     csv["CSV in data/inbox/"] --> recognize{"importing.py<br/>recognize by first line"}
     recognize -- "Discover" --> dparse["importers/discover.py"]
     recognize -- "BofA" --> bparse["importers/bofa.py<br/>checks running balances"]
+    recognize -- "Fidelity positions" --> fparse["importers/fidelity.py<br/>snapshot of holdings"]
     recognize -- "unknown" --> stay["left in inbox, error shown"]
     dparse --> txn["Transaction<br/>account, dates, description, amount"]
     bparse --> txn
     txn --> save["store.py<br/>skip rows already stored,<br/>refuse a BofA gap"]
     save --> db[("tally.db: transactions, imports")]
-    save --> archive["original moved to<br/>data/raw/account/date-hash.csv"]
+    save --> archive["original copied to<br/>data/raw/account/date-hash.csv"]
 
-    db --> categorize["rules.py + data/rules.toml<br/>first matching rule wins"]
-    alerts_db[("tally.db: alerts")] --> waiting["pending.py<br/>alerts no CSV reaches yet,<br/>as provisional rows, negative IDs"]
-    db --> waiting
-    waiting --> categorize
-    categorize --> rep["report.py<br/>a month's spending per category"]
+    txn --> extract["ledger/importers.py<br/>entries, categorized by rules.toml,<br/>balance assertions"]
+    fparse --> positions["ledger/positions.py<br/>holdings at cost, prices, balances"]
+    extract --> ledger[("data/ledger<br/>imported/YEAR.beancount")]
+    positions --> ledger
+    alerts_db[("tally.db: alerts")] --> waiting["pending.py<br/>alerts no CSV reaches yet"]
+    waiting --> pend["ledger/book.py<br/>pending.beancount, rewritten each run"]
+    pend --> ledger
+    ledger --> history["ledger/history.py<br/>commit, push to Forgejo"]
+
+    ledger -- "categories you set" --> rulesx["rules.py<br/>ledger categories first,<br/>then data/rules.toml"]
+    rulesx --> rep["report.py<br/>a month's spending per category"]
     rep --> cli_report["tally report YYYY-MM"]
     rep --> weekly["summary.py<br/>week, month vs plan,<br/>look out for, coming up"]
-    gsheet -- "plan numbers, read only" --> weekly
+    ledger -- "plan.beancount" --> weekly
+    ledger -- "bean-query" --> lreport["ledger/weekly.py<br/>month vs last month, Roth"]
     weekly --> cli_summary["tally summary"]
+    lreport --> cli_summary
 
-    rep --> plan["budget.py<br/>cells to change on the Budget tab"]
-    plan --> conflicts{"cell changed by<br/>someone other than tally?"}
-    conflicts -- "yes" --> stop["list conflicts, write nothing"]
-    conflicts -- "no" --> write["sheet.py<br/>batchUpdate as service account"]
-    categorize --> tab["transactions_tab.py<br/>rewrite Transactions tab"]
-    tab --> write
-    write --> gsheet["Google Sheet"]
-    write --> record[("tally.db: sheet_writes,<br/>sheet_categories")]
-
-    gsheet -- "you change a Category cell" --> edits["transactions_tab.find_edits"]
-    edits --> corr["corrections.py<br/>one-transaction rule in rules.toml,<br/>or Claude's merchant rule changed"]
-    corr --> categorize
-    categorize -- "merchants no rule covers" --> claude["categorizing.py<br/>claude -p, no tools;<br/>answers become merchant rules<br/>at the end of rules.toml"]
-    claude --> categorize
+    sync["tally sync<br/>ledger/updating.py"] --> corr["corrections.py<br/>a category set on a pending entry<br/>becomes a one-purchase rule"]
+    sync --> claude["categorizing.py<br/>claude -p, no tools;<br/>answers become merchant rules"]
+    sync --> moves["ledger/categories.py<br/>entries still Uncategorized<br/>move to the rules' answer"]
+    sync --> parity["ledger/parity.py<br/>every row once, bean-check"]
 ```
 
 ## Modules
 
 An arrow means "imports". `cli.py` is the only entry point. The parsers know nothing about
-storage, and the storage knows nothing about the Sheet.
+storage, and the ledger package knows nothing about email or notifications.
 
 ```mermaid
 flowchart TD
@@ -179,27 +182,28 @@ flowchart TD
         importers_bofa["importers/bofa.py"]
     end
 
-    subgraph budgeting["Budget"]
+    subgraph budgeting["Categories and summary"]
         rules["rules.py<br/>categories"]
         report["report.py<br/>month totals"]
-        budget["budget.py<br/>Budget tab plan"]
-        transactions_tab["transactions_tab.py<br/>Transactions tab"]
-        corrections["corrections.py<br/>Sheet edits to rules"]
+        plan["plan.py<br/>plan.beancount"]
+        corrections["corrections.py<br/>pending fixes to rules"]
         categorizing["categorizing.py<br/>Claude's merchant rules"]
         summary["summary.py<br/>weekly summary and advice"]
-        sheet["sheet.py<br/>Sheets API"]
+    end
+
+    subgraph ledgerpkg["Ledger"]
+        ledger_mods["ledger/: accounts, entries, importers,<br/>positions, book, categories, updating,<br/>history, parity, weekly, viewing"]
     end
 
     store["store.py<br/>SQLite, migrations"]
     config["config.py<br/>config.toml, secrets"]
-    transaction["transaction.py<br/>Transaction"]
+    transaction["transaction.py<br/>Transaction, identity"]
 
     cli --> alert_reading & importing & notify & gmail & config & store & pending
-    cli --> rules & report & budget & transactions_tab & corrections & sheet & summary
-    cli --> categorizing
+    cli --> rules & report & plan & summary & ledger_mods
 
     alert_reading --> gmail & matching & store & alerts_pkg & alerts_discover & alerts_bofa
-    alert_reading --> importing
+    alert_reading --> importing & ledger_mods
     alerts_discover --> alerts_pkg
     alerts_bofa --> alerts_pkg
     gmail --> config
@@ -208,16 +212,16 @@ flowchart TD
     pending --> matching & alerts_pkg & transaction
 
     importing --> store & importers_pkg & importers_discover & importers_bofa & transaction
+    importing --> ledger_mods
     importers_discover --> importers_pkg & transaction
     importers_bofa --> importers_pkg & transaction
 
     rules --> importers_discover & importers_bofa & transaction
     report --> rules & transaction
-    budget --> report & sheet
-    transactions_tab --> rules & sheet & transaction & pending
     corrections --> categorizing & rules & transaction
     categorizing --> rules & transaction
-    summary --> budget & report & pending & rules & transactions_tab
+    summary --> plan & report & pending & rules
+    ledger_mods --> rules & corrections & categorizing & store & pending & matching
 
     store --> alerts_pkg & transaction
 ```
@@ -230,7 +234,6 @@ version is stored in `PRAGMA user_version`, and `store.connect` runs any missing
 ```mermaid
 erDiagram
     imports ||--o{ transactions : "added"
-    transactions ||--o| sheet_categories : "corrected on the Sheet"
 
     imports {
         int id PK
@@ -267,22 +270,14 @@ erDiagram
         text key PK "new:, refused:, not-found:, mailbox-failure"
         text sent_at
     }
-    sheet_writes {
-        text sheet_id PK
-        text row_label PK
-        text month PK
-        int value_cents "what tally last wrote"
-    }
-    sheet_categories {
-        text sheet_id PK
-        int transaction_id PK "negative = pending alert"
-        text category
-    }
 ```
 
 Alerts are never joined to transactions in the database. Matching is recomputed on every
 run, so a late or corrected CSV fixes the picture without any cleanup. The same goes for
-pending alerts on the Sheet: each sync works out afresh which alerts no CSV reaches yet.
+pending alerts in the ledger: pending.beancount is worked out afresh on every run.
+
+Two tables from before the ledger, `sheet_writes` and `sheet_categories`, are still in the
+database but nothing uses them.
 
 ## On the server
 
