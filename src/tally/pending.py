@@ -1,6 +1,6 @@
 """Card alerts the bank exports don't reach yet, counted as provisional transactions.
 
-Between imports, alerts are the only sign of recent purchases, so the report and the Sheet
+Between imports, alerts are the only sign of recent purchases, so reports and the ledger
 count the alerts that matching calls *waiting*. Each becomes a Transaction with no posted
 date, under the negative of its alert ID so it can never be taken for a stored transaction.
 Once a CSV reaches an alert, its posted row counts instead.

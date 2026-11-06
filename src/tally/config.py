@@ -13,9 +13,12 @@ class ConfigError(ValueError):
     """config.toml is missing or malformed."""
 
 
+# Keys an older tally used, accepted and ignored so an old config.toml still loads.
+_OBSOLETE = {"sheet_id"}
+
+
 @dataclass(frozen=True, slots=True)
 class Config:
-    sheet_id: str
     gmail_account: str | None = None  # the mailbox the bank alerts are forwarded to
     summary_to: str | None = None  # where `tally summary --email` sends the weekly summary
     ntfy_server: str = NTFY_SERVER
@@ -33,19 +36,19 @@ def load(path: Path) -> Config:
     except tomllib.TOMLDecodeError as e:
         raise ConfigError(f"{path} is not valid TOML: {e}") from e
 
-    unknown = set(data) - {
-        "sheet_id",
-        "gmail_account",
-        "summary_to",
-        "ntfy_server",
-        "roth_limit",
-        "roth_elsewhere",
-    }
+    unknown = (
+        set(data)
+        - _OBSOLETE
+        - {
+            "gmail_account",
+            "summary_to",
+            "ntfy_server",
+            "roth_limit",
+            "roth_elsewhere",
+        }
+    )
     if unknown:
         raise ConfigError(f"{path}: unknown keys {sorted(unknown)}")
-    sheet_id = data.get("sheet_id")
-    if not isinstance(sheet_id, str) or not sheet_id.strip():
-        raise ConfigError(f"{path}: sheet_id must be the ID from the Sheet's URL")
     gmail_account = _address(data, "gmail_account", path)
     summary_to = _address(data, "summary_to", path)
     ntfy_server = data.get("ntfy_server", NTFY_SERVER)
@@ -54,7 +57,6 @@ def load(path: Path) -> Config:
     roth_limit = _amount(data, "roth_limit", path)
     roth_elsewhere = _amount(data, "roth_elsewhere", path)
     return Config(
-        sheet_id=sheet_id.strip(),
         gmail_account=gmail_account,
         summary_to=summary_to,
         ntfy_server=ntfy_server.rstrip("/"),

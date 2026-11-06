@@ -1,10 +1,10 @@
 """Asking Claude to categorize the merchants no rule covers, and keeping its answers as rules.
 
 Its answers go in a marked section at the bottom of rules.toml, one rule per merchant, so
-the rules you write and the corrections from the Sheet come first and win, and the next
-purchase at the same merchant needs no question. When you correct on the Sheet a
-transaction one of these rules categorized, sync changes that rule to your category too
-(see corrections.apply), so the mistake isn't repeated.
+the rules you write and your corrections come first and win, and the next purchase at the
+same merchant needs no question. When you correct a pending purchase one of these rules
+categorized, that rule changes to your category too (see corrections.apply), so the
+mistake isn't repeated.
 
 Claude runs as headless Claude Code (`claude -p`) with every tool turned off. It sees only
 merchant names, amounts and accounts, the categories, and your own merchant rules as

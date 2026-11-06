@@ -8,7 +8,6 @@ dependencies = [
     "beancount>=3.2",
     "beangulp>=0.2",
     "fava>=1.30",
-    "google-auth>=2.62.0",
     "requests>=2.34.2",
 ]
 

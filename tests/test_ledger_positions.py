@@ -6,9 +6,8 @@ import pytest
 from beancount.core import data, position
 from test_ledger_importers import BOFA
 from test_ledger_sync import ACCOUNTS, MAIN, RULES
-from test_sync import BUDGET_ID, FakeSheet, budget_grid
 
-from tally import sheet, store
+from tally import store
 from tally.cli import main
 from tally.ledger import book, weekly
 
@@ -32,15 +31,13 @@ def data_dir(
     folder = tmp_path / "data"
     monkeypatch.setenv("TALLY_DATA_DIR", str(folder))
     monkeypatch.setenv("TALLY_SECRETS_DIR", str(tmp_path / "secrets"))
-    monkeypatch.setattr(sheet, "GoogleSheet", FakeSheet)
-    FakeSheet.tab_ids = {"Budget": BUDGET_ID}
-    FakeSheet.grids = {BUDGET_ID: budget_grid()}
     ledger = folder / "ledger"
     (ledger / "imported").mkdir(parents=True)
     (ledger / "main.beancount").write_text(MAIN)
+    (ledger / "plan.beancount").write_text("")
     (ledger / "accounts.beancount").write_text(ACCOUNTS + FIDELITY_ACCOUNTS)
     (ledger / "imported" / "2026.beancount").write_text("")
-    (folder / "config.toml").write_text('sheet_id = "test-sheet"\nroth_limit = 7500\n')
+    (folder / "config.toml").write_text("roth_limit = 7500\n")
     (folder / "rules.toml").write_text(RULES)
     # BofA in March, with 500.00 into the Roth IRA on 03/10.
     assert main(["import", str(BOFA)]) == 0

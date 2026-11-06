@@ -1,8 +1,6 @@
 import datetime
 import io
-import os
 import shutil
-import subprocess
 from decimal import Decimal
 from pathlib import Path
 
@@ -136,7 +134,7 @@ def test_waiting_alerts_go_to_pending_after_the_last_balance(tmp_path: Path) -> 
     store.save_alert(conn, alert(datetime.date(2026, 3, 18), "MAPLE MARKET", "-9.00", 2), now=now)
     session = updating.open_session(data_dir)
     assert session is not None
-    assert updating.refresh_pending(session, conn)
+    assert updating.refresh_pending(session, conn) == []  # nothing you changed to keep
     conn.close()
 
     pending = (data_dir / "ledger" / "pending.beancount").read_text()
@@ -150,98 +148,11 @@ def test_waiting_alerts_go_to_pending_after_the_last_balance(tmp_path: Path) -> 
 def test_pending_is_rewritten_only_when_it_changes(tmp_path: Path) -> None:
     data_dir = make_data_dir(tmp_path)
     run(data_dir, BOFA)
+    pending_file = data_dir / "ledger" / "pending.beancount"
+    before = pending_file.stat().st_mtime_ns
     conn = store.connect(data_dir / "tally.db")
-    session = updating.open_session(data_dir)
+    session = updating.open_session(data_dir, conn)
     assert session is not None
-    assert not updating.refresh_pending(session, conn)  # the import already wrote it
+    updating.refresh_pending(session, conn)  # the import already wrote it
     conn.close()
-
-
-def git(folder: Path, *args: str) -> str:
-    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-    return subprocess.run(
-        ["git", "-C", str(folder), *args], capture_output=True, text=True, check=True, env=env
-    ).stdout
-
-
-def make_repo(data_dir: Path, tmp_path: Path) -> Path:
-    """Make the ledger a clone of a bare 'Forgejo' repo, as on the server."""
-    folder = data_dir / "ledger"
-    (folder / ".gitignore").write_text("pending.beancount\n")
-    bare = tmp_path / "forgejo.git"
-    git(tmp_path, "init", "--quiet", "--bare", str(bare))
-    git(folder, "init", "--quiet")
-    git(folder, "add", "--all")
-    git(folder, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "-m", "Start")
-    git(folder, "remote", "add", "origin", str(bare))
-    git(folder, "push", "--quiet", "origin", "HEAD")
-    return bare
-
-
-def test_import_commits_and_pushes_the_ledger(tmp_path: Path) -> None:
-    data_dir = make_data_dir(tmp_path)
-    bare = make_repo(data_dir, tmp_path)
-    folder = data_dir / "ledger"
-    # An edit you made since the last commit is committed on its own first.
-    (folder / "accounts.beancount").write_text(OPENS + "\n; a note\n")
-    ok, _, err = run(data_dir, BOFA)
-    assert ok, err
-    assert err == ""
-    log = git(bare, "log", "--format=%s %an").splitlines()
-    assert log == ["Import 15 entries tally", "Save changes made outside tally tally", "Start t"]
-    assert "pending.beancount" not in git(folder, "ls-files")
-    assert git(folder, "status", "--porcelain") == ""
-
-
-def test_import_without_new_entries_makes_no_commit(tmp_path: Path) -> None:
-    data_dir = make_data_dir(tmp_path)
-    bare = make_repo(data_dir, tmp_path)
-    run(data_dir, BOFA)
-    run(data_dir, BOFA)
-    assert len(git(bare, "log", "--format=%s").splitlines()) == 2
-
-
-def test_a_failed_push_keeps_the_commit_and_the_import(tmp_path: Path) -> None:
-    data_dir = make_data_dir(tmp_path)
-    bare = make_repo(data_dir, tmp_path)
-    shutil.rmtree(bare)
-    ok, _, err = run(data_dir, BOFA)
-    assert ok
-    assert "going on without the latest" in err
-    assert "fatal:" in err
-    assert "git push failed" in err
-    assert git(data_dir / "ledger", "log", "-1", "--format=%s") == "Import 15 entries\n"
-
-
-def test_import_pulls_edits_made_elsewhere_first(tmp_path: Path) -> None:
-    data_dir = make_data_dir(tmp_path)
-    bare = make_repo(data_dir, tmp_path)
-    elsewhere = tmp_path / "mac"
-    git(tmp_path, "clone", "--quiet", str(bare), str(elsewhere))
-    (elsewhere / "statements.beancount").write_text(
-        "2026-03-15 balance Assets:BofA:Checking 1698.53 USD\n"
-    )
-    git(elsewhere, "add", "--all")
-    git(elsewhere, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "-m", "Mac")
-    git(elsewhere, "push", "--quiet", "origin", "HEAD")
-    ok, _, err = run(data_dir, BOFA)
-    assert ok, err
-    assert (data_dir / "ledger" / "statements.beancount").exists()
-    assert git(bare, "log", "--format=%s").splitlines() == ["Import 15 entries", "Mac", "Start"]
-
-
-def test_a_conflicting_pull_stops_the_import(tmp_path: Path) -> None:
-    data_dir = make_data_dir(tmp_path)
-    bare = make_repo(data_dir, tmp_path)
-    elsewhere = tmp_path / "mac"
-    git(tmp_path, "clone", "--quiet", str(bare), str(elsewhere))
-    (elsewhere / "accounts.beancount").write_text(OPENS + "; mac\n")
-    git(elsewhere, "add", "--all")
-    git(elsewhere, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "-m", "Mac")
-    git(elsewhere, "push", "--quiet", "origin", "HEAD")
-    (data_dir / "ledger" / "accounts.beancount").write_text(OPENS + "; server\n")
-    ok, _, err = run(data_dir, BOFA)
-    assert not ok
-    assert "can't be brought up to date" in err
-    assert not (data_dir / "tally.db").exists()
-    assert git(data_dir / "ledger", "status", "--porcelain") == ""  # rebase was undone
+    assert pending_file.stat().st_mtime_ns == before

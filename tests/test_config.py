@@ -13,23 +13,24 @@ def write(tmp_path: Path, text: str) -> Path:
 
 
 def test_load(tmp_path: Path) -> None:
-    assert config.load(write(tmp_path, 'sheet_id = " abc123 "\n')) == config.Config("abc123")
+    assert config.load(write(tmp_path, "")) == config.Config()
+
+
+def test_an_old_sheet_id_is_ignored(tmp_path: Path) -> None:
+    assert config.load(write(tmp_path, "")) == config.Config()
 
 
 @pytest.mark.parametrize(
     ("text", "error"),
     [
-        ("sheet_id = ", "not valid TOML"),
-        ("", "sheet_id must be"),
-        ('sheet_id = ""\n', "sheet_id must be"),
-        ("sheet_id = 5\n", "sheet_id must be"),
-        ('sheet_id = "a"\nsheet = "b"\n', "unknown keys"),
-        ('sheet_id = "a"\ngmail_account = "alerts"\n', "gmail_account must be"),
-        ('sheet_id = "a"\ngmail_account = 5\n', "gmail_account must be"),
-        ('sheet_id = "a"\nntfy_server = "http://ntfy.example.com"\n', "must be an https"),
-        ('sheet_id = "a"\nroth_limit = "7500"\n', "roth_limit must be an amount"),
-        ('sheet_id = "a"\nroth_elsewhere = -1\n', "roth_elsewhere must be an amount"),
-        ('sheet_id = "a"\nroth_limit = true\n', "roth_limit must be an amount"),
+        ("roth_limit = ", "not valid TOML"),
+        ('sheet = "b"\n', "unknown keys"),
+        ('gmail_account = "alerts"\n', "gmail_account must be"),
+        ("gmail_account = 5\n", "gmail_account must be"),
+        ('ntfy_server = "http://ntfy.example.com"\n', "must be an https"),
+        ('roth_limit = "7500"\n', "roth_limit must be an amount"),
+        ("roth_elsewhere = -1\n", "roth_elsewhere must be an amount"),
+        ("roth_limit = true\n", "roth_limit must be an amount"),
     ],
 )
 def test_bad_config(tmp_path: Path, text: str, error: str) -> None:
@@ -38,13 +39,13 @@ def test_bad_config(tmp_path: Path, text: str, error: str) -> None:
 
 
 def test_gmail_account(tmp_path: Path) -> None:
-    text = 'sheet_id = "abc123"\ngmail_account = " alerts@example.com "\n'
+    text = 'gmail_account = " alerts@example.com "\n'
     assert config.load(write(tmp_path, text)).gmail_account == "alerts@example.com"
 
 
 def test_ntfy_server(tmp_path: Path) -> None:
-    assert config.load(write(tmp_path, 'sheet_id = "a"\n')).ntfy_server == "https://ntfy.sh"
-    text = 'sheet_id = "a"\nntfy_server = "https://ntfy.example.com/"\n'
+    assert config.load(write(tmp_path, "")).ntfy_server == "https://ntfy.sh"
+    text = 'ntfy_server = "https://ntfy.example.com/"\n'
     assert config.load(write(tmp_path, text)).ntfy_server == "https://ntfy.example.com"
 
 
@@ -71,9 +72,7 @@ def test_secrets_dir(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_roth_settings(tmp_path: Path) -> None:
-    plain = config.load(write(tmp_path, 'sheet_id = "a"\n'))
+    plain = config.load(write(tmp_path, ""))
     assert (plain.roth_limit, plain.roth_elsewhere) == (None, Decimal(0))
-    loaded = config.load(
-        write(tmp_path, 'sheet_id = "a"\nroth_limit = 7500\nroth_elsewhere = 1234.50\n')
-    )
+    loaded = config.load(write(tmp_path, "roth_limit = 7500\nroth_elsewhere = 1234.50\n"))
     assert (loaded.roth_limit, loaded.roth_elsewhere) == (Decimal(7500), Decimal("1234.50"))

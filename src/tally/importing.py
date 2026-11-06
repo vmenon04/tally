@@ -57,7 +57,7 @@ def read(path: Path) -> ParsedFile:
         raise ParseError(f"not a text file ({e.reason})") from e
     first_line = next(csv.reader(io.StringIO(text.removeprefix("﻿"))), [])
     if fidelity.is_positions(first_line):
-        # Investments go to the ledger only; the database and the Sheet track spending.
+        # Investments go to the ledger only; the database tracks bank and card rows.
         return ParsedFile(path, hashlib.sha256(data).hexdigest(), FIDELITY, [], text)
     source = _SOURCES.get(tuple(first_line))
     if source is None:
@@ -234,8 +234,9 @@ def _import_one(
         return _import_positions(p, data_dir, ledger, dry_run, from_inbox, today, out, err)
     new_entries: list[data.Directive] = []
     if ledger is not None:
+        # First only to find a problem before anything is stored.
         try:
-            new_entries = updating.extract(ledger, p.account, p.text, p.path.name)
+            updating.extract(ledger, p.account, p.text, p.path.name)
         except (ParseError, accounts.AccountsError) as e:
             print(f"{p.path.name}: not imported: ledger: {e}", file=err)
             return False
@@ -259,6 +260,13 @@ def _import_one(
         file=out,
     )
     if ledger is not None:
+        # Again with the rows stored, so a category set on a pending alert reaches its row.
+        try:
+            ledger.rules = updating.rules_for(data_dir, conn)
+            new_entries = updating.extract(ledger, p.account, p.text, p.path.name)
+        except (ParseError, accounts.AccountsError, rules.RulesError) as e:
+            print(f"{p.path.name}: stored, but not added to the ledger: {e}", file=err)
+            return False
         print(f"  ledger: {len(new_entries)} new entries", file=out)
     if dry_run:
         for t in result.new:

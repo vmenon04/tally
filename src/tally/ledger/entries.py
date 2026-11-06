@@ -1,7 +1,6 @@
 """Turning tally Transactions into Beancount entries, and recognizing ones already written."""
 
 import datetime
-import hashlib
 import re
 from collections import Counter
 from collections.abc import Iterable, Sequence
@@ -11,7 +10,7 @@ from beancount.core import amount, data
 
 from tally.ledger.accounts import Accounts
 from tally.rules import Rules
-from tally.transaction import Transaction
+from tally.transaction import Transaction, identity
 
 CURRENCY = "USD"
 ID_KEY = "tally-id"
@@ -19,13 +18,6 @@ PURCHASED_KEY = "purchased"
 DUPLICATE_KEY = "__duplicate__"  # what beangulp marks a duplicate with
 
 _LONG_NUMBER = re.compile(r"\d{5,}")
-
-
-def identity(t: Transaction) -> str:
-    """A short hash of the fields that make a row itself, as tally.db deduplicates them."""
-    posted = t.posted.isoformat() if t.posted else ""
-    key = "\x1f".join((t.account, t.date.isoformat(), posted, t.description, f"{t.amount:.2f}"))
-    return hashlib.sha256(key.encode()).hexdigest()[:16]
 
 
 def mask(text: str) -> str:

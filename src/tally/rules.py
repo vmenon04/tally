@@ -19,13 +19,14 @@ out whenever transactions are read, so editing a rule re-sorts past transactions
 
 import datetime
 import tomllib
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 from tally.importers import bofa, discover
-from tally.transaction import Transaction
+from tally.transaction import Transaction, identity
 
 # Kinds of money movement that aren't spending, available to every rules file.
 NOT_SPENDING = ("Income", "Card payment", "Savings transfer", "Investing")
@@ -61,10 +62,15 @@ class Rule:
 
 @dataclass(frozen=True, slots=True)
 class Rules:
-    categories: tuple[str, ...]  # spending categories, in Budget tab order
+    categories: tuple[str, ...]  # spending categories, in the order you plan them
     rules: tuple[Rule, ...]
+    # Categories the ledger holds, by tally-id: what you set there beats any rule.
+    overrides: Mapping[str, str] = field(default_factory=dict)
 
     def categorize(self, t: Transaction) -> str:
+        found = self.overrides.get(identity(t)) if self.overrides else None
+        if found is not None:
+            return found
         return next((r.category for r in self.rules if r.matches(t)), UNCATEGORIZED)
 
 

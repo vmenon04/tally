@@ -26,6 +26,7 @@ from tally.ledger import accounts, entries
 from tally.pending import as_transaction
 from tally.rules import Rules
 
+WRITTEN_CATEGORY = "tally-category"
 _TOTAL_COST = re.compile(r"\{# ([^}]+)\}")
 MAIN = "main.beancount"
 PENDING = "pending.beancount"
@@ -34,7 +35,9 @@ IMPORTED = "imported"
 _HEADER = "; Written by tally import. Change categories freely; don't change tally-id.\n"
 _PENDING_HEADER = (
     "; Rewritten by tally on every run: alert emails no bank export has reached yet.\n"
-    "; Don't edit; each entry is replaced by its posted row once the export arrives.\n"
+    "; Change a category here (in Fava) and tally keeps it, for the posted row too. Anything\n"
+    "; else you change is replaced on the next run, and each entry by its posted row once the\n"
+    "; export arrives.\n"
 )
 
 
@@ -117,12 +120,14 @@ def pending_entries(
     An alert is dated no earlier than its account's latest balance assertion: no export
     has it, so it posts after the period they cover, and a balance mustn't count it.
     """
-    floors = _latest_balances(e for e in ledger.entries if not _is_pending(ledger, e))
+    floors = _latest_balances(e for e in ledger.entries if not is_pending(ledger, e))
     pending = []
     for a in waiting:
         t = as_transaction(a)
         account = ledger.accounts.source(t.account)
         entry = entries.transaction(t, ledger.accounts, rules, flag="!")
+        # What tally gave it, so a category you change in Fava can be told from a rule change.
+        entry.meta[WRITTEN_CATEGORY] = rules.categorize(t)
         floor = floors.get(account)
         if floor is not None and floor > entry.date:
             entry.meta[entries.PURCHASED_KEY] = entry.date
@@ -130,6 +135,23 @@ def pending_entries(
         pending.append(entry)
     pending.sort(key=lambda e: (e.date, e.payee or "", e.meta[entries.ID_KEY]))
     return pending
+
+
+def pending_fixes(ledger: Ledger) -> dict[str, str]:
+    """Categories you changed on pending entries since tally wrote them, by tally-id."""
+    sources = set(ledger.accounts.sources.values())
+    fixes = {}
+    for e in ledger.entries:
+        if not isinstance(e, data.Transaction) or not is_pending(ledger, e):
+            continue
+        written = e.meta.get(WRITTEN_CATEGORY)
+        others = [p.account for p in e.postings if p.account not in sources]
+        if written is None or entries.ID_KEY not in e.meta or len(others) != 1:
+            continue
+        now = ledger.accounts.category_of(others[0])
+        if now is not None and now != written:
+            fixes[e.meta[entries.ID_KEY]] = now
+    return fixes
 
 
 def write_pending(ledger: Ledger, waiting: Sequence[Alert], rules: Rules) -> bool:
@@ -145,11 +167,11 @@ def write_pending(ledger: Ledger, waiting: Sequence[Alert], rules: Rules) -> boo
 
 def with_pending(ledger: Ledger, pending: Sequence[data.Directive]) -> Ledger:
     """The ledger with these pending entries in place of the ones on disk, for comparing."""
-    kept = [e for e in ledger.entries if not _is_pending(ledger, e)]
+    kept = [e for e in ledger.entries if not is_pending(ledger, e)]
     return Ledger(ledger.folder, [*kept, *pending], ledger.errors, ledger.accounts)
 
 
-def _is_pending(ledger: Ledger, entry: data.Directive) -> bool:
+def is_pending(ledger: Ledger, entry: data.Directive) -> bool:
     filename = (entry.meta or {}).get("filename", "")
     return bool(filename) and Path(filename).resolve() == (ledger.folder / PENDING).resolve()
 

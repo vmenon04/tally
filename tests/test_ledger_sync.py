@@ -1,15 +1,18 @@
+import datetime
+from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import pytest
 from beancount import loader
 from test_ledger_importers import BOFA
-from test_sync import BUDGET_ID, FakeSheet, budget_cell, budget_grid, sync
 
-from tally import rules, sheet, store
+from tally import categorizing, store
+from tally.alerts import Alert
 from tally.cli import main
-from tally.ledger import accounts, book
+from tally.ledger import accounts, book, updating, weekly
 
-# Rules and a ledger to match, in the shape of test_sync's.
+# Rules and a ledger to match.
 RULES = (
     'categories = ["Rent + fees", "Groceries"]\n'
     '[[rule]]\nmatch = "MAPLE MARKET"\ncategory = "Groceries"\n'
@@ -45,21 +48,25 @@ ACCOUNTS = """
 """
 MAIN = """option "operating_currency" "USD"
 include "accounts.beancount"
+include "plan.beancount"
 include "imported/*.beancount"
 include "pending.beancount"
 """
+PLAN = """
+2026-01-01 custom "budget" Expenses:Rent "monthly" 800.00 USD
+2026-01-01 custom "budget" Expenses:Groceries "monthly" 300.00 USD
+2026-03-01 custom "roth-plan" 500.00 USD
+2026-04-01 custom "paychecks" 2
+2026-04-01 custom "roth-plan" 400.00 USD
+"""
+NOW = datetime.datetime(2026, 3, 18, tzinfo=datetime.UTC)
 
 
 @pytest.fixture
 def data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """As test_sync's: a data folder, and a fake Sheet in place of Google's."""
     folder = tmp_path / "data"
     monkeypatch.setenv("TALLY_DATA_DIR", str(folder))
     monkeypatch.setenv("TALLY_SECRETS_DIR", str(tmp_path / "secrets"))
-    monkeypatch.setattr(sheet, "GoogleSheet", FakeSheet)
-    FakeSheet.tab_ids = {"Budget": BUDGET_ID}
-    FakeSheet.grids = {BUDGET_ID: budget_grid()}
-    FakeSheet.batches, FakeSheet.write_flags, FakeSheet.fail_writes = [], [], False
     return folder
 
 
@@ -69,8 +76,10 @@ def ledger_ready(data: Path, capsys: pytest.CaptureFixture[str]) -> Path:
     (folder / "imported").mkdir(parents=True)
     (folder / "main.beancount").write_text(MAIN)
     (folder / "accounts.beancount").write_text(ACCOUNTS)
+    (folder / "plan.beancount").write_text(PLAN)
     (folder / "imported" / "2026.beancount").write_text("")
-    (data / "config.toml").write_text('sheet_id = "test-sheet"\n')
+    # An old config.toml still has sheet_id; it's ignored.
+    (data / "config.toml").write_text('sheet_id = "old-sheet"\nroth_limit = 7500\n')
     (data / "rules.toml").write_text(RULES)
     assert main(["import", str(BOFA)]) == 0
     capsys.readouterr()
@@ -81,219 +90,152 @@ def imported(data: Path) -> str:
     return (data / "ledger" / "imported" / "2026.beancount").read_text()
 
 
-def test_sync_reports_the_ledger_matches(
-    ledger_ready: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    code, out, err = sync(capsys)
-    assert code == 0, err
-    assert "Ledger: all 13 rows and every month's totals match; bean-check is clean." in out
+def run(capsys: pytest.CaptureFixture[str], *args: str) -> tuple[int, str, str]:
+    code = main(list(args))
+    captured = capsys.readouterr()
+    return code, captured.out, captured.err
 
 
-def test_a_rule_change_moves_the_ledger_entry_too(
-    ledger_ready: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    assert "Expenses:Groceries" in imported(ledger_ready)
-    (ledger_ready / "rules.toml").write_text(RULES.replace("MAPLE MARKET", "NO SUCH SHOP"))
+def claude_answers(monkeypatch: pytest.MonkeyPatch, answers: dict[str, str]) -> None:
+    def ask(question: str, schema: dict[str, Any], token: str | None, **_: Any) -> Any:
+        return {"answers": [{"merchant": m, "category": c} for m, c in answers.items()]}
 
-    code, out, _ = sync(capsys, "--dry-run")
+    monkeypatch.setattr(categorizing, "ask_claude", ask)
+
+
+def test_sync_checks_the_ledger(ledger_ready: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    code, out, _ = run(capsys, "sync")
     assert code == 0
-    assert "Ledger: would move 1 entries to their current category:" in out
-    assert "MAPLE MARKET SPRINGFIELD IL: Groceries → Uncategorized" in out
-    # Compared as the moves would leave it, so the dry run says what the sync will find.
-    assert "rows and every month's totals match" in out
-    assert "Expenses:Groceries" in imported(ledger_ready)
+    assert "Ledger: all 13 imported rows are there once; bean-check is clean." in out
 
-    code, out, _ = sync(capsys)
+
+def test_sync_needs_a_ledger(data: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    data.mkdir()
+    (data / "rules.toml").write_text(RULES)
+    assert main(["import", str(BOFA)]) == 0
+    code, _, err = run(capsys, "sync")
+    assert code == 1
+    assert "there's no ledger" in err
+
+
+def test_claude_fills_in_uncategorized_entries(
+    ledger_ready: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert "  Expenses:Uncategorized   75.25 USD" in imported(ledger_ready)
+    claude_answers(monkeypatch, {"REMITLY INC": "Groceries"})
+
+    code, out, _ = run(capsys, "sync", "--dry-run")
     assert code == 0
-    assert "Ledger: moved 1 entries" in out
-    assert "Expenses:Groceries" not in imported(ledger_ready)
-    assert "rows and every month's totals match" in out
+    assert "REMITLY INC → Groceries" in out
+    assert "Would move" in out and "REMITLY INC: Uncategorized → Groceries" in out
+    assert "  Expenses:Uncategorized   75.25 USD" in imported(ledger_ready)
+
+    code, out, _ = run(capsys, "sync")
+    assert code == 0
+    assert "Moved" in out
+    assert "  Expenses:Groceries   75.25 USD" in imported(ledger_ready)
+    assert 'merchant = "REMITLY INC"' in (ledger_ready / "rules.toml").read_text()
     assert book.check(ledger_ready / "ledger") == []
 
 
-def test_an_edit_on_the_posting_line_survives_a_move(
+def test_a_category_you_set_in_the_ledger_stays(
     ledger_ready: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     path = ledger_ready / "ledger" / "imported" / "2026.beancount"
-    text = imported(ledger_ready).replace(
-        "  Expenses:Groceries     42.10 USD", "  Expenses:Groceries     42.10 USD ; weekly shop"
+    path.write_text(
+        imported(ledger_ready).replace(
+            "  Expenses:Groceries     42.10 USD", "  Expenses:Rent  42.10 USD"
+        )
     )
-    path.write_text(text)
-    (ledger_ready / "rules.toml").write_text(RULES.replace("MAPLE MARKET", "NO SUCH SHOP"))
-    assert sync(capsys)[0] == 0
-    assert "  Expenses:Uncategorized     42.10 USD ; weekly shop" in imported(ledger_ready)
+    code, _, _ = run(capsys, "sync")
+    assert code == 0
+    assert "  Expenses:Rent  42.10 USD" in imported(ledger_ready)
+    # Reports go by the ledger, not the rule.
+    code, out, _ = run(capsys, "report", "2026-03")
+    assert code == 0
+    rent = next(line for line in out.splitlines() if "Rent + fees" in line)
+    groceries = next(line for line in out.splitlines() if "Groceries" in line)
+    assert "$42.10" in rent and "$0.00" in groceries
 
 
-def test_a_missing_entry_is_reported_in_sync_and_summary(
+def test_claude_failing_doesnt_stop_the_sync(
+    ledger_ready: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code, out, err = run(capsys, "sync")  # conftest's Claude always fails
+    assert code == 0
+    assert "sync: Claude didn't categorize" in err
+    assert "bean-check is clean" in out
+
+
+def alert(n: int, day: int, merchant: str, amount: str) -> Alert:
+    return Alert(
+        "bofa_checking",
+        datetime.date(2026, 3, day),
+        merchant,
+        Decimal(amount),
+        f"<{n}@example.com>",
+        datetime.datetime(2026, 3, day, tzinfo=datetime.UTC),
+    )
+
+
+def test_a_category_set_on_a_pending_entry_is_kept(ledger_ready: Path) -> None:
+    conn = store.connect(ledger_ready / "tally.db")
+    store.save_alert(conn, alert(1, 18, "MAPLE MARKET", "-9.00"), now=NOW)
+    session = updating.open_session(ledger_ready, conn)
+    assert session is not None
+    updating.refresh_pending(session, conn)
+    pending_file = ledger_ready / "ledger" / "pending.beancount"
+    text = pending_file.read_text()
+    assert 'tally-category: "Groceries"' in text
+    # You change it in Fava...
+    pending_file.write_text(text.replace("Expenses:Groceries", "Expenses:Rent"))
+    # ...and the next alerts run keeps it, as a rule for that one purchase.
+    session = updating.open_session(ledger_ready, conn)
+    assert session is not None
+    kept = updating.refresh_pending(session, conn)
+    conn.close()
+    assert kept and "Rent + fees" in kept[0]
+    after = pending_file.read_text()
+    assert "Expenses:Rent" in after and 'tally-category: "Rent + fees"' in after
+    assert "corrected" in (ledger_ready / "rules.toml").read_text()
+
+
+def test_summary_takes_the_plan_from_the_ledger(
+    ledger_ready: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code, out, _ = run(capsys, "summary", "--as-of", "2026-03-20")
+    assert code == 0
+    assert "of   $300.00" in out  # Groceries' plan
+    assert "April: 2 paycheck(s), $1,100.00 of spending planned, $400.00 to the Roth IRA." in out
+    assert "FROM THE LEDGER (bean-query)" in out
+    assert "Budget tab" not in out
+
+
+def test_a_summary_without_a_plan_says_so(
+    ledger_ready: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (ledger_ready / "ledger" / "plan.beancount").write_text("")
+    code, out, _ = run(capsys, "summary", "--as-of", "2026-03-20")
+    assert code == 0
+    assert "The ledger has no plan yet" in out
+
+
+def test_a_missing_entry_is_in_the_summary(
     ledger_ready: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     path = ledger_ready / "ledger" / "imported" / "2026.beancount"
     text = imported(ledger_ready)
-    start = text.index('2026-03-13 * "REMITLY INC"')
-    path.write_text(text[:start])  # also drops the settled balance after it
-
-    code, out, _ = sync(capsys)
+    path.write_text(text[: text.index('2026-03-13 * "REMITLY INC"')])
+    code, out, _ = run(capsys, "summary", "--as-of", "2026-03-20")
     assert code == 0
-    assert "Ledger: The ledger is missing 1 of tally's transactions." in out
-    assert "missing: 2026-03-13      -75.25  REMITLY INC" in out
-
-    assert main(["summary", "--as-of", "2026-03-20"]) == 0
-    out = capsys.readouterr().out
-    assert "The ledger is missing 1 of tally's transactions." in out
+    assert "The ledger is missing 1 imported transaction(s)." in out
 
 
-def test_a_ledger_problem_never_fails_the_sync(
+def test_summary_says_nothing_about_a_ledger_that_checks_out(
     ledger_ready: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    accounts_file = ledger_ready / "ledger" / "accounts.beancount"
-    accounts_file.write_text(ACCOUNTS.replace('category: "Groceries"', ""))
-    code, out, err = sync(capsys)
-    assert code == 0
-    assert "Updated 2 Budget cells" in out
-    assert "Ledger: not updated" in err
-    assert budget_cell("C6") == 42.1
-    assert FakeSheet.write_flags == [True]
-
-
-def test_summary_says_nothing_when_the_ledger_matches(
-    ledger_ready: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    assert main(["summary", "--as-of", "2026-03-20"]) == 0
-    out = capsys.readouterr().out
-    look_out = out.split("FROM THE LEDGER")[0]
-    assert "ledger" not in look_out.lower()
-
-
-def test_entries_you_wrote_are_left_alone(
-    ledger_ready: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    path = ledger_ready / "ledger" / "imported" / "2026.beancount"
-    mine = '\n2026-03-20 * "Cash gift"\n  Assets:BofA:Checking  -20.00 USD\n  Expenses:Groceries\n'
-    path.write_text(imported(ledger_ready) + mine)
-    (ledger_ready / "rules.toml").write_text(RULES.replace("MAPLE MARKET", "NO SUCH SHOP"))
-    code, out, _ = sync(capsys)
-    assert code == 0
-    assert "Ledger: moved 1 entries" in out
-    assert mine in imported(ledger_ready)
-
-
-def test_merchant_contains_takes_alternatives() -> None:
-    opens, _, _ = loader.load_string(ACCOUNTS)
-    found = accounts.from_entries(opens)
-    assert found.counter("Savings transfer", "KEEP THE CHANGE TRANSFER") == "Assets:BofA:Savings"
-    assert (
-        found.counter("Savings transfer", "Online Banking transfer to SAV 1234 Confirmation# 1")
-        == "Assets:BofA:Savings"
-    )
-    assert found.counter("Savings transfer", "CAPITAL ONE") == "Assets:CapitalOne:Savings"
-    assert found.category_of("Assets:BofA:Savings") == "Savings transfer"
-    assert found.category_of("Assets:BofA:Checking") is None
-
-
-def test_parity_counts_rows_from_the_database(ledger_ready: Path) -> None:
-    from tally.ledger import updating
-
-    conn = store.connect(ledger_ready / "tally.db")
-    rows = store.transactions(conn)
-    conn.close()
-    found = updating.check(ledger_ready, rows, [], rules.parse(RULES))
-    assert found is not None
-    assert found.ok
-    assert found.rows == 13
-    extra = updating.check(ledger_ready, rows[1:], [], rules.parse(RULES))
-    assert extra is not None and extra.extra == 1
-
-
-def test_check_names_entries_in_a_different_category(ledger_ready: Path) -> None:
-    from tally.ledger import updating
-
-    conn = store.connect(ledger_ready / "tally.db")
-    rows = store.transactions(conn)
-    conn.close()
-    changed = rules.parse(RULES.replace("MAPLE MARKET", "NO SUCH SHOP"))
-    found = updating.check(ledger_ready, rows, [], changed)
-    assert found is not None
-    assert [(t.merchant, ours, theirs) for t, ours, theirs in found.recategorized] == [
-        ("MAPLE MARKET SPRINGFIELD IL", "Groceries", "Uncategorized")
-    ]
-    assert "1 ledger entries have a different category from the Sheet's." in found.problems()
-    assert any(
-        "MAPLE MARKET SPRINGFIELD IL: ledger Groceries, Sheet Uncategorized" in line
-        for line in found.details()
-    )
-
-
-def test_sync_rebuilds_pending_entries_before_comparing(
-    ledger_ready: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    import datetime
-    from decimal import Decimal
-
-    from tally.alerts import Alert
-    from tally.ledger import updating
-
-    conn = store.connect(ledger_ready / "tally.db")
-    store.save_alert(
-        conn,
-        Alert(
-            "bofa_checking",
-            datetime.date(2026, 3, 18),
-            "MAPLE MARKET",
-            Decimal("-9.00"),
-            "<1@example.com>",
-            datetime.datetime(2026, 3, 18, tzinfo=datetime.UTC),
-        ),
-        now=datetime.datetime(2026, 3, 18, tzinfo=datetime.UTC),
-    )
-    session = updating.open_session(ledger_ready)
-    assert session is not None
-    updating.refresh_pending(session, conn)  # the alerts run, with the old rules
-    conn.close()
-    pending_file = ledger_ready / "ledger" / "pending.beancount"
-    assert "Expenses:Groceries" in pending_file.read_text()
-
-    # The rules change; the next alerts run hasn't happened yet.
-    (ledger_ready / "rules.toml").write_text(RULES.replace("MAPLE MARKET", "NO SUCH SHOP"))
-    code, out, _ = sync(capsys, "--dry-run")
-    assert code == 0
-    assert "rows and every month's totals match" in out
-    assert "Expenses:Groceries" in pending_file.read_text()  # a dry run writes nothing
-
-    code, out, _ = sync(capsys)
-    assert code == 0
-    assert "rows and every month's totals match" in out
-    assert "Expenses:Groceries" not in pending_file.read_text()
-
-
-def test_weekly_report_from_the_ledger(ledger_ready: Path) -> None:
-    import datetime
-    from decimal import Decimal
-
-    from tally.ledger import weekly
-
-    found = weekly.build(
-        ledger_ready / "ledger", datetime.date(2026, 4, 9), Decimal(7500), Decimal(140)
-    )
-    lines = {line.category: line for line in found.lines}
-    # March, by purchase day: groceries 42.10 bought 03/07, posted 03/09.
-    assert lines["Groceries"].last_month == Decimal("42.10")
-    assert lines["Groceries"].last_month_so_far == Decimal("42.10")
-    assert lines["Groceries"].this_month == Decimal(0)
-    assert found.roth_in == Decimal("640.00")  # 500 into the Roth in March, 140 elsewhere
-    text = weekly.format_text(found)
-    assert "April so far" in text and "March same days" in text
-    assert "Roth IRA 2026: $640.00 contributed of the $7,500.00 limit; $6,860.00 of room" in text
-    html = weekly.format_html(found)
-    assert "From the ledger" in html and "$42.10" in html
-
-
-def test_the_summary_ends_with_the_ledger_report(
-    ledger_ready: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    assert main(["summary", "--as-of", "2026-03-20"]) == 0
-    out = capsys.readouterr().out
-    assert "FROM THE LEDGER (bean-query)" in out
-    assert out.index("FROM THE LEDGER") > out.index("LOOK OUT FOR")
+    _, out, _ = run(capsys, "summary", "--as-of", "2026-03-20")
+    assert "ledger" not in out.split("FROM THE LEDGER")[0].lower()
 
 
 def test_a_broken_ledger_still_sends_the_summary(
@@ -302,5 +244,39 @@ def test_a_broken_ledger_still_sends_the_summary(
     (ledger_ready / "ledger" / "accounts.beancount").write_text(
         ACCOUNTS + '2026-01-01 open Assets:Other USD\n  tally-account: "discover"\n'
     )
-    assert main(["summary", "--as-of", "2026-03-20"]) == 0
-    assert "(No report from the ledger this week:" in capsys.readouterr().out
+    code, out, _ = run(capsys, "summary", "--as-of", "2026-03-20")
+    assert code == 0
+    assert "Couldn't read the ledger" in out
+
+
+def test_weekly_report_from_the_ledger(ledger_ready: Path) -> None:
+    found = weekly.build(
+        ledger_ready / "ledger", datetime.date(2026, 4, 9), Decimal(7500), Decimal(140)
+    )
+    lines = {line.category: line for line in found.lines}
+    # March, by purchase day: groceries 42.10 bought 03/07, posted 03/09.
+    assert lines["Groceries"].last_month == Decimal("42.10")
+    assert found.roth_in == Decimal("640.00")  # 500 into the Roth in March, 140 elsewhere
+    assert "From the ledger" in weekly.format_html(found)
+
+
+def test_check_counts_rows_and_finds_extras(ledger_ready: Path) -> None:
+    conn = store.connect(ledger_ready / "tally.db")
+    found = updating.check(ledger_ready, conn)
+    assert found is not None and found.ok and found.rows == 13
+    conn.execute("DELETE FROM transactions WHERE id = (SELECT min(id) FROM transactions)")
+    conn.commit()
+    extra = updating.check(ledger_ready, conn)
+    conn.close()
+    assert extra is not None and extra.extra == 1
+
+
+def test_merchant_contains_takes_alternatives() -> None:
+    opens, _, _ = loader.load_string(ACCOUNTS)
+    found = accounts.from_entries(opens)
+    assert found.counter("Savings transfer", "KEEP THE CHANGE TRANSFER") == "Assets:BofA:Savings"
+    assert found.counter("Savings transfer", "Online Banking transfer to SAV 1234") == (
+        "Assets:BofA:Savings"
+    )
+    assert found.counter("Savings transfer", "CAPITAL ONE") == "Assets:CapitalOne:Savings"
+    assert found.category_of("Assets:BofA:Checking") is None

@@ -364,52 +364,6 @@ def _dollars(cents: int) -> Decimal:
     return Decimal(cents).scaleb(-2)
 
 
-def sheet_writes(conn: sqlite3.Connection, sheet_id: str) -> dict[tuple[str, str], Decimal]:
-    """What tally last wrote to each (row label, month) cell of the given Sheet."""
-    rows = conn.execute(
-        "SELECT row_label, month, value_cents FROM sheet_writes WHERE sheet_id = ?", (sheet_id,)
-    ).fetchall()
-    return {(row, month): _dollars(cents) for row, month, cents in rows}
-
-
-def record_sheet_writes(
-    conn: sqlite3.Connection,
-    sheet_id: str,
-    cells: Sequence[tuple[str, str, Decimal]],
-    now: datetime.datetime | None = None,
-) -> None:
-    """Remember the values tally wrote (or found already correct) in the given Sheet."""
-    written_at = (now or datetime.datetime.now(datetime.UTC)).isoformat(timespec="seconds")
-    with conn:
-        conn.executemany(
-            "INSERT INTO sheet_writes (sheet_id, row_label, month, value_cents, written_at)"
-            " VALUES (?, ?, ?, ?, ?)"
-            " ON CONFLICT (sheet_id, row_label, month)"
-            " DO UPDATE SET value_cents = excluded.value_cents, written_at = excluded.written_at",
-            [(sheet_id, row, month, _cents(value), written_at) for row, month, value in cells],
-        )
-
-
-def sheet_categories(conn: sqlite3.Connection, sheet_id: str) -> dict[int, str]:
-    """The category tally last wrote for each transaction on the Sheet's Transactions tab."""
-    rows = conn.execute(
-        "SELECT transaction_id, category FROM sheet_categories WHERE sheet_id = ?", (sheet_id,)
-    ).fetchall()
-    return dict(rows)
-
-
-def replace_sheet_categories(
-    conn: sqlite3.Connection, sheet_id: str, categories: dict[int, str]
-) -> None:
-    """Record the categories of a freshly rewritten Transactions tab, replacing the old record."""
-    with conn:
-        conn.execute("DELETE FROM sheet_categories WHERE sheet_id = ?", (sheet_id,))
-        conn.executemany(
-            "INSERT INTO sheet_categories (sheet_id, transaction_id, category) VALUES (?, ?, ?)",
-            [(sheet_id, tid, category) for tid, category in categories.items()],
-        )
-
-
 def last_new_transaction(conn: sqlite3.Connection) -> datetime.datetime | None:
     """When tally last took in a transaction it didn't have: from an export, or an alert."""
     row = conn.execute(

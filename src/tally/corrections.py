@@ -1,9 +1,9 @@
-"""Turning category corrections made on the Sheet into rules in rules.toml.
+"""Turning a category you set on a pending purchase into a rule in rules.toml.
 
 A correction becomes a rule pinned to that one transaction (account, date, amount and the
 exact merchant), in a marked section at the top of the rules file so it wins over the
 general rules. tally only ever edits inside that section; the rest of the file is yours.
-Clearing a category on the Sheet removes its correction. Correcting a transaction that one
+Correcting a transaction that one
 of Claude's rules categorized changes that rule instead, so the merchant's later purchases
 follow the correction too (see categorizing).
 
@@ -26,6 +26,8 @@ from tally import categorizing, rules
 from tally.transaction import Transaction
 
 SECTION_START = (
+    # The header names the Sheet, where corrections were made before the ledger; it stays
+    # as it is, since it's how tally finds the section in existing rules files.
     "# ---- Corrections from the Sheet (tally sync adds these; edit or delete freely) ----"
 )
 SECTION_END = "# ---- End of corrections ----"

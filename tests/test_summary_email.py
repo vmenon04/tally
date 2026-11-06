@@ -6,14 +6,12 @@ from test_summary import NO_LIMIT, RULES, SUNDAY, TARGETS, tx
 from tally import summary, summary_email
 from tally.transaction import Transaction
 
-LINK = "https://docs.google.com/spreadsheets/d/abc"
-
 
 def html(*transactions: Transaction, pending: tuple[Transaction, ...] = ()) -> str:
     pairs = [(n, t) for n, t in enumerate(transactions, start=1)]
     pairs += [(-n, t) for n, t in enumerate(pending, start=1)]
     s = summary.build(SUNDAY, pairs, RULES, TARGETS, [], NO_LIMIT)
-    return summary_email.format_html(s, LINK)
+    return summary_email.format_html(s)
 
 
 def test_layout() -> None:
@@ -26,7 +24,7 @@ def test_layout() -> None:
     assert "March so far" in page and "day 15 of 31" in page
     assert "$12.50 of $300.00 · 4%" in page
     assert "Nothing this week." in page
-    assert f'<a href="{LINK}"' in page
+    assert "docs.google.com" not in page  # no Sheet to link to
 
 
 def test_bar_colors_follow_the_plan() -> None:
@@ -49,7 +47,7 @@ def test_text_is_escaped() -> None:
 
 def test_no_purchases_and_no_plan() -> None:
     s = summary.build(datetime.date(2026, 3, 15), [], RULES, None, [], NO_LIMIT, "(no plan)")
-    page = summary_email.format_html(s, LINK)
+    page = summary_email.format_html(s)
     assert "No purchases." in page
     assert "(no plan)" in page
     assert "a week" not in page
@@ -63,6 +61,6 @@ def test_empty_category_has_an_empty_bar() -> None:
 
 def test_claudes_note_is_escaped() -> None:
     s = summary.build(SUNDAY, [], RULES, TARGETS, [], NO_LIMIT)
-    page = summary_email.format_html(dataclasses.replace(s, claude_note="<b>odd</b>"), LINK)
+    page = summary_email.format_html(dataclasses.replace(s, claude_note="<b>odd</b>"))
     assert "Claude&#x27;s note" in page or "Claude's note" in page
     assert "&lt;b&gt;odd&lt;/b&gt;" in page
