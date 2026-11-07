@@ -26,7 +26,14 @@ def fake_get(path: str, params: dict[str, str]) -> Any:
     if path == "/accounts/all":
         return {
             "results": [
-                {"id": "a1", "number": "Z00001111", "name": "ROTH IRA", "kind": "investment"}
+                {
+                    "id": "a1",
+                    "masked_account_number": "Z00001111",
+                    "display_name": "ROTH IRA",
+                    "kind": "investment",
+                    "raw_type": "Roth IRA",
+                    "status": "open",
+                }
             ]
         }
     if path == "/accounts/a1/positions/all":
@@ -44,7 +51,7 @@ def fake_get(path: str, params: dict[str, str]) -> Any:
 def test_overview_names_shapes_not_amounts() -> None:
     lines = snaptrade.overview(fake_get)
     text = "\n".join(lines)
-    assert "…1111  ROTH IRA  (investment)" in text
+    assert "…1111  ROTH IRA  (Roth IRA, open)" in text
     assert "cost basis fields: average_purchase_price" in text
     assert "activities: 2 (2026-03-02 to 2026-03-20); types: BUY 1, DIVIDEND 1" in text
     assert "2000" not in text and "190.48" not in text and "Z00001111" not in text

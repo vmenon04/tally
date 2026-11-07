@@ -86,10 +86,10 @@ def overview(get: Get) -> list[str]:
     for account in accounts:
         if not isinstance(account, dict):
             continue
-        number = str(account.get("number") or "")
+        number = str(account.get("masked_account_number") or "")
         lines.append(
-            f"- …{number[-4:]}  {account.get('name') or account.get('institution_name')}  "
-            f"({account.get('kind') or account.get('raw_type') or 'unknown kind'})"
+            f"- …{number[-4:]}  {account.get('display_name')}  "
+            f"({account.get('raw_type') or account.get('kind')}, {account.get('status')})"
         )
         account_id = str(account.get("id"))
         positions = get(f"/accounts/{account_id}/positions/all", {})
