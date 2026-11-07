@@ -50,6 +50,26 @@ Each runs through its `.service`, sandboxed so it can write only to `/srv/tally/
 tally-summary` shows errors (the output itself isn't logged, since it names merchants and
 amounts). Commands run through `tally-run` aren't sandboxed, but run as the same `tally` user.
 
+## Fava, all the time
+
+`tally-fava.service` runs Fava for the ledger, sandboxed with no network at all: it serves
+on the Unix socket `/srv/tally-inbox/fava.sock`, in a folder only your account, `tally` and
+root can open. Other accounts on the server can't reach it. Two ways in:
+
+- **Tailscale** (phone, laptop): `tailscale serve` on the server forwards
+  `https://<server>.<tailnet>.ts.net` to the socket, for your tailnet's devices only.
+- **SSH** (any machine with your key): `tally-remote fava`, then http://localhost:5000.
+
+To install it:
+
+```sh
+scp deploy/tally-fava.service myserver:/tmp/
+ssh -t myserver 'sudo install -m 644 /tmp/tally-fava.service /etc/systemd/system/ && rm /tmp/tally-fava.service && sudo systemctl daemon-reload && sudo systemctl enable --now tally-fava'
+```
+
+Fava reloads the ledger when its files change, so imports show up without a restart.
+Anything you change in Fava's editor is committed by tally on its next import or sync.
+
 ## Setting up a server
 
 From a clone of the repo on the server, with uv installed at `/srv/tally/bin/uv`:

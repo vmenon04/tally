@@ -1,0 +1,54 @@
+# Fava, the ledger's web UI, running all the time on a Unix socket.
+# The socket is in /srv/tally-inbox, which only your account, tally and root can open, so
+# no other account on the server can reach Fava. You reach it over Tailscale (tailscale
+# serve, which runs as root) or an SSH tunnel (tally-remote fava).
+# See docs/server.md and docs/ledger.md.
+
+[Unit]
+Description=tally: Fava, the ledger's web UI
+
+[Service]
+Type=simple
+User=tally
+Group=tally
+WorkingDirectory=/srv/tally/data
+Environment=TALLY_DATA_DIR=/srv/tally/data
+Environment=TALLY_SECRETS_DIR=/srv/tally/secrets
+Environment=TZ=America/New_York
+ExecStart=/srv/tally/venv/bin/tally fava --socket /srv/tally-inbox/fava.sock
+Restart=on-failure
+RestartSec=10s
+# Fava logs every page it serves, which names accounts; keep that out of the journal.
+StandardOutput=null
+StandardError=journal
+
+# Can write only to the ledger's folder (Fava edits it) and its socket's folder.
+UMask=0077
+ProtectSystem=strict
+ReadWritePaths=/srv/tally/data /srv/tally-inbox
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+RestrictSUIDSGID=yes
+# No network at all: only the Unix socket it serves on.
+RestrictAddressFamilies=AF_UNIX
+PrivateNetwork=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+# No MemoryDenyWriteExecute: with it, uv's Python can't start threads, which Fava needs.
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+
+[Install]
+WantedBy=multi-user.target

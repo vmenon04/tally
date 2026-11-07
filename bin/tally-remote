@@ -60,10 +60,14 @@ case ${1:-} in
         deploy
         ;;
     fava)
-        # Fava runs on the server only while this is open, on a socket in the drop folder,
-        # which only your account and tally can open; this forwards a local port to it.
+        # Forwards a port on this machine to Fava's socket on the server, in a folder only
+        # your account and tally can open. If tally-fava.service is running, that's the Fava
+        # you get; otherwise one is started for as long as this stays open.
         port=${2:-5000}
         echo "Fava: http://localhost:$port  (Ctrl-C to stop)"
+        if ssh -q "$HOST" "systemctl is-active --quiet tally-fava"; then
+            exec ssh -N -q -o ExitOnForwardFailure=yes -L "127.0.0.1:$port:$DROP/fava.sock" "$HOST"
+        fi
         exec ssh -t -q -o ExitOnForwardFailure=yes -L "127.0.0.1:$port:$DROP/fava.sock" "$HOST" \
             "sudo -n -u tally /usr/local/bin/tally-run fava --socket $DROP/fava.sock"
         ;;

@@ -112,13 +112,10 @@ imported twice or missing then shows up as a failed balance.
 
 ## Browsing it
 
-```sh
-tally-remote fava        # then open http://localhost:5000; Ctrl-C stops it
-```
-
-Fava runs on the server only while that's open. It has no login, so it listens on a Unix
-socket in `/srv/tally-inbox`, which only your account and `tally` can open, and SSH forwards a
-port on your machine to it. Nothing is exposed to the network.
+With `tally-fava.service` running ([Running on a server](server.md#fava-all-the-time)), open
+the server's Tailscale address on any of your devices, or run `tally-remote fava` and open
+http://localhost:5000. Fava has no login, so it never listens on a network address: it
+serves on a Unix socket only your account, `tally` and root can open.
 
 ## Setting it up on the server
 
