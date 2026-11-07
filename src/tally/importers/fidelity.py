@@ -37,7 +37,7 @@ class Holding:
     symbol: str
     quantity: Decimal
     price: Decimal
-    cost: Decimal  # total cost basis
+    cost: Decimal | None  # total cost basis; None when the brokerage doesn't say
 
 
 @dataclass(frozen=True, slots=True)

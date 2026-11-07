@@ -9,7 +9,8 @@ from test_ledger_sync import ACCOUNTS, MAIN, RULES
 
 from tally import store
 from tally.cli import main
-from tally.ledger import book, weekly
+from tally.importers.fidelity import Account, Holding, Snapshot
+from tally.ledger import book, positions, weekly
 
 POSITIONS = Path(__file__).parent / "fixtures" / "fidelity_positions.csv"
 FIDELITY_ACCOUNTS = """
@@ -192,3 +193,91 @@ def test_roth_contributions_ignore_snapshot_cash(
     assert import_text(data_dir, tmp_path, later, capsys)[0] == 0
     found = weekly.build(data_dir / "ledger", datetime.date(2026, 3, 31), Decimal(7500), Decimal(0))
     assert found.roth_in == Decimal("500.00")
+
+
+def holdings_snapshot(day: datetime.date, units: str, price: str, cost: str | None) -> Snapshot:
+    return Snapshot(
+        day,
+        [
+            Account(
+                "2222",
+                "EXAMPLE RET SAVINGS",
+                None,
+                [Holding("FFTGX", Decimal(units), Decimal(price), Decimal(cost) if cost else None)],
+            ),
+            Account("9999", "AN EMPTY ACCOUNT", None, []),
+        ],
+    )
+
+
+def add_snapshot(folder: Path, snap: Snapshot) -> None:
+    from tally import rules
+
+    ledger = book.load(folder / "ledger", rules.parse(RULES))
+    new = book.new_entries(positions.entries(snap, ledger.entries, ledger.accounts, "test"), ledger)
+    book.add(ledger, new)
+
+
+def test_without_cost_basis_new_units_cost_todays_price(
+    data_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["import", str(POSITIONS)]) == 0  # FFTGX: 100.123 units cost 1500.00
+    # A week later SnapTrade, with no cost basis: 10 more units, price now 16.00.
+    add_snapshot(data_dir, holdings_snapshot(datetime.date(2026, 3, 27), "110.123", "16.00", None))
+    assert held(data_dir, "Assets:Fidelity:401k", "FFTGX") == (
+        Decimal("110.123"),
+        Decimal("1660.00"),
+    )
+    # The same holdings again, at another price: nothing to record but the price.
+    add_snapshot(data_dir, holdings_snapshot(datetime.date(2026, 4, 3), "110.123", "17.00", None))
+    assert held(data_dir, "Assets:Fidelity:401k", "FFTGX") == (
+        Decimal("110.123"),
+        Decimal("1660.00"),
+    )
+    # Units sold take their share of the cost.
+    add_snapshot(data_dir, holdings_snapshot(datetime.date(2026, 4, 10), "55.0615", "17.00", None))
+    assert held(data_dir, "Assets:Fidelity:401k", "FFTGX") == (
+        Decimal("55.0615"),
+        Decimal("830.00"),
+    )
+    assert book.check(data_dir / "ledger") == []
+
+
+def test_an_empty_account_you_dont_track_is_skipped(data_dir: Path) -> None:
+    from tally import rules
+
+    ledger = book.load(data_dir / "ledger", rules.parse(RULES))
+    snap = Snapshot(datetime.date(2026, 3, 20), [Account("9999", "EMPTY", None, [])])
+    assert positions.entries(snap, ledger.entries, ledger.accounts, "test") == []
+
+
+def test_sync_records_brokerage_holdings(
+    data_dir: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tally import cli
+
+    assert main(["import", str(POSITIONS)]) == 0
+    snap = holdings_snapshot(datetime.date(2026, 3, 27), "110.123", "16.00", None)
+    monkeypatch.setattr(cli, "_brokerage", lambda: lambda: snap)
+    capsys.readouterr()
+    assert main(["sync", "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "Fidelity holdings from SnapTrade (would add" in out
+    assert "EXAMPLE RET SAVINGS …2222: cost 0.00 (no cost basis given), market 1,761.97" in out
+    assert held(data_dir, "Assets:Fidelity:401k", "FFTGX")[0] == Decimal("100.123")
+    assert main(["sync"]) == 0
+    assert held(data_dir, "Assets:Fidelity:401k", "FFTGX")[0] == Decimal("110.123")
+
+
+def test_a_brokerage_failure_doesnt_stop_the_sync(
+    data_dir: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tally import cli, snaptrade
+
+    def fail() -> Snapshot:
+        raise snaptrade.SnapTradeError("couldn't reach SnapTrade: ConnectionError")
+
+    monkeypatch.setattr(cli, "_brokerage", lambda: fail)
+    capsys.readouterr()
+    assert main(["sync"]) == 0
+    assert "Fidelity holdings not updated: couldn't reach SnapTrade" in capsys.readouterr().err

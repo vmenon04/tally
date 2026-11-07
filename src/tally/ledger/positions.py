@@ -5,7 +5,8 @@ transaction (tagged #fidelity-positions) brings the ledger to what the snapshot 
 
 - every holding whose quantity or cost basis changed is closed (`{}` takes all its lots)
   and reopened at Fidelity's quantity and total cost basis, so the ledger's cost basis is
-  exactly Fidelity's;
+  exactly Fidelity's (where the source gives no cost basis, new units count as bought at
+  that day's price instead);
 - the money market balance becomes the account's `:Cash` balance;
 - the rest balances against Equity:Opening-Balances the first time (what the account held
   before the ledger), and Income:Fidelity:Unreconciled after that: dividends, fees and
@@ -27,7 +28,7 @@ from beancount.core import amount, data, position
 from beancount.core.number import MISSING
 
 from tally.importers import ParseError
-from tally.importers.fidelity import Snapshot
+from tally.importers.fidelity import Holding, Snapshot
 from tally.ledger.accounts import Accounts
 from tally.ledger.entries import CURRENCY
 
@@ -45,6 +46,12 @@ def entries(
     after = day + datetime.timedelta(days=1)
     result: list[data.Directive] = []
     for account in snapshot.accounts:
+        if (
+            not account.holdings
+            and not account.cash
+            and account.label not in found.fidelity_accounts
+        ):
+            continue  # an empty account you don't track
         holdings_account = found.fidelity(account.label)
         cash_account = f"{holdings_account}:Cash"
         earlier = _snapshots(existing, account.label)
@@ -58,7 +65,10 @@ def entries(
         for symbol in sorted({*held, *wanted}):
             units, cost = held.get(symbol, (Decimal(0), Decimal(0)))
             h = wanted.get(symbol)
-            if h is not None and units == h.quantity and abs(cost - h.cost) < _CENT:
+            if h is not None and h.cost is None:
+                postings += _without_cost_basis(holdings_account, symbol, units, cost, h)
+                continue
+            if h is not None and units == h.quantity and abs(cost - (h.cost or 0)) < _CENT:
                 continue
             if units:
                 postings.append(_posting(holdings_account, -units, symbol, _ALL_LOTS))
@@ -111,6 +121,33 @@ def entries(
                 )
             )
     return result
+
+
+def _without_cost_basis(
+    account: str, symbol: str, units: Decimal, cost: Decimal, h: Holding
+) -> list[data.Posting]:
+    """Postings for a holding whose brokerage gives no cost basis (a 401(k) through SnapTrade).
+
+    New units are taken as bought at today's price, and sold units take their share of what
+    the holding cost, so a change in price alone is never booked as income.
+    """
+    if h.quantity == units:
+        return []
+    if h.quantity > units:
+        bought = position.CostSpec(h.price, None, CURRENCY, None, None, False)
+        return [_posting(account, h.quantity - units, symbol, bought)]
+    postings = [_posting(account, -units, symbol, _ALL_LOTS)]
+    if h.quantity:
+        kept = (cost * h.quantity / units).quantize(Decimal("0.01"))
+        postings.append(
+            _posting(
+                account,
+                h.quantity,
+                symbol,
+                position.CostSpec(None, kept, CURRENCY, None, None, False),
+            )
+        )
+    return postings
 
 
 # `{}`: whatever lots there are. Beancount's types don't admit its own MISSING marker.

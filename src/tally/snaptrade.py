@@ -8,6 +8,7 @@ is no use without the consumer key, ever appears in a URL.
 """
 
 import base64
+import datetime
 import hashlib
 import hmac
 import json
@@ -15,11 +16,14 @@ import time
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
 import requests
+
+from tally.importers import fidelity
 
 BASE = "https://api.snaptrade.com"
 CLIENT_ID_FILE = "snaptrade-client-id"
@@ -116,3 +120,56 @@ def overview(get: Get) -> list[str]:
             + (", ".join(f"{k} {n}" for k, n in kinds.most_common()) or "none")
         )
     return lines
+
+
+def snapshot(get: Get, today: datetime.date) -> fidelity.Snapshot:
+    """Every account's holdings now, in the shape the Fidelity positions export gives them.
+
+    A cash equivalent (the money market) is the account's cash. cost_basis is the average
+    price paid per share, so a holding's total cost is that times its units; a 401(k)
+    through SnapTrade has none, and its holdings have no cost.
+    """
+    accounts = []
+    for account in _accounts(get):
+        found = get(f"/accounts/{account['id']}/positions/all", {})
+        results = found.get("results", []) if isinstance(found, dict) else []
+        cash: Decimal | None = None
+        holdings = []
+        for p in results:
+            units = _decimal(p.get("units"), "units")
+            price = _decimal(p.get("price"), "price")
+            if p.get("cash_equivalent"):
+                cash = (cash or Decimal(0)) + (units * price).quantize(Decimal("0.01"))
+                continue
+            symbol = str((p.get("instrument") or {}).get("symbol") or "").strip()
+            if not symbol:
+                raise SnapTradeError("a position has no symbol")
+            per_share = p.get("cost_basis")
+            cost = (
+                None
+                if per_share is None
+                else (_decimal(per_share, "cost_basis") * units).quantize(Decimal("0.01"))
+            )
+            holdings.append(fidelity.Holding(symbol, units, price, cost))
+        number = str(account.get("masked_account_number") or "")
+        if len(number) < 4:
+            raise SnapTradeError("an account has no number")
+        accounts.append(
+            fidelity.Account(number[-4:], str(account.get("display_name") or ""), cash, holdings)
+        )
+    return fidelity.Snapshot(today, accounts)
+
+
+def _accounts(get: Get) -> list[dict[str, Any]]:
+    found = get("/accounts/all", {})
+    accounts = found.get("results") if isinstance(found, dict) else None
+    if not isinstance(accounts, list):
+        raise SnapTradeError(f"unexpected accounts answer: {str(found)[:120]}")
+    return [a for a in accounts if isinstance(a, dict) and a.get("status", "open") == "open"]
+
+
+def _decimal(value: object, name: str) -> Decimal:
+    try:
+        return Decimal(str(value))
+    except InvalidOperation:
+        raise SnapTradeError(f"bad {name} {value!r}") from None

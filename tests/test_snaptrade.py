@@ -60,3 +60,68 @@ def test_overview_names_shapes_not_amounts() -> None:
 def test_missing_keys_are_reported(tmp_path: Any) -> None:
     with pytest.raises(snaptrade.SnapTradeError, match="no SnapTrade key"):
         snaptrade.Client.from_secrets(tmp_path)
+
+
+def positions_get(path: str, params: dict[str, str]) -> Any:
+    if path == "/accounts/all":
+        return {
+            "results": [
+                {
+                    "id": "r",
+                    "masked_account_number": "****1111",
+                    "display_name": "ROTH IRA",
+                    "status": "open",
+                },
+                {
+                    "id": "k",
+                    "masked_account_number": "****2222",
+                    "display_name": "RET SAVINGS",
+                    "status": "open",
+                },
+                {
+                    "id": "x",
+                    "masked_account_number": "****9999",
+                    "display_name": "OLD",
+                    "status": "closed",
+                },
+            ]
+        }
+    if path == "/accounts/r/positions/all":
+        return {
+            "results": [
+                {
+                    "instrument": {"symbol": "SPAXX"},
+                    "units": 12.5,
+                    "price": 1.0,
+                    "cash_equivalent": True,
+                },
+                {
+                    "instrument": {"symbol": "FXAIX"},
+                    "units": 10.5,
+                    "price": 200.0,
+                    "cost_basis": "190.4762",
+                },
+            ]
+        }
+    if path == "/accounts/k/positions/all":
+        return {"results": [{"instrument": {"symbol": "FFTGX"}, "units": 100.123, "price": 15.0}]}
+    raise AssertionError(path)
+
+
+def test_snapshot_from_positions() -> None:
+    import datetime
+    from decimal import Decimal
+
+    snap = snaptrade.snapshot(positions_get, datetime.date(2026, 3, 20))
+    assert snap.date == datetime.date(2026, 3, 20)
+    roth, savings = snap.accounts  # the closed account is left out
+    assert (roth.label, roth.name, roth.cash) == ("1111", "ROTH IRA", Decimal("12.50"))
+    (fxaix,) = roth.holdings
+    # cost_basis is per share: the total is that times the units.
+    assert (fxaix.symbol, fxaix.quantity, fxaix.cost) == (
+        "FXAIX",
+        Decimal("10.5"),
+        Decimal("2000.00"),
+    )
+    (fund,) = savings.holdings
+    assert fund.cost is None and savings.cash is None

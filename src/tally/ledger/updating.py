@@ -10,6 +10,7 @@ import datetime
 import sqlite3
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -17,7 +18,10 @@ from beancount.core import data
 
 from tally import categorizing, corrections, matching, pending, rules, store
 from tally.alerts import Alert
-from tally.ledger import accounts, book, categories, history, importers, parity
+from tally.importers import ParseError
+from tally.importers.fidelity import Snapshot
+from tally.ledger import accounts, book, categories, history, importers, parity, positions
+from tally.snaptrade import SnapTradeError
 from tally.transaction import Transaction, identity
 
 RULES = "rules.toml"
@@ -132,11 +136,20 @@ class SyncResult:
     guessed: list[str] = field(default_factory=list)  # Claude's new merchant rules
     claude_failed: str | None = None
     changes: list[categories.Change] = field(default_factory=list)
+    holdings: list[str] = field(default_factory=list)  # per account: cost and market value
+    holdings_added: int = 0  # ledger entries from the brokerage snapshot
+    holdings_failed: str | None = None
     check: parity.Parity | None = None
 
 
 def sync(
-    data_dir: Path, conn: sqlite3.Connection, ask: Ask, *, dry_run: bool, err: TextIO
+    data_dir: Path,
+    conn: sqlite3.Connection,
+    ask: Ask,
+    *,
+    dry_run: bool,
+    err: TextIO,
+    brokerage: Callable[[], Snapshot] | None = None,
 ) -> SyncResult | None:
     """`tally sync`: bring the ledger's categories up to date, then check it.
 
@@ -144,7 +157,9 @@ def sync(
     2. rules made on pending alerts move to the rows that have posted since;
     3. Claude categorizes merchants nothing covers yet;
     4. imported entries still in Uncategorized move to the category the rules now give;
-    5. pending.beancount is rewritten, the ledger committed and pushed, and checked.
+    5. pending.beancount is rewritten;
+    6. with brokerage (SnapTrade), today's holdings are recorded, as a positions export would;
+    7. the ledger is committed and pushed, and checked.
 
     A dry run works it all out and saves nothing. None if there's no ledger.
     Raises LedgerError, AccountsError, RulesError or NotUpToDate.
@@ -177,6 +192,8 @@ def sync(
     ledger = book.load(book.folder(data_dir), month_rules)
     result.changes = categories.plan(ledger, counted, month_rules)
     if dry_run:
+        if brokerage is not None:
+            _record_holdings(ledger, brokerage, result, dry_run=True)
         ledger = book.with_pending(ledger, book.pending_entries(ledger, waiting, month_rules))
         result.check = parity.compare(ledger, counted)
         return result
@@ -185,10 +202,40 @@ def sync(
         corrections.save(data_dir / RULES, text)
     categories.apply(result.changes)
     book.write_pending(ledger, waiting, month_rules)
-    if result.changes:
-        save(ledger.folder, f"Categorize {len(result.changes)} entries", err)
+    if brokerage is not None:
+        _record_holdings(book.load(ledger.folder, month_rules), brokerage, result, dry_run=False)
+    if result.changes or result.holdings_added:
+        save(ledger.folder, "Bring the ledger up to date", err)
     result.check = parity.compare(book.load(ledger.folder, month_rules), counted)
     return result
+
+
+def _record_holdings(
+    ledger: book.Ledger, brokerage: Callable[[], Snapshot], result: SyncResult, *, dry_run: bool
+) -> None:
+    """Add today's brokerage holdings to the ledger. A failure is noted, never raised."""
+    try:
+        snap = brokerage()
+        extracted = positions.entries(snap, ledger.entries, ledger.accounts, "snaptrade")
+    except (SnapTradeError, ParseError, accounts.AccountsError) as e:
+        result.holdings_failed = str(e)
+        return
+    for account in snap.accounts:
+        if not account.holdings and not account.cash:
+            continue
+        cost = sum((h.cost or 0 for h in account.holdings), Decimal(0))
+        market = sum((h.quantity * h.price for h in account.holdings), Decimal(0))
+        market += account.cash or 0
+        known = (
+            "" if all(h.cost is not None for h in account.holdings) else " (no cost basis given)"
+        )
+        result.holdings.append(
+            f"{account.name} …{account.label}: cost {cost:,.2f}{known}, market {market:,.2f}"
+        )
+    new = book.new_entries(extracted, ledger)
+    result.holdings_added = len(new)
+    if not dry_run:
+        book.add(ledger, new)
 
 
 def check(data_dir: Path, conn: sqlite3.Connection) -> parity.Parity | None:

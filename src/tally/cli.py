@@ -8,6 +8,7 @@ import io
 import os
 import re
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,7 @@ from tally import (
     summary_note,
 )
 from tally.alerts import Alert
+from tally.importers import fidelity
 from tally.ledger import accounts, book, categories, updating, viewing, weekly
 from tally.transaction import Transaction
 
@@ -515,7 +517,9 @@ def _sync(dry_run: bool) -> int:
         return 1
     conn = store.connect_copy(db_path) if dry_run else store.connect(db_path)
     try:
-        done = updating.sync(folder, conn, _ask_claude, dry_run=dry_run, err=sys.stderr)
+        done = updating.sync(
+            folder, conn, _ask_claude, dry_run=dry_run, err=sys.stderr, brokerage=_brokerage()
+        )
     except (
         book.LedgerError,
         accounts.AccountsError,
@@ -541,6 +545,12 @@ def _sync(dry_run: bool) -> int:
             print("\n".join(f"  {message}" for message in messages))
     if done.claude_failed:
         print(f"{CLAUDE_FAILED}: {done.claude_failed}", file=sys.stderr)
+    if done.holdings_failed:
+        print(f"sync: Fidelity holdings not updated: {done.holdings_failed}", file=sys.stderr)
+    elif done.holdings:
+        verb = "would add" if dry_run else "added"
+        print(f"\nFidelity holdings from SnapTrade ({verb} {done.holdings_added} ledger entries):")
+        print("\n".join(f"  {line}" for line in done.holdings))
     if done.changes:
         verb = "Would move" if dry_run else "Moved"
         print(f"\n{verb} {len(done.changes)} entries out of Uncategorized:")
@@ -555,6 +565,19 @@ def _sync(dry_run: bool) -> int:
             print("\nLedger: " + " ".join(done.check.problems()))
             print("\n".join(done.check.details()[:20]))
     return 0
+
+
+def _brokerage() -> Callable[[], fidelity.Snapshot] | None:
+    """Today's holdings from SnapTrade, if its keys are in secrets/; else None."""
+    folder = config.secrets_dir()
+    if not (folder / snaptrade.CLIENT_ID_FILE).exists():
+        return None
+
+    def fetch() -> fidelity.Snapshot:
+        client = snaptrade.Client.from_secrets(folder)
+        return snaptrade.snapshot(client.get, datetime.datetime.now().astimezone().date())
+
+    return fetch
 
 
 def _with_claude_note(result: summary.Summary) -> summary.Summary:
