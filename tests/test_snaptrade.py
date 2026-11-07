@@ -105,6 +105,17 @@ def positions_get(path: str, params: dict[str, str]) -> Any:
         }
     if path == "/accounts/k/positions/all":
         return {"results": [{"instrument": {"symbol": "FFTGX"}, "units": 100.123, "price": 15.0}]}
+    if path == "/accounts/r/activities":
+        assert params["endDate"] == "2026-03-20"
+        return {
+            "data": [
+                {"type": "DIVIDEND", "trade_date": "2026-03-18T00:00:00Z", "amount": 2.5},
+                {"type": "BUY", "trade_date": "2026-03-02T00:00:00Z", "amount": -2000.0},
+                {"type": "DIVIDEND", "trade_date": "2026-02-18T00:00:00Z", "amount": 1.25},
+            ]
+        }
+    if path == "/accounts/k/activities":
+        return {"data": []}
     raise AssertionError(path)
 
 
@@ -125,3 +136,9 @@ def test_snapshot_from_positions() -> None:
     )
     (fund,) = savings.holdings
     assert fund.cost is None and savings.cash is None
+    # Only dividends, oldest first.
+    assert roth.dividends == (
+        (datetime.date(2026, 2, 18), Decimal("1.25")),
+        (datetime.date(2026, 3, 18), Decimal("2.5")),
+    )
+    assert savings.dividends == ()

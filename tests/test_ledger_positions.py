@@ -22,6 +22,7 @@ FIDELITY_ACCOUNTS = """
   fidelity-account: "3333"
 2026-01-01 open Assets:Fidelity:Go:Cash USD
 2026-01-01 open Income:Fidelity:Unreconciled
+2026-01-01 open Income:Fidelity:Dividends
 """
 
 
@@ -281,3 +282,89 @@ def test_a_brokerage_failure_doesnt_stop_the_sync(
     capsys.readouterr()
     assert main(["sync"]) == 0
     assert "Fidelity holdings not updated: couldn't reach SnapTrade" in capsys.readouterr().err
+
+
+def roth_snapshot(
+    day: datetime.date, cash: str, dividends: list[tuple[datetime.date, str]]
+) -> Snapshot:
+    holdings = [
+        Holding("FXAIX", Decimal("10.5"), Decimal("200.00"), Decimal("2000.00")),
+        Holding("ABCD", Decimal("3"), Decimal("150.25"), Decimal("500.00")),
+    ]
+    return Snapshot(
+        day,
+        [
+            Account(
+                "1111",
+                "ROTH IRA",
+                Decimal(cash),
+                holdings,
+                tuple((d, Decimal(a)) for d, a in dividends),
+            )
+        ],
+    )
+
+
+def roth_entries(folder: Path) -> list[data.Transaction]:
+    return [
+        e
+        for e in ledger_entries(folder)
+        if isinstance(e, data.Transaction) and e.meta.get("fidelity-account") == "1111"
+    ]
+
+
+def test_dividends_explain_a_cash_increase(
+    data_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["import", str(POSITIONS)]) == 0  # Roth cash 12.50 on 03/20
+    # A week later: a 2.50 dividend paid on 03/25 is all that changed; one from before the
+    # last snapshot doesn't count again.
+    snap = roth_snapshot(
+        datetime.date(2026, 3, 27),
+        "15.00",
+        [(datetime.date(2026, 3, 10), "9.99"), (datetime.date(2026, 3, 25), "2.50")],
+    )
+    add_snapshot(data_dir, snap)
+    later = roth_entries(data_dir)[-1]
+    sides = {
+        p.account: p.units.number for p in later.postings if p.units and p.units.currency == "USD"
+    }
+    assert sides["Income:Fidelity:Dividends"] == Decimal("-2.50")
+    assert sides.get("Income:Fidelity:Unreconciled", Decimal(0)) == 0
+    assert later.flag == "*"  # nothing left unexplained
+    assert book.check(data_dir / "ledger") == []
+
+
+def test_what_dividends_dont_explain_stays_flagged(
+    data_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["import", str(POSITIONS)]) == 0
+    # Cash went up 7.50, but only 2.50 of it was a dividend.
+    snap = roth_snapshot(
+        datetime.date(2026, 3, 27), "20.00", [(datetime.date(2026, 3, 25), "2.50")]
+    )
+    add_snapshot(data_dir, snap)
+    later = roth_entries(data_dir)[-1]
+    sides = {
+        p.account: p.units.number for p in later.postings if p.units and p.units.currency == "USD"
+    }
+    assert sides["Income:Fidelity:Dividends"] == Decimal("-2.50")
+    assert sides["Income:Fidelity:Unreconciled"] == Decimal("-5.00")
+    assert later.flag == "!"
+
+
+def test_without_a_dividends_account_everything_stays_unreconciled(
+    data_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    accounts_file = data_dir / "ledger" / "accounts.beancount"
+    accounts_file.write_text(
+        accounts_file.read_text().replace("2026-01-01 open Income:Fidelity:Dividends\n", "")
+    )
+    assert main(["import", str(POSITIONS)]) == 0
+    snap = roth_snapshot(
+        datetime.date(2026, 3, 27), "15.00", [(datetime.date(2026, 3, 25), "2.50")]
+    )
+    add_snapshot(data_dir, snap)
+    later = roth_entries(data_dir)[-1]
+    assert all(p.account != "Income:Fidelity:Dividends" for p in later.postings)
+    assert book.check(data_dir / "ledger") == []

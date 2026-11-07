@@ -46,6 +46,8 @@ class Account:
     name: str
     cash: Decimal | None  # money market balance, if the account has one
     holdings: list[Holding]
+    # Dividends paid lately, by day, when the source says (SnapTrade does, the export doesn't).
+    dividends: tuple[tuple[datetime.date, Decimal], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

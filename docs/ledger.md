@@ -93,6 +93,9 @@ so there's nothing to download. `tally snaptrade` shows what SnapTrade sees, wit
 SnapTrade gives no cost basis for a 401(k): there, new units count as bought at that day's
 price, and units sold take their share of the cost. Accounts not in the ledger are skipped
 while they're empty. If SnapTrade can't be reached, the sync says so and carries on.
+SnapTrade also reports dividends: with `Income:Fidelity:Dividends` open in the ledger, each
+snapshot books the dividends paid since the last one there, and only what's left goes to
+`Income:Fidelity:Unreconciled` (flagged `!` when anything is).
 
 The positions export still works the same way, if you'd rather download it:
 

@@ -155,9 +155,41 @@ def snapshot(get: Get, today: datetime.date) -> fidelity.Snapshot:
         if len(number) < 4:
             raise SnapTradeError("an account has no number")
         accounts.append(
-            fidelity.Account(number[-4:], str(account.get("display_name") or ""), cash, holdings)
+            fidelity.Account(
+                number[-4:],
+                str(account.get("display_name") or ""),
+                cash,
+                holdings,
+                _dividends(get, str(account["id"]), today),
+            )
         )
     return fidelity.Snapshot(today, accounts)
+
+
+# How far back to read dividends: well past the gap between two weekly syncs.
+DIVIDEND_DAYS = 90
+
+
+def _dividends(
+    get: Get, account_id: str, today: datetime.date
+) -> tuple[tuple[datetime.date, Decimal], ...]:
+    start = today - datetime.timedelta(days=DIVIDEND_DAYS)
+    found = get(
+        f"/accounts/{account_id}/activities",
+        {"startDate": start.isoformat(), "endDate": today.isoformat()},
+    )
+    items = found.get("data", []) if isinstance(found, dict) else []
+    paid = []
+    for a in items:
+        if not isinstance(a, dict) or a.get("type") != "DIVIDEND":
+            continue
+        day = str(a.get("trade_date") or a.get("settlement_date") or "")[:10]
+        try:
+            date = datetime.date.fromisoformat(day)
+        except ValueError:
+            raise SnapTradeError(f"a dividend has no date: {day!r}") from None
+        paid.append((date, _decimal(a.get("amount"), "amount")))
+    return tuple(sorted(paid))
 
 
 def _accounts(get: Get) -> list[dict[str, Any]]:

@@ -9,9 +9,11 @@ transaction (tagged #fidelity-positions) brings the ledger to what the snapshot 
   that day's price instead);
 - the money market balance becomes the account's `:Cash` balance;
 - the rest balances against Equity:Opening-Balances the first time (what the account held
-  before the ledger), and Income:Fidelity:Unreconciled after that: dividends, fees and
-  contributions made outside your bank accounts (a 401(k)'s payroll deductions), which a
-  snapshot can't tell apart. Those later transactions are flagged `!`.
+  before the ledger). After that, dividends the source reports (SnapTrade does) go to
+  Income:Fidelity:Dividends, once the ledger opens that account, and what's left to
+  Income:Fidelity:Unreconciled: gains on sales, fees, and contributions made outside your
+  bank accounts (a 401(k)'s payroll deductions), which a snapshot can't tell apart. A
+  transaction with something left unexplained is flagged `!`.
 
 Money moved between cash and holdings balances itself, so contributions from BofA (already
 in `:Cash`) aren't counted twice. It also adds each holding's price, and balance
@@ -36,6 +38,7 @@ TAG = "fidelity-positions"
 LABEL_KEY = "fidelity-account"
 OPENING = "Equity:Opening-Balances"
 UNRECONCILED = "Income:Fidelity:Unreconciled"
+DIVIDENDS = "Income:Fidelity:Dividends"
 _CENT = Decimal("0.005")
 
 
@@ -82,6 +85,14 @@ def entries(
         meta = data.new_metadata(filename, 0)
         if postings:
             first = not earlier
+            flag = "*" if first else "!"
+            if not first:
+                since = max(e.date for e in earlier)
+                paid = sum((a for d, a in account.dividends if since < d <= day), Decimal(0))
+                if paid and _is_open(existing, DIVIDENDS):
+                    postings.append(_posting(DIVIDENDS, -paid, CURRENCY, None))
+                    if _explained(postings, held):
+                        flag = "*"
             postings.append(
                 data.Posting(OPENING if first else UNRECONCILED, None, None, None, None, None)
             )
@@ -89,7 +100,7 @@ def entries(
                 data.Transaction(
                     {**meta, LABEL_KEY: account.label},
                     day,
-                    "*" if first else "!",
+                    flag,
                     "Fidelity",
                     f"{account.name}: holdings as of {day:%b %d, %Y}",
                     frozenset({TAG}),
@@ -148,6 +159,29 @@ def _without_cost_basis(
             )
         )
     return postings
+
+
+def _is_open(existing: Sequence[data.Directive], account: str) -> bool:
+    return any(isinstance(e, data.Open) and e.account == account for e in existing)
+
+
+def _explained(postings: list[data.Posting], held: dict[str, tuple[Decimal, Decimal]]) -> bool:
+    """Whether these postings balance to within a cent without the Unreconciled one."""
+    total = Decimal(0)
+    for p in postings:
+        if p.units is None or p.units.number is None:
+            continue
+        number = p.units.number
+        if p.units.currency == CURRENCY and p.cost is None:
+            total += number
+        elif isinstance(p.cost, position.CostSpec) and p.cost.number_total is not None:
+            total += p.cost.number_total
+        elif isinstance(p.cost, position.CostSpec) and isinstance(p.cost.number_per, Decimal):
+            total += number * p.cost.number_per
+        else:  # closing a whole holding: what it cost
+            units, cost = held.get(p.units.currency, (Decimal(0), Decimal(0)))
+            total -= cost if units else Decimal(0)
+    return abs(total) < _CENT
 
 
 # `{}`: whatever lots there are. Beancount's types don't admit its own MISSING marker.
