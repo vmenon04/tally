@@ -24,6 +24,7 @@ def serve(data_dir: Path, *, socket: Path | None, port: int) -> None:
         raise book.LedgerError(f"no ledger at {main}")
     book.ensure_pending(main.parent)
     app = create_app([str(main)])
+    ours = None
     if socket is None:
         server = make_server("127.0.0.1", port, app, threaded=True)
         print(f"Fava: http://127.0.0.1:{port}  (Ctrl-C to stop)", flush=True)
@@ -32,6 +33,7 @@ def serve(data_dir: Path, *, socket: Path | None, port: int) -> None:
         server = make_server(f"unix://{socket}", 0, app, threaded=True)
         # The folder decides who can connect; the socket itself must let your account in.
         socket.chmod(0o666)
+        ours = socket.stat().st_ino
         print(f"Fava: serving on {socket}  (Ctrl-C to stop)", flush=True)
 
     def stop(signum: int, frame: FrameType | None) -> None:
@@ -45,5 +47,14 @@ def serve(data_dir: Path, *, socket: Path | None, port: int) -> None:
         pass
     finally:
         server.server_close()
-        if socket is not None:
+        # Only if it's still ours: another Fava may have replaced it since (the always-on one
+        # started while an SSH session's was running), and removing that would cut it off.
+        if socket is not None and _inode(socket) == ours:
             socket.unlink(missing_ok=True)
+
+
+def _inode(path: Path) -> int | None:
+    try:
+        return path.stat().st_ino
+    except FileNotFoundError:
+        return None

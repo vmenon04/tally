@@ -65,3 +65,35 @@ def test_no_ledger_is_an_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(sys, "stderr", err)
     assert cli.main(["fava"]) == 1
     assert "no ledger" in err.getvalue()
+
+
+def test_a_replaced_socket_is_left_alone(tmp_path: Path) -> None:
+    data_dir = make_data_dir(tmp_path)
+    short = Path(tempfile.mkdtemp(prefix="fava", dir="/tmp"))
+    sock = short / "fava.sock"
+    try:
+        proc = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                "import sys; from tally.cli import main; sys.exit(main())",
+                "fava",
+                "--socket",
+                str(sock),
+            ],
+            env={"TALLY_DATA_DIR": str(data_dir), "PATH": "/usr/bin:/bin"},
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        assert proc.stdout is not None
+        assert "serving on" in proc.stdout.readline().decode()
+        # Another Fava takes the path over (here, a plain file standing in for its socket).
+        sock.unlink()
+        sock.write_text("someone else's")
+        proc.send_signal(signal.SIGHUP)
+        assert proc.wait(timeout=10) == 0
+        assert sock.read_text() == "someone else's"
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        shutil.rmtree(short)
