@@ -86,6 +86,16 @@ shows up as a non-zero balance there.
 
 ## Fidelity positions
 
+With SnapTrade's keys in `secrets/` (`snaptrade-client-id`, `snaptrade-consumer-key`, from a
+free SnapTrade Personal account connected to Fidelity read-only), `tally sync` records every
+Fidelity account's holdings each time it runs, exactly as importing a positions export would,
+so there's nothing to download. `tally snaptrade` shows what SnapTrade sees, without amounts.
+SnapTrade gives no cost basis for a 401(k): there, new units count as bought at that day's
+price, and units sold take their share of the cost. Accounts not in the ledger are skipped
+while they're empty. If SnapTrade can't be reached, the sync says so and carries on.
+
+The positions export still works the same way, if you'd rather download it:
+
 Download Accounts → Positions (all accounts) from Fidelity and import it like any export:
 `tally-remote import Portfolio_Positions_*.csv`. It goes to the ledger only. Each account in
 it, matched by `fidelity-account:` (the account number's last four) on an open directive,
