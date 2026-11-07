@@ -25,6 +25,7 @@ from tally import (
     plan,
     report,
     rules,
+    snaptrade,
     store,
     summary,
     summary_email,
@@ -126,6 +127,13 @@ def main(argv: list[str] | None = None) -> int:
         "--dry-run", action="store_true", help="show what would change without changing it"
     )
 
+    commands.add_parser(
+        "snaptrade",
+        help="show what SnapTrade has for your brokerage accounts",
+        description="List the accounts SnapTrade can see, and the kinds of positions and "
+        "activities it has for each, without amounts. Read-only.",
+    )
+
     fava_parser = commands.add_parser(
         "fava",
         help="browse the ledger in Fava",
@@ -160,6 +168,14 @@ def main(argv: list[str] | None = None) -> int:
         return _summary(args.as_of, email=args.email, sync=args.sync)
     if args.command == "sync":
         return _sync(dry_run=args.dry_run)
+    if args.command == "snaptrade":
+        try:
+            client = snaptrade.Client.from_secrets(config.secrets_dir())
+            print("\n".join(snaptrade.overview(client.get)))
+        except snaptrade.SnapTradeError as e:
+            print(f"snaptrade: {e}", file=sys.stderr)
+            return 1
+        return 0
     if args.command == "fava":
         try:
             viewing.serve(data_dir(), socket=args.socket, port=args.port)
