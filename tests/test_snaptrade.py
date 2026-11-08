@@ -142,3 +142,12 @@ def test_snapshot_from_positions() -> None:
         (datetime.date(2026, 3, 18), Decimal("2.5")),
     )
     assert savings.dividends == ()
+
+
+def test_activities_lists_one_account() -> None:
+    lines = snaptrade.activities(fake_get, "1111")
+    assert lines[0] == "2 activities for …1111:"
+    assert lines[1].startswith("2026-03-02  BUY") and "-2000.0" in lines[1]
+    assert lines[-1] == "fields: amount, trade_date, type"
+    with pytest.raises(snaptrade.SnapTradeError, match="0 accounts end in 9999"):
+        snaptrade.activities(fake_get, "9999")

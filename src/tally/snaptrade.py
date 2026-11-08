@@ -122,6 +122,42 @@ def overview(get: Get) -> list[str]:
     return lines
 
 
+def activities(get: Get, label: str) -> list[str]:
+    """Every activity SnapTrade has for the account ending in label: date, type, amount and
+    description, then the fields it gives. For checking what an account's activities mean."""
+    found = get("/accounts/all", {})
+    accounts = found.get("results") if isinstance(found, dict) else None
+    match = [
+        a
+        for a in accounts or []
+        if isinstance(a, dict) and str(a.get("masked_account_number") or "")[-4:] == label
+    ]
+    if len(match) != 1:
+        raise SnapTradeError(f"{len(match)} accounts end in {label}")
+    answer = get(f"/accounts/{match[0]['id']}/activities", {})
+    items = [
+        a
+        for a in (answer.get("data", []) if isinstance(answer, dict) else [])
+        if isinstance(a, dict)
+    ]
+    items.sort(key=lambda a: str(a.get("trade_date") or a.get("settlement_date") or ""))
+    lines = [f"{len(items)} activities for …{label}:"]
+    for a in items:
+        day = str(a.get("trade_date") or a.get("settlement_date") or "")[:10]
+        symbol = (
+            str((a.get("symbol") or {}).get("symbol") or "")
+            if isinstance(a.get("symbol"), dict)
+            else ""
+        )
+        lines.append(
+            f"{day}  {str(a.get('type')):<12} {_decimal(a.get('amount') or 0, 'amount'):>10}  "
+            f"{symbol:<6} {' '.join(str(a.get('description') or '').split())[:70]}"
+        )
+    fields = Counter(k for a in items for k in a)
+    lines.append("fields: " + ", ".join(sorted(fields)))
+    return lines
+
+
 def snapshot(get: Get, today: datetime.date) -> fidelity.Snapshot:
     """Every account's holdings now, in the shape the Fidelity positions export gives them.
 

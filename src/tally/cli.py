@@ -129,11 +129,16 @@ def main(argv: list[str] | None = None) -> int:
         "--dry-run", action="store_true", help="show what would change without changing it"
     )
 
-    commands.add_parser(
+    snaptrade_parser = commands.add_parser(
         "snaptrade",
         help="show what SnapTrade has for your brokerage accounts",
         description="List the accounts SnapTrade can see, and the kinds of positions and "
         "activities it has for each, without amounts. Read-only.",
+    )
+    snaptrade_parser.add_argument(
+        "--activities",
+        metavar="LAST4",
+        help="instead, list every activity of the account ending in these digits, with amounts",
     )
 
     fava_parser = commands.add_parser(
@@ -173,7 +178,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "snaptrade":
         try:
             client = snaptrade.Client.from_secrets(config.secrets_dir())
-            print("\n".join(snaptrade.overview(client.get)))
+            if args.activities:
+                print("\n".join(snaptrade.activities(client.get, args.activities)))
+            else:
+                print("\n".join(snaptrade.overview(client.get)))
         except snaptrade.SnapTradeError as e:
             print(f"snaptrade: {e}", file=sys.stderr)
             return 1
