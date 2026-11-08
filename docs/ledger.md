@@ -160,6 +160,27 @@ what matters day to day, on a phone as well as a computer:
 Pay counts everything booked to Income but Fidelity's market income, so 401(k) payroll
 contributions count as pay. Kept is pay less spending, so it's low until payday.
 
+**Goals** are money set aside, each in a savings account of its own, so its progress is
+that account's balance. Write them in `plan.beancount`:
+
+    2026-11-01 custom "goal" "Emergency fund" Assets:CapitalOne:Savings "months" 3
+    2026-11-01 custom "goal" "Travel" Assets:BofA:Savings
+    2026-11-01 custom "goal" "Laptop" Assets:BofA:Savings "target" 1200.00 USD
+
+"months" sets the target to that many months of your usual spending. The page suggests
+how much to put into each one a month, from what's usually left over the last three whole
+months: take-home pay (pay less 401(k) contributions), less spending, less this month's
+`roth-plan`. A "months" goal still short of its target gets 70% of that and the others
+split the rest; once it's full, the others split it all. Move the money yourself (a
+transfer on payday in each bank's app does it); tally sees the transfers arrive.
+
+tally doesn't import Capital One, so it sees transfers into it but not the interest. Every
+month or so, copy the balance from Capital One's app into `statements.beancount` with a
+pad, and the ledger books the difference as interest:
+
+    2026-12-01 pad Assets:CapitalOne:Savings Income:Interest
+    2026-12-05 balance Assets:CapitalOne:Savings  1234.56 USD
+
 Turn it on with these lines in the ledger (the second makes it Fava's first page):
 
     2026-01-01 custom "fava-extension" "tally.fava_page"

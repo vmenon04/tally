@@ -31,6 +31,7 @@
   .tally .t-bar { position: relative; height: 12px; background: var(--t-track); border-radius: 6px; overflow: visible; }
   .tally .t-fill { position: absolute; inset: 0 auto 0 0; background: var(--t-spent); border-radius: 6px; }
   .tally .t-fill.t-over { background: var(--t-bad); }
+  .tally .t-fill.t-goal { background: var(--t-good); }
   .tally .t-mark { position: absolute; top: -3px; bottom: -3px; width: 2px; background: currentColor; opacity: .55; }
   .tally .t-nums { text-align: right; font-variant-numeric: tabular-nums; font-size: .92em; }
   .tally .t-nums small { display: block; color: var(--t-muted); }
@@ -65,6 +66,32 @@
     {% else %}you're <span class="t-bad">{{ extension.money(p.pace_spent - p.pace) }} over</span> the pace.{% endif %}
     Pay includes your 401(k) contributions; kept is pay less spending, so it's low until payday.
   </p>
+  {% endif %}
+
+  {% if p.goals %}
+  <h2>Goals</h2>
+  {% if p.spare %}
+  <p class="t-note">
+    Over your last {{ p.spare.months }} whole month{{ 's' if p.spare.months != 1 }}: {{ extension.money(p.spare.take_home) }} take-home
+    − {{ extension.money(p.spare.spent) }} spent{% if p.spare.roth %} − {{ extension.money(p.spare.roth) }} to the Roth IRA this month{% endif %}
+    = <b class="{{ 't-good' if p.spare.left > 0 else 't-bad' }}">{{ extension.money(p.spare.left) }}</b> a month to put toward goals.
+    {% if p.spare.left <= 0 %}Spending is taking all of it, so there's nothing to suggest yet.{% endif %}
+  </p>
+  {% else %}
+  <p class="t-note">Suggestions start once there's a whole month with pay in it.</p>
+  {% endif %}
+  <div class="t-rows">
+    {% for g in p.goals %}
+      <div class="t-row">
+        <div>{{ g.name }}<small class="t-note" style="display:block;margin:0">{{ g.account.split(':')[1:]|join(' ') }}</small></div>
+        <div class="t-bar">
+          <div class="t-fill t-goal" style="width:{{ g.share * 100 if g.share is not none else 0 }}%"></div>
+        </div>
+        <div class="t-nums">{{ extension.money(g.balance) }}{% if g.target %} of {{ extension.money(g.target) }}{% endif %}
+          <small>{% if g.target and g.balance >= g.target %}done{% else %}put in {{ extension.money(g.suggested) }}/mo{% endif %}{% if g.added %} · {{ '+' if g.added > 0 }}{{ extension.money(g.added) }} this month{% endif %}</small></div>
+      </div>
+    {% endfor %}
+  </div>
   {% endif %}
 
   <h2>The last {{ p.months|length }} months</h2>

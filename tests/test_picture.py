@@ -136,3 +136,55 @@ def test_the_page_renders_and_saves_a_category(tmp_path: Path) -> None:
     after = (folder / "imported" / "2026.beancount").read_text()
     assert "  Expenses:Groceries  40.00 USD" in after
     assert "Expenses:Uncategorized" not in after
+
+
+GOALS = """
+2026-01-01 open Assets:Fund2
+  fidelity-account: "2222"
+  contributions-from: "Income:Salary:401k"
+2026-01-01 open Assets:HighYield USD
+2026-01-01 open Assets:Savings USD
+2026-01-01 custom "goal" "Emergency fund" Assets:HighYield "months" 3
+2026-01-01 custom "goal" "Travel" Assets:Savings
+2026-03-01 custom "roth-plan" 100.00 USD
+2026-03-03 * "TO HYSA" ""
+  Assets:Checking  -200.00 USD
+  Assets:HighYield  200.00 USD
+"""
+
+
+def build_with(extra: str) -> picture.Picture:
+    loaded, errors, _ = loader.load_string(LEDGER + extra)
+    assert errors == []
+    mapping = accounts.from_entries(loaded)
+    return picture.build(loaded, mapping, plan.read(loaded, mapping, TODAY), TODAY)
+
+
+def test_goals_share_whats_left() -> None:
+    found = build_with(GOALS)
+    # February is the one whole month with pay: 2000 take-home (the 500 to the 401(k) is
+    # saved already) less 1300 spent, less this month's 100 planned for the Roth IRA.
+    assert found.spare is not None and found.spare.left == Decimal("600.00")
+    emergency, travel = found.goals
+    assert emergency.target == Decimal("3900")  # 3 x 1300, to the nearest hundred
+    assert emergency.balance == emergency.added == Decimal("200.00")
+    assert emergency.suggested == Decimal("420")  # 70% of 600
+    assert travel.target is None and travel.suggested == Decimal("180")
+
+
+def test_a_full_emergency_fund_leaves_it_all_to_the_rest() -> None:
+    found = build_with(
+        GOALS.replace("Assets:HighYield  200.00", "Assets:HighYield  4000.00").replace(
+            "Assets:Checking  -200.00", "Assets:Checking  -4000.00"
+        )
+    )
+    emergency, travel = found.goals
+    assert emergency.suggested == 0 and travel.suggested == Decimal("600")
+
+
+def test_a_goal_needs_a_name_and_an_account() -> None:
+    loaded, _, _ = loader.load_string(
+        LEDGER + '2026-01-01 custom "goal" "Travel" Assets:Checking "weeks" 3\n'
+    )
+    with pytest.raises(plan.PlanError, match='"months" or "target"'):
+        plan.read(loaded, accounts.from_entries(loaded), TODAY)

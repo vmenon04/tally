@@ -9,6 +9,16 @@ holds until a later budget line for the same account replaces it. Only "monthly"
 are used here. `paychecks` and `roth-plan` are tally's: how many paychecks a month brings,
 and the Roth IRA transfer planned from checking that month; each covers the month it's
 dated in.
+
+A goal is money set aside in an account of its own:
+
+    2026-11-01 custom "goal" "Emergency fund" Assets:CapitalOne:Savings "months" 3
+    2026-11-01 custom "goal" "Travel" Assets:BofA:Savings
+    2026-11-01 custom "goal" "Laptop" Assets:BofA:Savings "target" 1200.00 USD
+
+Its progress is the account's balance. "months" makes the target that many months of your
+usual spending, and makes the goal come first while it's short. A later line for the same
+name replaces an earlier one.
 """
 
 import calendar
@@ -23,6 +33,7 @@ from tally.ledger.accounts import Accounts
 
 PAYCHECKS = "paychecks"
 ROTH = "roth-plan"
+GOAL = "goal"
 
 
 class PlanError(ValueError):
@@ -30,9 +41,18 @@ class PlanError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class Goal:
+    name: str
+    account: str
+    months: Decimal | None = None  # target: this many months of usual spending
+    target: Decimal | None = None  # or this amount
+
+
+@dataclass(frozen=True, slots=True)
 class Targets:
     monthly: dict[str, Decimal] = field(default_factory=dict)  # category -> plan per month
     months: dict[str, dict[str, Decimal]] = field(default_factory=dict)  # kind -> month -> n
+    goals: list[Goal] = field(default_factory=list)
 
     def for_month(self, kind: str, year: int, month: int) -> Decimal | None:
         return self.months.get(kind, {}).get(month_header(year, month))
@@ -47,6 +67,7 @@ def read(entries: Iterable[data.Directive], found: Accounts, today: datetime.dat
     paychecks and planned Roth IRA transfer."""
     monthly: dict[str, tuple[datetime.date, Decimal]] = {}
     months: dict[str, dict[str, Decimal]] = {}
+    goals: dict[str, tuple[datetime.date, Goal]] = {}
     for e in entries:
         if not isinstance(e, data.Custom):
             continue
@@ -60,13 +81,32 @@ def read(entries: Iterable[data.Directive], found: Accounts, today: datetime.dat
                 raise PlanError(f"{e.date}: budget for {account}, which has no category")
             if e.date <= today and (category not in monthly or monthly[category][0] <= e.date):
                 monthly[category] = (e.date, _number(amount, e))
+        elif e.type == GOAL:
+            goal = _goal(values, e)
+            if e.date <= today and (goal.name not in goals or goals[goal.name][0] <= e.date):
+                goals[goal.name] = (e.date, goal)
         elif e.type in (PAYCHECKS, ROTH):
             if len(values) != 1:
                 raise PlanError(f"{e.date}: {e.type} takes one number")
             months.setdefault(e.type, {})[month_header(e.date.year, e.date.month)] = _number(
                 values[0], e
             )
-    return Targets({k: v for k, (_, v) in monthly.items()}, months)
+    return Targets({k: v for k, (_, v) in monthly.items()}, months, [g for _, g in goals.values()])
+
+
+def _goal(values: list[object], e: data.Custom) -> Goal:
+    if len(values) not in (2, 4) or not isinstance(values[0], str):
+        raise PlanError(
+            f'{e.date}: write a goal as "Name" Account, then "months" N or "target" X USD'
+        )
+    name, account = values[0], str(values[1])
+    if len(values) == 2:
+        return Goal(name, account)
+    if values[2] == "months":
+        return Goal(name, account, months=_number(values[3], e))
+    if values[2] == "target":
+        return Goal(name, account, target=_number(values[3], e))
+    raise PlanError(f'{e.date}: a goal takes "months" or "target", not {values[2]!r}')
 
 
 def _number(value: object, e: data.Custom) -> Decimal:

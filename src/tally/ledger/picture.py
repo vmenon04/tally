@@ -4,12 +4,19 @@
 - this month by category, against the plan and against the months before;
 - the merchants that got the most this month;
 - net worth at the end of each month, holdings at their market price;
-- the purchases nobody has given a category yet.
+- the purchases nobody has given a category yet;
+- each goal's balance against its target, and a suggested amount to put in each month.
 
 Pay is everything booked to an Income account but Fidelity's (dividends and market
 movement aren't pay); a 401(k)'s payroll contributions count, being pay you never saw.
 Spending is every Expenses account, in the month the purchase happened. Saved is pay less
 spending: whatever didn't go out stayed yours, in whichever account it went to.
+
+The suggestions share out what's usually left of take-home pay (pay less 401(k)
+contributions, which are saved already) after spending and the month's planned Roth IRA
+transfer, over the last few whole months. A goal with a "months" target that's still short
+comes first and gets most of it; the others split the rest. Once it's full, they split it
+all.
 """
 
 import calendar
@@ -23,11 +30,13 @@ from pathlib import Path
 from beancount.core import data, position, prices
 
 from tally.ledger import accounts, entries
-from tally.plan import Targets
+from tally.plan import ROTH, Goal, Targets
 from tally.rules import UNCATEGORIZED
 
 MONTHS = 6
 TOP_MERCHANTS = 8
+USUAL_MONTHS = 3  # whole months the suggestions go by
+FIRST_SHARE = Decimal("0.7")  # of what's left, for a "months" goal that's still short
 _ZERO = Decimal(0)
 
 
@@ -36,6 +45,7 @@ class Month:
     start: datetime.date
     pay: Decimal
     spent: Decimal
+    take_home: Decimal  # pay less 401(k) contributions
 
     @property
     def kept(self) -> Decimal:
@@ -61,6 +71,37 @@ class Category:
 
 
 @dataclass(frozen=True, slots=True)
+class GoalView:
+    name: str
+    account: str
+    balance: Decimal
+    target: Decimal | None
+    added: Decimal  # this month, in less out
+    suggested: Decimal  # per month
+    first: bool  # a "months" goal, which comes first while short
+
+    @property
+    def share(self) -> Decimal | None:
+        if not self.target:
+            return None
+        return min(max(self.balance / self.target, _ZERO), Decimal(1))
+
+
+@dataclass(frozen=True, slots=True)
+class Spare:
+    """What's usually left each month, from the whole months before this one."""
+
+    months: int
+    take_home: Decimal
+    spent: Decimal
+    roth: Decimal  # planned this month
+
+    @property
+    def left(self) -> Decimal:
+        return self.take_home - self.spent - self.roth
+
+
+@dataclass(frozen=True, slots=True)
 class Unsorted:
     """A purchase still in Uncategorized."""
 
@@ -80,6 +121,8 @@ class Picture:
     net_worth: list[tuple[datetime.date, Decimal]]  # each month's end (today for this one)
     unsorted: list[Unsorted]  # newest first
     choices: list[str]  # categories a purchase can be given
+    goals: list[GoalView]
+    spare: Spare | None  # None until there's a whole month with pay
 
     @property
     def this_month(self) -> Month:
@@ -116,6 +159,10 @@ def build(
 ) -> Picture:
     starts = _month_starts(today, MONTHS)
     pay: dict[datetime.date, Decimal] = defaultdict(Decimal)
+    payroll: dict[datetime.date, Decimal] = defaultdict(Decimal)  # to the 401(k)
+    contributions = set(found.contributions_from.values())
+    balances: dict[str, Decimal] = defaultdict(Decimal)
+    added: dict[str, Decimal] = defaultdict(Decimal)
     spent: dict[datetime.date, Decimal] = defaultdict(Decimal)
     by_category: dict[tuple[str, datetime.date], Decimal] = defaultdict(Decimal)
     merchants: dict[str, Decimal] = defaultdict(Decimal)
@@ -127,8 +174,14 @@ def build(
             if p.units is None or p.units.currency != entries.CURRENCY:
                 continue
             number = p.units.number or _ZERO
+            if e.date <= today:
+                balances[p.account] += number
+                if e.date >= starts[-1]:
+                    added[p.account] += number
             if _is_pay(p.account) and e.date <= today:
                 pay[_month(e.date)] += -number
+                if p.account in contributions:
+                    payroll[_month(e.date)] += -number
             elif p.account.startswith("Expenses:") and bought <= today:
                 month = _month(bought)
                 spent[month] += number
@@ -136,7 +189,8 @@ def build(
                 by_category[name, month] += number
                 if month == starts[-1]:
                     merchants[e.payee or e.narration or ""] += number
-    months = [Month(s, pay[s], spent[s]) for s in starts]
+    months = [Month(s, pay[s], spent[s], pay[s] - payroll[s]) for s in starts]
+    spare = _spare(months, targets, today)
     return Picture(
         today,
         months,
@@ -147,7 +201,66 @@ def build(
         _net_worth(loaded, starts, today),
         _unsorted(loaded, found, pending_file),
         _choices(found),
+        _goals(targets, balances, added, spare),
+        spare,
     )
+
+
+def _spare(months: list[Month], targets: Targets, today: datetime.date) -> Spare | None:
+    whole = [m for m in months[:-1] if m.pay > 0][-USUAL_MONTHS:]
+    if not whole:
+        return None
+    n = len(whole)
+    roth = targets.for_month(ROTH, today.year, today.month) or _ZERO
+    return Spare(
+        n,
+        (sum((m.take_home for m in whole), _ZERO) / n).quantize(Decimal("0.01")),
+        (sum((m.spent for m in whole), _ZERO) / n).quantize(Decimal("0.01")),
+        roth,
+    )
+
+
+def _goals(
+    targets: Targets,
+    balances: dict[str, Decimal],
+    added: dict[str, Decimal],
+    spare: Spare | None,
+) -> list[GoalView]:
+    def target(g: Goal) -> Decimal | None:
+        if g.months is not None:
+            if spare is None:
+                return None
+            return (spare.spent * g.months / 100).quantize(Decimal(1)) * 100
+        return g.target
+
+    found = [(g, target(g), balances.get(g.account, _ZERO)) for g in targets.goals]
+    open_ = [(g, t, b) for g, t, b in found if t is None or b < t]
+    first = [g.name for g, t, b in open_ if g.months is not None]
+    rest = [g.name for g, t, b in open_ if g.months is None]
+    left = max(spare.left, _ZERO) if spare is not None else _ZERO
+    share: dict[str, Decimal] = {}
+    if first and rest:
+        share |= {n: left * FIRST_SHARE / len(first) for n in first}
+        share |= {n: left * (1 - FIRST_SHARE) / len(rest) for n in rest}
+    elif first or rest:
+        share |= {n: left / len(first or rest) for n in first or rest}
+    views = []
+    for g, t, b in found:
+        suggested = share.get(g.name, _ZERO)
+        if t is not None:
+            suggested = min(suggested, max(t - b, _ZERO))
+        views.append(
+            GoalView(
+                g.name,
+                g.account,
+                b,
+                t,
+                added.get(g.account, _ZERO),
+                (suggested / 10).quantize(Decimal(1), rounding="ROUND_DOWN") * 10,
+                g.months is not None,
+            )
+        )
+    return views
 
 
 def _categories(

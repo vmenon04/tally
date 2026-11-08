@@ -21,12 +21,17 @@ ACCOUNTS = """\
   tally-account: "discover"
 2025-01-01 open Assets:Bank:Savings USD
   category: "Savings transfer"
+  merchant-contains: "TRAVEL"
+2025-01-01 open Assets:HighYield:Savings USD
+  category: "Savings transfer"
 2025-01-01 open Assets:Transfers:Card USD
   category: "Card payment"
 2025-01-01 open Assets:Brokerage:Roth
 2025-01-01 open Assets:Brokerage:Roth:Cash USD
   category: "Investing"
 2025-01-01 open Assets:Brokerage:401k
+  fidelity-account: "0000"
+  contributions-from: "Income:Salary:401k"
 2025-01-01 open Income:Salary USD
   category: "Income"
 2025-01-01 open Income:Salary:401k USD
@@ -64,6 +69,9 @@ PLAN = """\
 2025-01-01 custom "budget" Expenses:Transport "monthly" 120.00 USD
 2025-01-01 custom "budget" Expenses:Subscriptions "monthly" 40.00 USD
 2025-01-01 custom "budget" Expenses:Personal "monthly" 150.00 USD
+2025-01-01 custom "goal" "Emergency fund" Assets:HighYield:Savings "months" 3
+2025-01-01 custom "goal" "Travel" Assets:Bank:Savings
+2025-01-01 custom "roth-plan" 300.00 USD
 """
 MAIN = """\
 option "title" "Demo ledger (made up)"
@@ -115,6 +123,10 @@ def main(out: Path) -> None:
             lines.append(
                 entry(day, "ROTH TRANSFER", "Assets:Brokerage:Roth:Cash", 300, "bofa_checking")
             )
+            lines.append(
+                entry(day, "TO HIGH YIELD", "Assets:HighYield:Savings", 500, "bofa_checking")
+            )
+            lines.append(entry(day, "TO TRAVEL", "Assets:Bank:Savings", 150, "bofa_checking"))
         if day.day == 12:
             lines.append(
                 entry(
