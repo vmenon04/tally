@@ -174,6 +174,26 @@ months: take-home pay (pay less 401(k) contributions), less spending, less this 
 split the rest; once it's full, the others split it all. Move the money yourself (a
 transfer on payday in each bank's app does it); tally sees the transfers arrive.
 
+**Advice** comes from Claude, through the same Claude Code login that categorizes:
+
+- once a month is over, a review of it: a headline, then what went well, what to watch and
+  what to try next month;
+- a box to ask a question about your money ("Can I afford a $700 trip in March?"). The
+  page saves it, and `tally alerts` answers it within about five minutes and sends a
+  notification.
+
+Claude gets the page's numbers written out as sentences, plus what you tell it about
+yourself in `plan.beancount`:
+
+    2026-11-01 custom "about" "First job; 10% to the 401(k), and the employer match starts next year"
+    2026-11-01 custom "about" "I want to travel more"
+
+That means your monthly figures, categories and the merchants you spend most at go to
+Anthropic, as merchant names already do for categorizing. Claude has no tools and does
+no sums: an answer quoting a dollar amount that's neither in those numbers nor in your
+question is asked again, then refused. Reviews and questions are kept in `data/advice/`
+(not in the ledger); a failed one is tried again after six hours.
+
 tally doesn't import Capital One, so it sees transfers into it but not the interest. Every
 month or so, copy the balance from Capital One's app into `statements.beancount` with a
 pad, and the ledger books the difference as interest:

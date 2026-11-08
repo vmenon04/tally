@@ -21,7 +21,7 @@ from flask import redirect, request
 from markupsafe import Markup
 from werkzeug.wrappers import Response
 
-from tally import plan
+from tally import advice, plan
 from tally.fava_page import charts
 from tally.ledger import accounts, book, categories, entries, picture
 from tally.rules import UNCATEGORIZED
@@ -53,6 +53,25 @@ class Tally(FavaExtensionBase):
 
     def chart_net_worth(self, p: picture.Picture) -> Markup:
         return Markup(charts.net_worth(p.net_worth, self.money))  # noqa: S704
+
+    def review(self) -> advice.Review | None:
+        return advice.latest_review(self._folder().parent)
+
+    def questions(self) -> list[advice.Question]:
+        return advice.questions(self._folder().parent)
+
+    @extension_endpoint("ask", ["POST"])  # type: ignore[untyped-decorator,arg-type]
+    def ask(self) -> Response:
+        """Save a question for tally to answer on its next run."""
+        try:
+            advice.ask(
+                self._folder().parent,
+                request.form.get("question", ""),
+                datetime.datetime.now(datetime.UTC),
+            )
+        except advice.AdviceError as e:
+            return Response(str(e), status=400)
+        return redirect(f"{request.referrer or './'}#advice", code=303)
 
     @extension_endpoint("categorize", ["POST"])  # type: ignore[untyped-decorator,arg-type]
     def categorize(self) -> Response:

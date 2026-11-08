@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from tally import (
+    advice,
     alert_reading,
     categorizing,
     config,
@@ -34,7 +35,7 @@ from tally import (
 )
 from tally.alerts import Alert
 from tally.importers import fidelity
-from tally.ledger import accounts, book, categories, updating, viewing, weekly
+from tally.ledger import accounts, book, categories, picture, updating, viewing, weekly
 from tally.transaction import Transaction
 
 
@@ -160,7 +161,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if ok else 1
     if args.command == "alerts":
         if not args.reread:
-            return _alerts_from_gmail(dry_run=args.dry_run)
+            code = _alerts_from_gmail(dry_run=args.dry_run)
+            if not args.dry_run:
+                _advise()
+            return code
         ok = alert_reading.reread(data_dir(), dry_run=args.dry_run, out=sys.stdout, err=sys.stderr)
         return 0 if ok else 1
     if args.command == "gmail-login":
@@ -272,6 +276,36 @@ def _alerts_from_gmail(dry_run: bool) -> int:
         events += [notify.Event("not_found", f"not-found:{a.message_id}") for a in run.not_found]
         _notify(events, mailbox_ok=run.failure is None)
     return 0 if run.ok else 1
+
+
+def _advise() -> None:
+    """Answer questions asked on the Tally page, and review last month once it's over.
+
+    Quiet when there's nothing to do; never fails the alerts run.
+    """
+    folder = data_dir()
+    if not book.exists(folder):
+        return
+    waiting = any(q.answer is None for q in advice.questions(folder, limit=20))
+    today = datetime.datetime.now().astimezone().date()
+    if not waiting and advice.reviewed(folder, _last_month(today)):
+        return
+    try:
+        found, about = picture.from_folder(book.folder(folder), today)
+    except (book.LedgerError, accounts.AccountsError, plan.PlanError) as e:
+        print(f"advice: {e}", file=sys.stderr)
+        return
+    now = datetime.datetime.now(datetime.UTC)
+    done = advice.run(folder, found, about, _ask_claude, now)
+    events = [notify.Event("answer", f"answer:{i}") for i in done.answered]
+    if done.reviewed:
+        events.append(notify.Event("review", f"review:{done.reviewed}"))
+    if events:
+        _notify(events, mailbox_ok=True)
+
+
+def _last_month(today: datetime.date) -> str:
+    return f"{today.replace(day=1) - datetime.timedelta(days=1):%Y-%m}"
 
 
 def ntfy_topic_file() -> Path:

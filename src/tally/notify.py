@@ -60,6 +60,16 @@ KINDS = {
         "default",
     ),
     "new": _Kind("1 new card alert", "{n} new card alerts", "low"),
+    "answer": _Kind(
+        "Claude answered your question, see the Tally page",
+        "Claude answered {n} of your questions, see the Tally page",
+        "default",
+    ),
+    "review": _Kind(
+        "Claude reviewed last month, see the Tally page",
+        "Claude reviewed last month, see the Tally page",
+        "default",
+    ),
 }
 
 

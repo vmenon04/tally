@@ -150,6 +150,24 @@ class Picture:
         )
 
 
+def from_folder(folder: Path, today: datetime.date) -> tuple[Picture, list[str]]:
+    """The picture of the ledger in folder, and the plan's `about` lines.
+
+    Raises LedgerError if bean-check finds errors, AccountsError, PlanError.
+    """
+    from beancount import loader
+
+    from tally.ledger import book
+    from tally.plan import read
+
+    loaded, errors, _ = loader.load_file(str(folder / book.MAIN))
+    if errors:
+        raise book.LedgerError(f"the ledger has {len(errors)} error(s); run bean-check")
+    found = accounts.from_entries(loaded)
+    targets = read(loaded, found, today)
+    return build(loaded, found, targets, today, folder / book.PENDING), targets.about
+
+
 def build(
     loaded: Sequence[data.Directive],
     found: accounts.Accounts,

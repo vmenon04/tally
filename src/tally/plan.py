@@ -16,6 +16,10 @@ A goal is money set aside in an account of its own:
     2026-11-01 custom "goal" "Travel" Assets:BofA:Savings
     2026-11-01 custom "goal" "Laptop" Assets:BofA:Savings "target" 1200.00 USD
 
+`about` lines tell Claude's advice about you, in your words, in the order written:
+
+    2026-11-01 custom "about" "First job; I want to travel more"
+
 Its progress is the account's balance. "months" makes the target that many months of your
 usual spending, and makes the goal come first while it's short. A later line for the same
 name replaces an earlier one.
@@ -34,6 +38,7 @@ from tally.ledger.accounts import Accounts
 PAYCHECKS = "paychecks"
 ROTH = "roth-plan"
 GOAL = "goal"
+ABOUT = "about"
 
 
 class PlanError(ValueError):
@@ -53,6 +58,7 @@ class Targets:
     monthly: dict[str, Decimal] = field(default_factory=dict)  # category -> plan per month
     months: dict[str, dict[str, Decimal]] = field(default_factory=dict)  # kind -> month -> n
     goals: list[Goal] = field(default_factory=list)
+    about: list[str] = field(default_factory=list)
 
     def for_month(self, kind: str, year: int, month: int) -> Decimal | None:
         return self.months.get(kind, {}).get(month_header(year, month))
@@ -68,6 +74,7 @@ def read(entries: Iterable[data.Directive], found: Accounts, today: datetime.dat
     monthly: dict[str, tuple[datetime.date, Decimal]] = {}
     months: dict[str, dict[str, Decimal]] = {}
     goals: dict[str, tuple[datetime.date, Goal]] = {}
+    about: list[str] = []
     for e in entries:
         if not isinstance(e, data.Custom):
             continue
@@ -81,6 +88,9 @@ def read(entries: Iterable[data.Directive], found: Accounts, today: datetime.dat
                 raise PlanError(f"{e.date}: budget for {account}, which has no category")
             if e.date <= today and (category not in monthly or monthly[category][0] <= e.date):
                 monthly[category] = (e.date, _number(amount, e))
+        elif e.type == ABOUT:
+            if e.date <= today:
+                about += [str(v) for v in values]
         elif e.type == GOAL:
             goal = _goal(values, e)
             if e.date <= today and (goal.name not in goals or goals[goal.name][0] <= e.date):
@@ -91,7 +101,12 @@ def read(entries: Iterable[data.Directive], found: Accounts, today: datetime.dat
             months.setdefault(e.type, {})[month_header(e.date.year, e.date.month)] = _number(
                 values[0], e
             )
-    return Targets({k: v for k, (_, v) in monthly.items()}, months, [g for _, g in goals.values()])
+    return Targets(
+        {k: v for k, (_, v) in monthly.items()},
+        months,
+        [g for _, g in goals.values()],
+        about,
+    )
 
 
 def _goal(values: list[object], e: data.Custom) -> Goal:
