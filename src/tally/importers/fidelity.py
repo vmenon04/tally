@@ -48,6 +48,8 @@ class Account:
     holdings: list[Holding]
     # Dividends paid lately, by day, when the source says (SnapTrade does, the export doesn't).
     dividends: tuple[tuple[datetime.date, Decimal], ...] = ()
+    # Contributions made lately, by day, likewise: money that came in from outside it.
+    contributions: tuple[tuple[datetime.date, Decimal], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

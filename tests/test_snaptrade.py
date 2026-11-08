@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import hmac
+from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -151,3 +152,35 @@ def test_activities_lists_one_account() -> None:
     assert lines[-1] == "fields: amount, trade_date, type"
     with pytest.raises(snaptrade.SnapTradeError, match="0 accounts end in 9999"):
         snaptrade.activities(fake_get, "9999")
+
+
+def test_snapshot_reads_contributions(monkeypatch: pytest.MonkeyPatch) -> None:
+    import datetime
+
+    def get(path: str, params: dict[str, str]) -> Any:
+        if path == "/accounts/all":
+            return {"results": [{"id": "k", "masked_account_number": "Z0002222", "status": "open"}]}
+        if path == "/accounts/k/positions/all":
+            return {"results": []}
+        return {
+            "data": [
+                {
+                    "type": "TRANSFER",
+                    "trade_date": "2026-03-24",
+                    "amount": 155.0,
+                    "description": "contribution - EXAMPLE FUND",
+                },
+                {
+                    "type": "TRANSFER",
+                    "trade_date": "2026-03-25",
+                    "amount": 50.0,
+                    "description": "exchange in",
+                },
+                {"type": "CONTRIBUTION", "trade_date": "2026-03-26", "amount": 20.0},
+                {"type": "DIVIDEND", "trade_date": "2026-03-26", "amount": 1.5},
+            ]
+        }
+
+    account = snaptrade.snapshot(get, datetime.date(2026, 3, 27)).accounts[0]
+    assert [a for _, a in account.contributions] == [Decimal("155.0"), Decimal("20.0")]
+    assert [a for _, a in account.dividends] == [Decimal("1.5")]

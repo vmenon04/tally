@@ -1,4 +1,5 @@
 import datetime
+from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
 
@@ -367,4 +368,57 @@ def test_without_a_dividends_account_everything_stays_unreconciled(
     add_snapshot(data_dir, snap)
     later = roth_entries(data_dir)[-1]
     assert all(p.account != "Income:Fidelity:Dividends" for p in later.postings)
+    assert book.check(data_dir / "ledger") == []
+
+
+def test_payroll_contributions_are_income_and_cost_basis(
+    data_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    accounts_file = data_dir / "ledger" / "accounts.beancount"
+    accounts_file.write_text(
+        accounts_file.read_text().replace(
+            '  fidelity-account: "2222"\n',
+            '  fidelity-account: "2222"\n  contributions-from: "Income:Salary:401k"\n',
+        )
+        + "2026-01-01 open Income:Salary:401k USD\n"
+    )
+    assert main(["import", str(POSITIONS)]) == 0  # FFTGX: 100.123 units cost 1500.00 on 03/20
+    # A week later: 155.00 from the 03/24 paycheck bought 10 units. The one from 03/10 was
+    # before the last snapshot, so it's already in.
+    snap = holdings_snapshot(datetime.date(2026, 3, 27), "110.123", "16.00", None)
+    paid = (
+        (datetime.date(2026, 3, 10), Decimal("150.00")),
+        (datetime.date(2026, 3, 24), Decimal("155.00")),
+    )
+    snap = Snapshot(snap.date, [replace(snap.accounts[0], contributions=paid)])
+    add_snapshot(data_dir, snap)
+    assert held(data_dir, "Assets:Fidelity:401k", "FFTGX") == (
+        Decimal("110.123"),
+        Decimal("1655.00"),
+    )
+    later = [
+        e
+        for e in ledger_entries(data_dir)
+        if isinstance(e, data.Transaction) and e.meta.get("fidelity-account") == "2222"
+    ][-1]
+    sides = {
+        p.account: p.units.number for p in later.postings if p.units and p.units.currency == "USD"
+    }
+    assert sides["Income:Salary:401k"] == Decimal("-155.00")
+    assert later.flag == "*"
+    assert book.check(data_dir / "ledger") == []
+
+
+def test_contributions_without_contributions_from_are_unreconciled(
+    data_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["import", str(POSITIONS)]) == 0
+    snap = holdings_snapshot(datetime.date(2026, 3, 27), "110.123", "16.00", None)
+    paid = ((datetime.date(2026, 3, 24), Decimal("155.00")),)
+    add_snapshot(data_dir, Snapshot(snap.date, [replace(snap.accounts[0], contributions=paid)]))
+    # As before: bought at today's price, and the rest unexplained.
+    assert held(data_dir, "Assets:Fidelity:401k", "FFTGX") == (
+        Decimal("110.123"),
+        Decimal("1660.00"),
+    )
     assert book.check(data_dir / "ledger") == []

@@ -9,11 +9,16 @@ transaction (tagged #fidelity-positions) brings the ledger to what the snapshot 
   that day's price instead);
 - the money market balance becomes the account's `:Cash` balance;
 - the rest balances against Equity:Opening-Balances the first time (what the account held
-  before the ledger). After that, dividends the source reports (SnapTrade does) go to
-  Income:Fidelity:Dividends, once the ledger opens that account, and what's left to
-  Income:Fidelity:Unreconciled: gains on sales, fees, and contributions made outside your
-  bank accounts (a 401(k)'s payroll deductions), which a snapshot can't tell apart. A
-  transaction with something left unexplained is flagged `!`.
+  before the ledger). After that, what the source reports (SnapTrade does) explains it:
+  dividends go to Income:Fidelity:Dividends, once the ledger opens that account, and
+  payroll contributions to the account's `contributions-from:` (a 401(k)'s, say
+  Income:Salary:401k). What's left goes to Income:Fidelity:Unreconciled: gains on sales,
+  fees, anything the source didn't report. A transaction with something left unexplained
+  is flagged `!`.
+
+Where the source gives no cost basis and the money paid in (contributions and dividends)
+all bought more of one holding, those units cost what was paid in, so the cost basis is
+what you put in.
 
 Money moved between cash and holdings balances itself, so contributions from BofA (already
 in `:Cash`) aren't counted twice. It also adds each holding's price, and balance
@@ -30,7 +35,7 @@ from beancount.core import amount, data, position
 from beancount.core.number import MISSING
 
 from tally.importers import ParseError
-from tally.importers.fidelity import Holding, Snapshot
+from tally.importers.fidelity import Account, Holding, Snapshot
 from tally.ledger.accounts import Accounts
 from tally.ledger.entries import CURRENCY
 
@@ -63,13 +68,20 @@ def entries(
                 f"the ledger already has a newer Fidelity snapshot for account …{account.label}"
             )
         held = _held(existing, holdings_account, day)
+        since = max((e.date for e in earlier), default=None)
+        dividends = _between(account.dividends, since, day)
+        income = found.contributions_from.get(account.label)
+        contributed = _between(account.contributions, since, day) if income else Decimal(0)
+        bought_with = _bought_with(account, held, dividends + contributed)
         postings: list[data.Posting] = []
         wanted = {h.symbol: h for h in account.holdings}
         for symbol in sorted({*held, *wanted}):
             units, cost = held.get(symbol, (Decimal(0), Decimal(0)))
             h = wanted.get(symbol)
             if h is not None and h.cost is None:
-                postings += _without_cost_basis(holdings_account, symbol, units, cost, h)
+                postings += _without_cost_basis(
+                    holdings_account, symbol, units, cost, h, bought_with.get(symbol)
+                )
                 continue
             if h is not None and units == h.quantity and abs(cost - (h.cost or 0)) < _CENT:
                 continue
@@ -87,12 +99,12 @@ def entries(
             first = not earlier
             flag = "*" if first else "!"
             if not first:
-                since = max(e.date for e in earlier)
-                paid = sum((a for d, a in account.dividends if since < d <= day), Decimal(0))
-                if paid and _is_open(existing, DIVIDENDS):
-                    postings.append(_posting(DIVIDENDS, -paid, CURRENCY, None))
-                    if _explained(postings, held):
-                        flag = "*"
+                if dividends and _is_open(existing, DIVIDENDS):
+                    postings.append(_posting(DIVIDENDS, -dividends, CURRENCY, None))
+                if contributed and income:
+                    postings.append(_posting(income, -contributed, CURRENCY, None))
+                if _explained(postings, held):
+                    flag = "*"
             postings.append(
                 data.Posting(OPENING if first else UNRECONCILED, None, None, None, None, None)
             )
@@ -134,16 +146,46 @@ def entries(
     return result
 
 
+def _between(
+    paid: Sequence[tuple[datetime.date, Decimal]], since: datetime.date | None, day: datetime.date
+) -> Decimal:
+    """What was paid after the last snapshot, up to this one's day."""
+    if since is None:
+        return Decimal(0)
+    return sum((a for d, a in paid if since < d <= day), Decimal(0))
+
+
+def _bought_with(
+    account: Account, held: dict[str, tuple[Decimal, Decimal]], paid_in: Decimal
+) -> dict[str, Decimal]:
+    """{symbol: paid_in} when money paid in can only have bought that holding: there's no
+    cash, and it's the one holding without a cost basis that changed, and it grew."""
+    if paid_in <= 0 or account.cash is not None:
+        return {}
+    changed = [
+        h
+        for h in account.holdings
+        if h.cost is None and h.quantity != held.get(h.symbol, (Decimal(0), Decimal(0)))[0]
+    ]
+    if len(changed) != 1 or changed[0].quantity < held.get(changed[0].symbol, (0, 0))[0]:
+        return {}
+    return {changed[0].symbol: paid_in}
+
+
 def _without_cost_basis(
-    account: str, symbol: str, units: Decimal, cost: Decimal, h: Holding
+    account: str, symbol: str, units: Decimal, cost: Decimal, h: Holding, paid: Decimal | None
 ) -> list[data.Posting]:
     """Postings for a holding whose brokerage gives no cost basis (a 401(k) through SnapTrade).
 
-    New units are taken as bought at today's price, and sold units take their share of what
-    the holding cost, so a change in price alone is never booked as income.
+    New units cost what was paid for them, if that's known, or else today's price; sold
+    units take their share of what the holding cost. Either way a change in price alone is
+    never booked as income.
     """
     if h.quantity == units:
         return []
+    if h.quantity > units and paid is not None:
+        total = position.CostSpec(None, paid, CURRENCY, None, None, False)
+        return [_posting(account, h.quantity - units, symbol, total)]
     if h.quantity > units:
         bought = position.CostSpec(h.price, None, CURRENCY, None, None, False)
         return [_posting(account, h.quantity - units, symbol, bought)]

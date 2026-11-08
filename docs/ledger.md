@@ -96,6 +96,18 @@ while they're empty. If SnapTrade can't be reached, the sync says so and carries
 SnapTrade also reports dividends: with `Income:Fidelity:Dividends` open in the ledger, each
 snapshot books the dividends paid since the last one there, and only what's left goes to
 `Income:Fidelity:Unreconciled` (flagged `!` when anything is).
+It reports a 401(k)'s payroll contributions too. Mark where they come from on the
+account's open directive, and open that income account:
+
+    2026-09-01 open Assets:Fidelity:401k
+      fidelity-account: "5678"
+      contributions-from: "Income:Salary:401k"
+    2026-09-01 open Income:Salary:401k USD
+
+Each snapshot then books the contributions since the last one there, as pay that went to
+the 401(k). When they bought more of the account's one fund, those units cost what you put
+in, so the 401(k)'s cost basis is your contributions and its gain is the market's.
+`tally snaptrade --activities 5678` lists an account's activities, with amounts.
 
 The positions export still works the same way, if you'd rather download it:
 

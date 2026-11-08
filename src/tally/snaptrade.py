@@ -196,36 +196,49 @@ def snapshot(get: Get, today: datetime.date) -> fidelity.Snapshot:
                 str(account.get("display_name") or ""),
                 cash,
                 holdings,
-                _dividends(get, str(account["id"]), today),
+                *_paid_in(get, str(account["id"]), today),
             )
         )
     return fidelity.Snapshot(today, accounts)
 
 
-# How far back to read dividends: well past the gap between two weekly syncs.
+# How far back to read activities: well past the gap between two weekly syncs.
 DIVIDEND_DAYS = 90
 
+type Paid = tuple[tuple[datetime.date, Decimal], ...]
 
-def _dividends(
-    get: Get, account_id: str, today: datetime.date
-) -> tuple[tuple[datetime.date, Decimal], ...]:
+
+def _paid_in(get: Get, account_id: str, today: datetime.date) -> tuple[Paid, Paid]:
+    """(dividends, contributions) lately. Fidelity reports a 401(k)'s payroll contributions
+    as transfers described "contribution - FUND"; an IRA's as CONTRIBUTION."""
     start = today - datetime.timedelta(days=DIVIDEND_DAYS)
     found = get(
         f"/accounts/{account_id}/activities",
         {"startDate": start.isoformat(), "endDate": today.isoformat()},
     )
     items = found.get("data", []) if isinstance(found, dict) else []
-    paid = []
+    dividends: list[tuple[datetime.date, Decimal]] = []
+    contributions: list[tuple[datetime.date, Decimal]] = []
     for a in items:
-        if not isinstance(a, dict) or a.get("type") != "DIVIDEND":
+        if not isinstance(a, dict):
+            continue
+        kind = a.get("type")
+        described = str(a.get("description") or "").strip().lower()
+        if kind == "DIVIDEND":
+            found = dividends
+        elif kind == "CONTRIBUTION" or (
+            kind == "TRANSFER" and described.startswith("contribution")
+        ):
+            found = contributions
+        else:
             continue
         day = str(a.get("trade_date") or a.get("settlement_date") or "")[:10]
         try:
             date = datetime.date.fromisoformat(day)
         except ValueError:
-            raise SnapTradeError(f"a dividend has no date: {day!r}") from None
-        paid.append((date, _decimal(a.get("amount"), "amount")))
-    return tuple(sorted(paid))
+            raise SnapTradeError(f"a {str(kind).lower()} has no date: {day!r}") from None
+        found.append((date, _decimal(a.get("amount"), "amount")))
+    return tuple(sorted(dividends)), tuple(sorted(contributions))
 
 
 def _accounts(get: Get) -> list[dict[str, Any]]:

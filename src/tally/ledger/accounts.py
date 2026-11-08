@@ -12,6 +12,10 @@ names accounts and bean-check sees every account tally writes to:
     2026-09-01 open Assets:Fidelity:Roth
       fidelity-account: "1234"              # Fidelity positions for the account ending 1234
 
+    2026-09-01 open Assets:Fidelity:401k
+      fidelity-account: "5678"
+      contributions-from: "Income:Salary:401k"  # its payroll contributions come from here
+
     2026-09-01 open Assets:BofA:Savings USD
       category: "Savings transfer"
       merchant-contains: "KEEP THE CHANGE|SAV 1234"  # only merchants containing one of these
@@ -54,6 +58,7 @@ class Accounts:
     sources: dict[str, str] = field(default_factory=dict)  # tally account -> ledger account
     categories: dict[str, tuple[_Choice, ...]] = field(default_factory=dict)
     fidelity_accounts: dict[str, str] = field(default_factory=dict)  # last four -> account
+    contributions_from: dict[str, str] = field(default_factory=dict)  # last four -> income
 
     def fidelity(self, label: str) -> str:
         try:
@@ -101,6 +106,7 @@ def from_entries(entries: Iterable[data.Directive]) -> Accounts:
     sources: dict[str, str] = {}
     categories: dict[str, list[_Choice]] = {}
     fidelity: dict[str, str] = {}
+    contributions: dict[str, str] = {}
     for entry in entries:
         if not isinstance(entry, data.Open):
             continue
@@ -122,6 +128,12 @@ def from_entries(entries: Iterable[data.Directive]) -> Accounts:
             if label in fidelity:
                 raise AccountsError(f'fidelity-account: "{label}" is on two accounts')
             fidelity[label] = entry.account
+        source = meta.get("contributions-from")
+        if source is not None:
+            _text(entry, "contributions-from", source)
+            if label is None:
+                raise AccountsError(f"{entry.account}: contributions-from needs fidelity-account")
+            contributions[label] = source
         if contains is not None and category is None:
             raise AccountsError(f"{entry.account}: merchant-contains needs a category")
         if category is not None:
@@ -134,7 +146,7 @@ def from_entries(entries: Iterable[data.Directive]) -> Accounts:
                     f'category: "{category}" has two accounts without merchant-contains'
                 )
             choices.append(_Choice(entry.account, contains))
-    return Accounts(sources, {k: tuple(v) for k, v in categories.items()}, fidelity)
+    return Accounts(sources, {k: tuple(v) for k, v in categories.items()}, fidelity, contributions)
 
 
 def _text(entry: data.Open, key: str, value: object) -> None:
