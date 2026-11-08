@@ -139,3 +139,26 @@ serves on a Unix socket only your account, `tally` and root can open.
 3. Fill in `opening.beancount`, commit, and import the archived exports to backfill:
    `tally-remote import` won't do (it imports the inbox), so run
    `tally-run import /srv/tally/data/raw/*/*.csv` on the server.
+
+
+## Backing it up to GitHub
+
+Forgejo runs on the same server as the ledger, so it's no backup. With a `backup` remote,
+every push tally makes also goes to a private GitHub repo, even when Forgejo is down.
+
+1. On GitHub, make an empty **private** repo (say `ledger-backup`), with no README.
+2. On the server, make a key only tally can read, and print its public half:
+
+   ```
+   sudo -u tally ssh-keygen -q -t ed25519 -N '' -C tally-ledger-backup \
+     -f /srv/tally/secrets/github-backup-key
+   sudo cat /srv/tally/secrets/github-backup-key.pub
+   ```
+3. In the repo's Settings → Deploy keys, add that public key with **Allow write access**.
+   A deploy key opens that one repo and nothing else on your account, and never expires.
+4. Add the remote: `sudo -u tally git -C /srv/tally/data/ledger remote add backup
+   git@github.com:<you>/ledger-backup.git`. If the network blocks port 22, use
+   `ssh://git@ssh.github.com:443/<you>/ledger-backup.git` instead.
+
+The next import or sync pushes everything. tally trusts only GitHub's published host key,
+which is in `history.py`.

@@ -119,14 +119,23 @@ def bring_up_to_date(data_dir: Path, err: TextIO) -> None:
 
 
 def save(folder: Path, message: str, err: TextIO) -> None:
-    """Commit and push what tally changed. A failure is reported; the next run retries."""
+    """Commit what tally changed, and push it to Forgejo and the backup.
+
+    A failure is reported and the next run retries. Each push is tried on its own, so the
+    backup still gets the commit when Forgejo is down.
+    """
     if not history.is_repo(folder):
         return
     try:
         history.commit(folder, message)
-        history.push(folder)
     except history.HistoryError as e:
         print(f"ledger: {e}; the next run tries again", file=err)
+        return
+    for push in (history.push, history.push_backup):
+        try:
+            push(folder)
+        except history.HistoryError as e:
+            print(f"ledger: {e}; the next run tries again", file=err)
 
 
 @dataclass(slots=True)

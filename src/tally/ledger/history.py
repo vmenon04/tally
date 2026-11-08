@@ -9,17 +9,27 @@ Pushing goes to the clone's `origin`, with the Forgejo access token in
 secrets/forgejo-token. The token reaches git through its environment, never its command
 line (which other accounts can see) or the remote URL (which is saved in .git/config).
 A failed push is reported and left for the next import to retry; the commit stays.
+
+If the clone also has a `backup` remote (a private GitHub repo), every push goes there too,
+over SSH with the deploy key in secrets/github-backup-key. GitHub's host key is pinned
+here, so ssh never asks about it or trusts a different one.
 """
 
 import base64
 import contextlib
 import os
+import shlex
 import subprocess
+import tempfile
 from pathlib import Path
 
 from tally import config
 
 TOKEN_FILE = "forgejo-token"
+BACKUP = "backup"
+BACKUP_KEY_FILE = "github-backup-key"
+# From https://api.github.com/meta; github.com and its port-443 SSH host share one key.
+GITHUB_HOST_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
 _IDENTITY = {
     "GIT_AUTHOR_NAME": "tally",
     "GIT_AUTHOR_EMAIL": "tally@localhost",
@@ -73,6 +83,38 @@ def push(folder: Path) -> None:
     if "origin" not in _git(folder, "remote").split():
         return
     _git(folder, "push", "--quiet", "origin", "HEAD", env=_auth_env())
+
+
+def push_backup(folder: Path) -> None:
+    """Push the current branch to the backup remote, if the clone has one."""
+    if BACKUP not in _git(folder, "remote").split():
+        return
+    with tempfile.TemporaryDirectory() as tmp:
+        known_hosts = Path(tmp) / "known_hosts"
+        known_hosts.write_text(
+            f"github.com {GITHUB_HOST_KEY}\n[ssh.github.com]:443 {GITHUB_HOST_KEY}\n",
+            encoding="utf-8",
+        )
+        _git(folder, "push", "--quiet", BACKUP, "HEAD", env=_ssh_env(known_hosts))
+
+
+def _ssh_env(known_hosts: Path) -> dict[str, str]:
+    """ssh with only the deploy key and the pinned host key, never asking anything."""
+    key = config.secrets_dir() / BACKUP_KEY_FILE
+    options = [
+        "ssh",
+        "-F", "/dev/null",
+        "-o", "BatchMode=yes",
+        "-o", "IdentitiesOnly=yes",
+        "-o", "IdentityAgent=none",
+        "-o", "StrictHostKeyChecking=yes",
+        "-o", "HostKeyAlgorithms=ssh-ed25519",
+        "-o", f"UserKnownHostsFile={known_hosts}",
+        "-o", "GlobalKnownHostsFile=/dev/null",
+    ]  # fmt: skip
+    if key.exists():
+        options += ["-i", str(key)]
+    return {"GIT_SSH_COMMAND": shlex.join(options)}
 
 
 def _auth_env() -> dict[str, str]:
