@@ -1,0 +1,138 @@
+import datetime
+from decimal import Decimal
+from pathlib import Path
+
+import pytest
+from beancount import loader
+
+from tally import plan
+from tally.ledger import accounts, picture
+
+LEDGER = """
+option "operating_currency" "USD"
+2026-01-01 open Assets:Checking USD
+  tally-account: "bofa_checking"
+2026-01-01 open Assets:Fund
+2026-01-01 open Income:Salary USD
+  category: "Income"
+2026-01-01 open Income:Salary:401k USD
+2026-01-01 open Income:Fidelity:Unreconciled USD
+2026-01-01 open Expenses:Rent
+  category: "Rent + fees"
+  fixed: TRUE
+2026-01-01 open Expenses:Groceries
+  category: "Groceries"
+2026-01-01 open Expenses:Uncategorized
+  category: "Uncategorized"
+2026-01-01 custom "budget" Expenses:Rent "monthly" 1000.00 USD
+2026-01-01 custom "budget" Expenses:Groceries "monthly" 300.00 USD
+
+2026-02-14 * "PAYROLL" ""
+  Assets:Checking  2000.00 USD
+  Income:Salary
+2026-02-14 * "Fidelity" "401(k)"
+  Assets:Fund  10 FUND {{500.00 USD}}
+  Income:Salary:401k  -500.00 USD
+2026-02-20 price FUND 60.00 USD
+2026-02-20 * "Fidelity" "market"
+  Assets:Checking  5.00 USD
+  Income:Fidelity:Unreconciled
+2026-02-01 * "RENT" ""
+  tally-id: "a1"
+  Assets:Checking  -1000.00 USD
+  Expenses:Rent  1000.00 USD
+2026-02-10 * "MAPLE MARKET" ""
+  tally-id: "a2"
+  Assets:Checking  -200.00 USD
+  Expenses:Groceries  200.00 USD
+2026-03-02 * "MAPLE MARKET" ""
+  tally-id: "a3"
+  purchased: 2026-02-28
+  Assets:Checking  -100.00 USD
+  Expenses:Groceries  100.00 USD
+2026-03-01 * "RENT" ""
+  tally-id: "a4"
+  Assets:Checking  -1000.00 USD
+  Expenses:Rent  1000.00 USD
+2026-03-05 * "MYSTERY SHOP" ""
+  tally-id: "a5"
+  Assets:Checking  -40.00 USD
+  Expenses:Uncategorized  40.00 USD
+2026-03-06 * "MAPLE MARKET" ""
+  tally-id: "a6"
+  Assets:Checking  -50.00 USD
+  Expenses:Groceries  50.00 USD
+"""
+TODAY = datetime.date(2026, 3, 10)
+
+
+@pytest.fixture
+def found() -> picture.Picture:
+    loaded, errors, _ = loader.load_string(LEDGER)
+    assert errors == []
+    mapping = accounts.from_entries(loaded)
+    return picture.build(loaded, mapping, plan.read(loaded, mapping, TODAY), TODAY)
+
+
+def test_pay_counts_401k_but_not_the_market(found: picture.Picture) -> None:
+    feb = found.months[-2]
+    assert feb.pay == Decimal("2500.00")
+    # Groceries bought 02/28 count in February, though they posted in March.
+    assert feb.spent == Decimal("1300.00")
+    assert feb.rate == Decimal("0.48")
+    assert found.this_month.pay == 0 and found.this_month.rate is None
+
+
+def test_categories_against_plan_and_usual(found: picture.Picture) -> None:
+    by_name = {c.name: c for c in found.categories}
+    assert by_name["Groceries"].spent == Decimal("50.00")
+    assert by_name["Groceries"].usual == Decimal("300.00")  # February, the only month before
+    assert by_name["Rent + fees"].fixed and not by_name["Groceries"].fixed
+    # Rent in full, plus 10 of March's 31 days of groceries' 300.
+    assert found.pace == Decimal("1096.77")
+    assert found.pace_spent == Decimal("1090.00")  # 1000 + 50 + 40 uncategorized
+
+
+def test_merchants_and_net_worth(found: picture.Picture) -> None:
+    assert found.merchants[0] == ("RENT", Decimal("1000.00"))
+    day, worth = found.net_worth[-2]
+    # End of February: 2000 + 5 - 1000 - 200 cash, 10 units at 60.00.
+    assert day == datetime.date(2026, 2, 28) and worth == Decimal("1405.00")
+
+
+def test_unsorted_and_choices(found: picture.Picture) -> None:
+    assert [(u.tally_id, u.payee, u.amount) for u in found.unsorted] == [
+        ("a5", "MYSTERY SHOP", Decimal("40.00"))
+    ]
+    assert "Groceries" in found.choices and "Uncategorized" not in found.choices
+
+
+def test_the_page_renders_and_saves_a_category(tmp_path: Path) -> None:
+    from fava.application import create_app
+
+    folder = tmp_path / "ledger"
+    (folder / "imported").mkdir(parents=True)
+    head, body = LEDGER.split("\n2026-02-14", 1)
+    (folder / "main.beancount").write_text(
+        head
+        + '\n2026-01-01 custom "fava-extension" "tally.fava_page"\n'
+        + 'include "imported/*.beancount"\ninclude "pending.beancount"\n'
+    )
+    (folder / "imported" / "2026.beancount").write_text("2026-02-14" + body)
+    (folder / "pending.beancount").write_text("")
+    app = create_app([str(folder / "main.beancount")])
+    app.testing = True
+    client = app.test_client()
+    page = client.get("/beancount/extension/Tally/")
+    assert page.status_code == 200
+    text = page.get_data(as_text=True)
+    assert "Needs a category (1)" in text and 'value="a5"' in text
+
+    url = "/beancount/extension/Tally/categorize"
+    assert client.post(url, data={"tally_id": "a5", "category": "Nope"}).status_code == 400
+    assert client.post(url, data={"tally_id": "a2", "category": "Rent + fees"}).status_code == 409
+    saved = client.post(url, data={"tally_id": "a5", "category": "Groceries"})
+    assert saved.status_code == 303
+    after = (folder / "imported" / "2026.beancount").read_text()
+    assert "  Expenses:Groceries  40.00 USD" in after
+    assert "Expenses:Uncategorized" not in after

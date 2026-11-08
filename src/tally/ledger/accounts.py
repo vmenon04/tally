@@ -20,6 +20,9 @@ names accounts and bean-check sees every account tally writes to:
       category: "Savings transfer"
       merchant-contains: "KEEP THE CHANGE|SAV 1234"  # only merchants containing one of these
 
+A category whose account has `fixed: TRUE` is a bill that comes once a month (rent,
+utilities): the Tally page counts it in full instead of measuring it against the month's pace.
+
 merchant-contains matches any case, and | separates alternatives. A category can have
 several accounts told apart by merchant-contains, plus at most one without it, which takes
 every other merchant.
@@ -59,6 +62,7 @@ class Accounts:
     categories: dict[str, tuple[_Choice, ...]] = field(default_factory=dict)
     fidelity_accounts: dict[str, str] = field(default_factory=dict)  # last four -> account
     contributions_from: dict[str, str] = field(default_factory=dict)  # last four -> income
+    fixed: frozenset[str] = frozenset()  # categories that are once-a-month bills
 
     def fidelity(self, label: str) -> str:
         try:
@@ -107,6 +111,7 @@ def from_entries(entries: Iterable[data.Directive]) -> Accounts:
     categories: dict[str, list[_Choice]] = {}
     fidelity: dict[str, str] = {}
     contributions: dict[str, str] = {}
+    fixed: set[str] = set()
     for entry in entries:
         if not isinstance(entry, data.Open):
             continue
@@ -146,7 +151,15 @@ def from_entries(entries: Iterable[data.Directive]) -> Accounts:
                     f'category: "{category}" has two accounts without merchant-contains'
                 )
             choices.append(_Choice(entry.account, contains))
-    return Accounts(sources, {k: tuple(v) for k, v in categories.items()}, fidelity, contributions)
+            if meta.get("fixed") is True:
+                fixed.add(category)
+    return Accounts(
+        sources,
+        {k: tuple(v) for k, v in categories.items()},
+        fidelity,
+        contributions,
+        frozenset(fixed),
+    )
 
 
 def _text(entry: data.Open, key: str, value: object) -> None:

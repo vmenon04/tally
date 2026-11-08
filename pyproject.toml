@@ -1,7 +1,7 @@
 [project]
 name = "tally"
 version = "0.1.0"
-description = "Personal finance tracker: imports transactions, categorizes them, and updates a Google Sheet budget."
+description = "Personal finance tracker: imports transactions into a Beancount ledger, categorizes them, and shows where the money goes."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [

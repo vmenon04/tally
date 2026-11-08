@@ -142,6 +142,41 @@ the server's Tailscale address on any of your devices, or run `tally-remote fava
 http://localhost:5000. Fava has no login, so it never listens on a network address: it
 serves on a Unix socket only your account, `tally` and root can open.
 
+## The Tally page
+
+Fava's own pages are made for accountants. The **Tally** page (in Fava's sidebar) shows
+what matters day to day, on a phone as well as a computer:
+
+- this month so far: pay in, spent, kept and your savings rate, and whether you're over or
+  under the pace your plan allows by today;
+- pay against spending for the last six months;
+- each category this month, against its plan and its usual (the average of the months
+  before);
+- the places that got the most this month, and your net worth month by month;
+- **Needs a category**: every purchase still in Uncategorized, with a list of your
+  categories to pick from. Saving changes only the account on that purchase's category
+  line, the same edit you'd make in Fava's editor, and tally keeps it the same way.
+
+Pay counts everything booked to Income but Fidelity's market income, so 401(k) payroll
+contributions count as pay. Kept is pay less spending, so it's low until payday.
+
+Turn it on with these lines in the ledger (the second makes it Fava's first page):
+
+    2026-01-01 custom "fava-extension" "tally.fava_page"
+    2026-01-01 custom "fava-option" "default-page" "extension/Tally/"
+
+Bills that come once a month count in full against the pace instead of a little each day.
+Mark their accounts in `accounts.beancount` with `fixed: TRUE`:
+
+    2026-09-01 open Expenses:Rent
+      category: "Rent + fees"
+      fixed: TRUE
+
+To work on the page without real data, make a made-up ledger and serve it:
+
+    uv run python demo/make_ledger.py /tmp/tally-demo
+    TALLY_DATA_DIR=/tmp/tally-demo uv run tally fava
+
 ## Setting it up on the server
 
 1. Make an empty private `ledger` repo on Forgejo, and an access token that can write to it
