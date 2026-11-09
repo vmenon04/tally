@@ -64,6 +64,7 @@ class Month:
 @dataclass(frozen=True, slots=True)
 class Category:
     name: str
+    account: str  # where it's booked (the first, if several)
     fixed: bool  # a once-a-month bill
     spent: Decimal  # this month so far
     plan: Decimal | None  # per month
@@ -183,6 +184,7 @@ def build(
     added: dict[str, Decimal] = defaultdict(Decimal)
     spent: dict[datetime.date, Decimal] = defaultdict(Decimal)
     by_category: dict[tuple[str, datetime.date], Decimal] = defaultdict(Decimal)
+    category_account: dict[str, str] = {}
     merchants: dict[str, Decimal] = defaultdict(Decimal)
     for e in loaded:
         if not isinstance(e, data.Transaction) or e.date > today + datetime.timedelta(days=31):
@@ -205,6 +207,7 @@ def build(
                 spent[month] += number
                 name = found.category_of(p.account) or p.account.removeprefix("Expenses:")
                 by_category[name, month] += number
+                category_account.setdefault(name, p.account)
                 if month == starts[-1]:
                     merchants[e.payee or e.narration or ""] += number
     months = [Month(s, pay[s], spent[s], pay[s] - payroll[s]) for s in starts]
@@ -212,13 +215,13 @@ def build(
     return Picture(
         today,
         months,
-        _categories(by_category, starts, targets, found.fixed),
+        _categories(by_category, category_account, found, starts, targets),
         sorted(((m, v) for m, v in merchants.items() if v > 0), key=lambda x: -x[1])[
             :TOP_MERCHANTS
         ],
         _net_worth(loaded, starts, today),
         _unsorted(loaded, found, pending_file),
-        _choices(found),
+        choices(found),
         _goals(targets, balances, added, spare),
         spare,
     )
@@ -283,9 +286,10 @@ def _goals(
 
 def _categories(
     by_category: dict[tuple[str, datetime.date], Decimal],
+    category_account: dict[str, str],
+    mapping: accounts.Accounts,
     starts: list[datetime.date],
     targets: Targets,
-    fixed: frozenset[str],
 ) -> list[Category]:
     this, before = starts[-1], starts[:-1]
     names = {n for n, _ in by_category} | set(targets.monthly)
@@ -298,7 +302,8 @@ def _categories(
             found.append(
                 Category(
                     name,
-                    name in fixed,
+                    category_account.get(name) or mapping.counter(name, ""),
+                    name in mapping.fixed,
                     spent,
                     targets.monthly.get(name),
                     usual.quantize(Decimal("0.01")),
@@ -368,7 +373,7 @@ def _unsorted(
     return sorted(result, key=lambda u: u.date, reverse=True)
 
 
-def _choices(found: accounts.Accounts) -> list[str]:
+def choices(found: accounts.Accounts) -> list[str]:
     return [
         name
         for name, options in found.categories.items()

@@ -1,0 +1,54 @@
+# The Tally app (your money at a glance, with advice), running all the time on a Unix socket.
+# The socket is in /srv/tally-inbox, which only your account, tally and root can open, so
+# no other account on the server can reach it. You reach it over Tailscale (tailscale
+# serve, which runs as root); its links go to Fava on port 8443 of the same name.
+# See docs/server.md and docs/ledger.md.
+
+[Unit]
+Description=tally: the Tally app
+
+[Service]
+Type=simple
+User=tally
+Group=tally
+WorkingDirectory=/srv/tally/data
+Environment=TALLY_DATA_DIR=/srv/tally/data
+Environment=TALLY_SECRETS_DIR=/srv/tally/secrets
+Environment=TZ=America/New_York
+ExecStart=/srv/tally/venv/bin/tally web --socket /srv/tally-inbox/web.sock --fava-port 8443
+Restart=on-failure
+RestartSec=10s
+# The app logs every page it serves, which names accounts; keep that out of the journal.
+StandardOutput=null
+StandardError=journal
+
+# Can write only to the data folder (categories, questions) and its socket's folder.
+UMask=0077
+ProtectSystem=strict
+ReadWritePaths=/srv/tally/data /srv/tally-inbox
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+RestrictSUIDSGID=yes
+# No network at all: only the Unix socket it serves on.
+RestrictAddressFamilies=AF_UNIX
+PrivateNetwork=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+# No MemoryDenyWriteExecute: with it, uv's Python can't start threads, which the app needs.
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+
+[Install]
+WantedBy=multi-user.target
