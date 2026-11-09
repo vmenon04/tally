@@ -208,7 +208,10 @@ def _fava_base(port: int | None, options: dict[str, Any]) -> str:
     from fava.util import slugify
 
     slug = slugify(str(options.get("title") or "beancount")) or "beancount"
-    host = request.host.rsplit(":", 1)[0] if ":" in request.host else request.host
+    # Tailscale serve hands a socket backend Host: localhost, and the name the browser used
+    # in X-Forwarded-Host, which it sets itself.
+    host = request.headers.get("X-Forwarded-Host") or request.host
+    host = host.rsplit(":", 1)[0] if ":" in host else host
     if port is None:
         return f"/{slug}/"
     return f"//{host}:{port}/{slug}/"

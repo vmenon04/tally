@@ -33,6 +33,13 @@ def test_the_page_links_to_fava_on_the_same_host(data_dir: Path) -> None:
     assert page.status_code == 200
     assert 'href="//box.example.ts.net:8443/my-money/account/Expenses:Groceries/"' in text
     assert "Needs a category (1)" in text
+    # Behind Tailscale serve, the host comes as localhost and the real name as forwarded.
+    page = client(data_dir).get(
+        "/",
+        base_url="http://localhost",
+        headers={"X-Forwarded-Host": "box.example.ts.net"},
+    )
+    assert 'href="//box.example.ts.net:8443/my-money/' in page.get_data(as_text=True)
     # Without a port, Fava's pages are linked on the app's own address.
     text = client(data_dir, None).get("/").get_data(as_text=True)
     assert 'href="/my-money/income_statement/"' in text
