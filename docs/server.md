@@ -70,24 +70,6 @@ ssh -t myserver 'sudo install -m 644 /tmp/tally-fava.service /etc/systemd/system
 Fava reloads the ledger when its files change, so imports show up without a restart.
 Anything you change in Fava's editor is committed by tally on its next import or sync.
 
-## The Tally app, all the time
-
-`tally-web.service` runs the Tally app (your money at a glance, goals and advice; see
-[the ledger docs](ledger.md#the-tally-page)) the same way: sandboxed with no network, on
-the socket `/srv/tally-inbox/web.sock`. It takes the server's main Tailscale address, and
-Fava moves to port 8443 of the same name, where the app's links point.
-
-To install it, and move Fava:
-
-```sh
-scp deploy/tally-web.service myserver:/tmp/
-ssh -t myserver 'sudo install -m 644 /tmp/tally-web.service /etc/systemd/system/ && rm /tmp/tally-web.service && sudo systemctl daemon-reload && sudo systemctl enable --now tally-web'
-ssh -t myserver 'sudo tailscale serve --bg --https=8443 unix:/srv/tally-inbox/fava.sock && sudo tailscale serve --https=443 off && sudo tailscale serve --bg --https=443 unix:/srv/tally-inbox/web.sock && tailscale serve status'
-```
-
-Like Fava, it reads the ledger again whenever a file in it changes. After a deploy,
-`sudo systemctl restart tally-web tally-fava` loads the new code.
-
 ## Setting up a server
 
 From a clone of the repo on the server, with uv installed at `/srv/tally/bin/uv`:

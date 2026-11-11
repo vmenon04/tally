@@ -127,6 +127,9 @@ def test_the_page_renders_and_saves_a_category(tmp_path: Path) -> None:
     assert page.status_code == 200
     text = page.get_data(as_text=True)
     assert "Needs a category (1)" in text and 'value="a5"' in text
+    link = "../../account/Expenses:Groceries/"
+    assert f'href="{link}"' in text
+    assert client.get("/beancount/account/Expenses:Groceries/").status_code == 200
 
     url = "/beancount/extension/Tally/categorize"
     assert client.post(url, data={"tally_id": "a5", "category": "Nope"}).status_code == 400

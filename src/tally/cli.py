@@ -153,23 +153,6 @@ def main(argv: list[str] | None = None) -> int:
     )
     fava_parser.add_argument("--port", type=int, default=5000, help="default: 5000")
 
-    web_parser = commands.add_parser(
-        "web",
-        help="serve the Tally app: your money at a glance, with advice",
-        description="Serve the Tally app for the ledger in data/ledger until stopped. It "
-        "listens only on this machine, like `tally fava`, and links to Fava for details.",
-    )
-    web_parser.add_argument(
-        "--socket", type=Path, help="listen on this Unix socket instead of 127.0.0.1"
-    )
-    web_parser.add_argument("--port", type=int, default=5001, help="default: 5001")
-    web_parser.add_argument(
-        "--fava-port",
-        type=int,
-        help="the port Fava is reached on, on the same host name (default: Fava's pages are "
-        "linked on this app's own address)",
-    )
-
     args = parser.parse_args(argv)
     if args.command == "import":
         ok = importing.run(
@@ -205,15 +188,6 @@ def main(argv: list[str] | None = None) -> int:
                 print("\n".join(snaptrade.overview(client.get)))
         except snaptrade.SnapTradeError as e:
             print(f"snaptrade: {e}", file=sys.stderr)
-            return 1
-        return 0
-    if args.command == "web":
-        try:
-            viewing.serve_tally(
-                data_dir(), socket=args.socket, port=args.port, fava_port=args.fava_port
-            )
-        except (book.LedgerError, OSError) as e:
-            print(f"web: {e}", file=sys.stderr)
             return 1
         return 0
     if args.command == "fava":

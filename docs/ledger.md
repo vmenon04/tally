@@ -144,11 +144,10 @@ serves on a Unix socket only your account, `tally` and root can open.
 
 ## The Tally page
 
-Fava's own pages are made for accountants. The **Tally** app shows what matters day to day,
-on a phone as well as a computer, and links to Fava for the details: each category opens its
-account there, and the charts open Fava's income statement and balance sheet. It runs as
-`tally web` ([on the server](server.md#the-tally-app-all-the-time), at the server's main
-Tailscale address); the same page is also in Fava's sidebar, for now:
+Fava's own pages are made for accountants. The **Tally** page (in Fava's sidebar) shows
+what matters day to day, on a phone as well as a computer, and links to Fava's own pages for
+the details: each category opens its account, and the charts open the income statement and
+balance sheet:
 
 - this month so far: pay in, spent, kept and your savings rate, and whether you're over or
   under the pace your plan allows by today;
@@ -219,8 +218,7 @@ Mark their accounts in `accounts.beancount` with `fixed: TRUE`:
 To work on the page without real data, make a made-up ledger and serve it:
 
     uv run python demo/make_ledger.py /tmp/tally-demo
-    TALLY_DATA_DIR=/tmp/tally-demo uv run tally fava --port 5000 &
-    TALLY_DATA_DIR=/tmp/tally-demo uv run tally web --fava-port 5000
+    TALLY_DATA_DIR=/tmp/tally-demo uv run tally fava
 
 ## Setting it up on the server
 

@@ -1,4 +1,4 @@
-"""Serving Fava, Beancount's web UI, and the Tally app, for as long as you're looking at them.
+"""Serving Fava, Beancount's web UI, for as long as you're looking at it.
 
 Fava has no login, so it never listens on a network address other than this machine's
 loopback. On the server it listens on a Unix socket instead, in a folder only your account
@@ -9,7 +9,6 @@ and tally can open (/srv/tally-inbox), so other accounts on the server can't rea
 import signal
 from pathlib import Path
 from types import FrameType
-from typing import Any
 
 from werkzeug.serving import make_server
 
@@ -20,39 +19,22 @@ def serve(data_dir: Path, *, socket: Path | None, port: int) -> None:
     """Serve Fava on the socket, or on 127.0.0.1:port, until interrupted or hung up."""
     from fava.application import create_app  # slow to import; only this command needs it
 
-    main = _main(data_dir)
-    serve_app(create_app([str(main)]), "Fava", socket=socket, port=port)
-
-
-def serve_tally(data_dir: Path, *, socket: Path | None, port: int, fava_port: int | None) -> None:
-    """Serve the Tally app the same way, its links to Fava going to fava_port."""
-    from tally import web
-
-    _main(data_dir)
-    serve_app(web.create_app(data_dir, fava_port), "Tally", socket=socket, port=port)
-
-
-def _main(data_dir: Path) -> Path:
     main = book.folder(data_dir) / book.MAIN
     if not main.is_file():
         raise book.LedgerError(f"no ledger at {main}")
     book.ensure_pending(main.parent)
-    return main
-
-
-def serve_app(app: Any, name: str, *, socket: Path | None, port: int) -> None:
-    """Serve a WSGI app on the socket, or on 127.0.0.1:port, until interrupted or hung up."""
+    app = create_app([str(main)])
     ours = None
     if socket is None:
         server = make_server("127.0.0.1", port, app, threaded=True)
-        print(f"{name}: http://127.0.0.1:{port}  (Ctrl-C to stop)", flush=True)
+        print(f"Fava: http://127.0.0.1:{port}  (Ctrl-C to stop)", flush=True)
     else:
         socket.unlink(missing_ok=True)  # left behind by a run that was killed
         server = make_server(f"unix://{socket}", 0, app, threaded=True)
         # The folder decides who can connect; the socket itself must let your account in.
         socket.chmod(0o666)
         ours = socket.stat().st_ino
-        print(f"{name}: serving on {socket}  (Ctrl-C to stop)", flush=True)
+        print(f"Fava: serving on {socket}  (Ctrl-C to stop)", flush=True)
 
     def stop(signum: int, frame: FrameType | None) -> None:
         raise KeyboardInterrupt

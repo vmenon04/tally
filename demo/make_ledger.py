@@ -1,8 +1,7 @@
 """Write a made-up ledger to try the Tally page in Fava without real data.
 
     uv run python demo/make_ledger.py /tmp/tally-demo
-    TALLY_DATA_DIR=/tmp/tally-demo uv run tally fava --port 5000 &
-    TALLY_DATA_DIR=/tmp/tally-demo uv run tally web --fava-port 5000
+    TALLY_DATA_DIR=/tmp/tally-demo uv run tally fava
 
 Everything in it is fabricated: merchants, amounts, accounts. It's dated around today, so
 the page always has a current month to show.
