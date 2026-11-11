@@ -129,6 +129,7 @@ def test_the_page_renders_and_saves_a_category(tmp_path: Path) -> None:
     assert "Needs a category (1)" in text and 'value="a5"' in text
     link = "../../account/Expenses:Groceries/"
     assert f'href="{link}"' in text
+    assert 'id="investing"' not in text  # nothing invested in this ledger
     assert client.get("/beancount/account/Expenses:Groceries/").status_code == 200
 
     url = "/beancount/extension/Tally/categorize"
@@ -156,11 +157,20 @@ GOALS = """
 """
 
 
-def build_with(extra: str) -> picture.Picture:
+def build_with(
+    extra: str, roth_limit: Decimal | None = None, roth_elsewhere: Decimal = Decimal(0)
+) -> picture.Picture:
     loaded, errors, _ = loader.load_string(LEDGER + extra)
     assert errors == []
     mapping = accounts.from_entries(loaded)
-    return picture.build(loaded, mapping, plan.read(loaded, mapping, TODAY), TODAY)
+    return picture.build(
+        loaded,
+        mapping,
+        plan.read(loaded, mapping, TODAY),
+        TODAY,
+        roth_limit=roth_limit,
+        roth_elsewhere=roth_elsewhere,
+    )
 
 
 def test_goals_share_whats_left() -> None:
@@ -191,3 +201,51 @@ def test_a_goal_needs_a_name_and_an_account() -> None:
     )
     with pytest.raises(plan.PlanError, match='"months" or "target"'):
         plan.read(loaded, accounts.from_entries(loaded), TODAY)
+
+
+INVESTING = """
+2025-01-01 open Equity:Opening-Balances
+2025-01-01 open Assets:Fidelity:Roth
+  fidelity-account: "1111"
+2025-01-01 open Assets:Fidelity:Roth:Cash USD
+2025-01-01 open Assets:Fidelity:Go
+  fidelity-account: "3333"
+2025-12-20 * "Last year's contribution"
+  Assets:Fidelity:Roth:Cash  1000.00 USD
+  Equity:Opening-Balances
+2026-01-05 * "Snapshot" #fidelity-positions
+  Assets:Fidelity:Roth  4 IDX {{400.00 USD}}
+  Assets:Fidelity:Roth:Cash  -400.00 USD
+2026-01-05 * "Snapshot" #fidelity-positions
+  Assets:Fidelity:Go  2 ABC {{300.00 USD}}
+  Equity:Opening-Balances
+2026-02-15 * "To the Roth IRA"
+  Assets:Fidelity:Roth:Cash  500.00 USD
+  Assets:Checking
+2026-03-01 price IDX 110.00 USD
+"""
+
+
+def test_investments_show_worth_paid_and_gain() -> None:
+    found = build_with(INVESTING, roth_limit=Decimal("7500"), roth_elsewhere=Decimal("140"))
+    roth, go = found.investments
+    # 4 IDX at today's 110, and 1,100 in cash; paid 400 for the IDX, and the cash.
+    assert (roth.name, roth.worth, roth.paid) == ("Roth", Decimal("1540.00"), Decimal("1500.00"))
+    assert roth.gain == Decimal("40.00") and roth.account == "Assets:Fidelity:Roth"
+    # No price for ABC: worth what it cost.
+    assert (go.name, go.worth, go.gain) == ("Go", Decimal("300.00"), Decimal(0))
+    # This year's money in from the bank, and what went in elsewhere; not last year's.
+    assert found.roth is not None
+    assert (found.roth.put_in, found.roth.left) == (Decimal("640.00"), Decimal("6860.00"))
+    assert found.roth.deadline == datetime.date(2027, 4, 15)
+    assert build_with(INVESTING).roth is None  # without a limit
+
+
+def test_the_page_shows_investing(tmp_path: Path) -> None:
+    from tally.fava_page import FavaLinks, render
+
+    found = build_with(INVESTING, roth_limit=Decimal("7500"), roth_elsewhere=Decimal("140"))
+    text = render(found, tmp_path, fava=FavaLinks("../../"))
+    assert 'href="../../account/Assets:Fidelity:Roth/">Roth</a>' in text
+    assert "+$40 <small>(+3%)</small>" in text
+    assert "$640 in" in text and "$6,860 of room, until Apr 15, 2027" in text

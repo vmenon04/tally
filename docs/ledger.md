@@ -155,6 +155,11 @@ balance sheet:
 - each category this month, against its plan and its usual (the average of the months
   before);
 - the places that got the most this month, and your net worth month by month;
+- **Investing**: each account with `fidelity-account:`, what it's worth today, what you paid
+  for what it holds (its cost basis, plus cash), and the gain between them, the market's
+  doing; and this year's Roth IRA contributions against `roth_limit` in `config.toml` (see
+  [the summary docs](summary.md)), with the room left and the deadline. Contributions are
+  money into `Assets:Fidelity:Roth:Cash` from your bank this year, plus `roth_elsewhere`;
 - **Needs a category**: every purchase still in Uncategorized, with a list of your
   categories to pick from. Saving changes only the account on that purchase's category
   line, the same edit you'd make in Fava's editor, and tally keeps it the same way.

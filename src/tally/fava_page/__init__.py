@@ -25,7 +25,7 @@ from flask import redirect, request
 from markupsafe import Markup
 from werkzeug.wrappers import Response
 
-from tally import advice, plan
+from tally import advice, config, plan
 from tally.fava_page import charts
 from tally.ledger import accounts, book, categories, entries, picture
 from tally.rules import UNCATEGORIZED
@@ -120,8 +120,18 @@ def render(p: picture.Picture, data_dir: Path, *, fava: FavaLinks) -> Markup:
 def picture_of(loaded: Sequence[data.Directive], folder: Path) -> picture.Picture:
     found = accounts.from_entries(loaded)
     today = datetime.datetime.now().astimezone().date()
+    try:
+        settings = config.load(folder.parent / "config.toml")
+    except config.ConfigError:
+        settings = config.Config()  # the page still works, without the Roth IRA limit
     return picture.build(
-        loaded, found, plan.read(loaded, found, today), today, folder / book.PENDING
+        loaded,
+        found,
+        plan.read(loaded, found, today),
+        today,
+        folder / book.PENDING,
+        settings.roth_limit,
+        settings.roth_elsewhere,
     )
 
 

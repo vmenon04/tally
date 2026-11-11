@@ -5,7 +5,9 @@
 - the merchants that got the most this month;
 - net worth at the end of each month, holdings at their market price;
 - the purchases nobody has given a category yet;
-- each goal's balance against its target, and a suggested amount to put in each month.
+- each goal's balance against its target, and a suggested amount to put in each month;
+- each Fidelity account: what it's worth, what was paid for what it holds, and the gain;
+- this year's Roth IRA contributions against the limit.
 
 Pay is everything booked to an Income account but Fidelity's (dividends and market
 movement aren't pay); a 401(k)'s payroll contributions count, being pay you never saw.
@@ -17,6 +19,11 @@ contributions, which are saved already) after spending and the month's planned R
 transfer, over the last few whole months. A goal with a "months" target that's still short
 comes first and gets most of it; the others split the rest. Once it's full, they split it
 all.
+
+An investment's gain is what it's worth less what was paid for what it holds (its cost
+basis, cash at face value): what the market did with your money. Roth IRA contributions
+are the money that came into the Roth's cash from your bank this year, plus what you made
+where tally can't see (roth_elsewhere in config.toml).
 """
 
 import calendar
@@ -29,7 +36,7 @@ from pathlib import Path
 
 from beancount.core import data, position, prices
 
-from tally.ledger import accounts, entries
+from tally.ledger import accounts, entries, positions
 from tally.plan import ROTH, Goal, Targets
 from tally.rules import UNCATEGORIZED
 
@@ -37,6 +44,7 @@ MONTHS = 6
 TOP_MERCHANTS = 8
 USUAL_MONTHS = 3  # whole months the suggestions go by
 FIRST_SHARE = Decimal("0.7")  # of what's left, for a "months" goal that's still short
+ROTH_CASH = "Assets:Fidelity:Roth:Cash"
 _ZERO = Decimal(0)
 
 
@@ -103,6 +111,47 @@ class Spare:
 
 
 @dataclass(frozen=True, slots=True)
+class Investment:
+    """A Fidelity account today."""
+
+    name: str
+    account: str
+    worth: Decimal  # holdings at the latest price, and cash
+    paid: Decimal  # for what it holds: the cost basis, and cash
+
+    @property
+    def gain(self) -> Decimal:
+        return self.worth - self.paid
+
+    @property
+    def share(self) -> Decimal | None:
+        """The gain as a share of what was paid."""
+        return self.gain / self.paid if self.paid > 0 else None
+
+
+@dataclass(frozen=True, slots=True)
+class RothRoom:
+    """This year's Roth IRA contributions against the limit."""
+
+    year: int
+    limit: Decimal
+    put_in: Decimal
+
+    @property
+    def left(self) -> Decimal:
+        return self.limit - self.put_in
+
+    @property
+    def share(self) -> Decimal:
+        return min(self.put_in / self.limit, Decimal(1)) if self.limit > 0 else Decimal(1)
+
+    @property
+    def deadline(self) -> datetime.date:
+        """The last day to contribute for this year: tax day the year after."""
+        return datetime.date(self.year + 1, 4, 15)
+
+
+@dataclass(frozen=True, slots=True)
 class Unsorted:
     """A purchase still in Uncategorized."""
 
@@ -124,6 +173,8 @@ class Picture:
     choices: list[str]  # categories a purchase can be given
     goals: list[GoalView]
     spare: Spare | None  # None until there's a whole month with pay
+    investments: list[Investment]  # most valuable first
+    roth: RothRoom | None  # None without a roth_limit
 
     @property
     def this_month(self) -> Month:
@@ -151,7 +202,12 @@ class Picture:
         )
 
 
-def from_folder(folder: Path, today: datetime.date) -> tuple[Picture, list[str]]:
+def from_folder(
+    folder: Path,
+    today: datetime.date,
+    roth_limit: Decimal | None = None,
+    roth_elsewhere: Decimal = _ZERO,
+) -> tuple[Picture, list[str]]:
     """The picture of the ledger in folder, and the plan's `about` lines.
 
     Raises LedgerError if bean-check finds errors, AccountsError, PlanError.
@@ -166,7 +222,10 @@ def from_folder(folder: Path, today: datetime.date) -> tuple[Picture, list[str]]
         raise book.LedgerError(f"the ledger has {len(errors)} error(s); run bean-check")
     found = accounts.from_entries(loaded)
     targets = read(loaded, found, today)
-    return build(loaded, found, targets, today, folder / book.PENDING), targets.about
+    picture = build(
+        loaded, found, targets, today, folder / book.PENDING, roth_limit, roth_elsewhere
+    )
+    return picture, targets.about
 
 
 def build(
@@ -175,6 +234,8 @@ def build(
     targets: Targets,
     today: datetime.date,
     pending_file: Path | None = None,
+    roth_limit: Decimal | None = None,
+    roth_elsewhere: Decimal = _ZERO,
 ) -> Picture:
     starts = _month_starts(today, MONTHS)
     pay: dict[datetime.date, Decimal] = defaultdict(Decimal)
@@ -186,6 +247,7 @@ def build(
     by_category: dict[tuple[str, datetime.date], Decimal] = defaultdict(Decimal)
     category_account: dict[str, str] = {}
     merchants: dict[str, Decimal] = defaultdict(Decimal)
+    roth_in = roth_elsewhere
     for e in loaded:
         if not isinstance(e, data.Transaction) or e.date > today + datetime.timedelta(days=31):
             continue
@@ -196,6 +258,13 @@ def build(
             number = p.units.number or _ZERO
             if e.date <= today:
                 balances[p.account] += number
+                if (
+                    p.account == ROTH_CASH
+                    and number > 0
+                    and positions.TAG not in e.tags
+                    and bought.year == today.year
+                ):
+                    roth_in += number
                 if e.date >= starts[-1]:
                     added[p.account] += number
             if _is_pay(p.account) and e.date <= today:
@@ -212,6 +281,7 @@ def build(
                     merchants[e.payee or e.narration or ""] += number
     months = [Month(s, pay[s], spent[s], pay[s] - payroll[s]) for s in starts]
     spare = _spare(months, targets, today)
+    price_map = prices.build_price_map(list(loaded))  # type: ignore[no-untyped-call]
     return Picture(
         today,
         months,
@@ -219,11 +289,13 @@ def build(
         sorted(((m, v) for m, v in merchants.items() if v > 0), key=lambda x: -x[1])[
             :TOP_MERCHANTS
         ],
-        _net_worth(loaded, starts, today),
+        _net_worth(loaded, price_map, starts, today),
         _unsorted(loaded, found, pending_file),
         choices(found),
         _goals(targets, balances, added, spare),
         spare,
+        _investments(loaded, found, price_map, today),
+        None if roth_limit is None else RothRoom(today.year, roth_limit, roth_in),
     )
 
 
@@ -313,11 +385,13 @@ def _categories(
 
 
 def _net_worth(
-    loaded: Sequence[data.Directive], starts: list[datetime.date], today: datetime.date
+    loaded: Sequence[data.Directive],
+    price_map: prices.PriceMap,
+    starts: list[datetime.date],
+    today: datetime.date,
 ) -> list[tuple[datetime.date, Decimal]]:
     """What everything is worth at each month's end: assets less what's owed, holdings at
     the latest price by then (or what they cost, if there's none)."""
-    price_map = prices.build_price_map(list(loaded))  # type: ignore[no-untyped-call]
     days = [_month_end(s) for s in starts[:-1]] + [today]
     held: dict[str, Decimal] = defaultdict(Decimal)  # currency -> units
     cost: dict[str, Decimal] = defaultdict(Decimal)  # currency -> what it cost, in USD
@@ -344,6 +418,52 @@ def _net_worth(
             total += units * price if price is not None else cost[currency]
         found.append((day, total.quantize(Decimal("0.01"))))
     return found
+
+
+def _investments(
+    loaded: Sequence[data.Directive],
+    found: accounts.Accounts,
+    price_map: prices.PriceMap,
+    today: datetime.date,
+) -> list[Investment]:
+    roots = set(found.fidelity_accounts.values())
+    held: dict[tuple[str, str], Decimal] = defaultdict(Decimal)  # (root, currency) -> units
+    cost: dict[tuple[str, str], Decimal] = defaultdict(Decimal)  # -> what it cost, in USD
+    for e in loaded:
+        if not isinstance(e, data.Transaction) or e.date > today:
+            continue
+        for p in e.postings:
+            root = next((r for r in roots if p.account == r or p.account.startswith(r + ":")), None)
+            if root is None or p.units is None:
+                continue
+            number = p.units.number or _ZERO
+            held[root, p.units.currency] += number
+            if isinstance(p.cost, position.Cost) and p.cost.number is not None:
+                cost[root, p.units.currency] += number * p.cost.number
+    worth: dict[str, Decimal] = defaultdict(Decimal)
+    paid: dict[str, Decimal] = defaultdict(Decimal)
+    for (root, currency), units in held.items():
+        if currency == entries.CURRENCY:
+            worth[root] += units
+            paid[root] += units
+            continue
+        _, price = prices.get_price(  # type: ignore[no-untyped-call]
+            price_map, (currency, entries.CURRENCY), today
+        )
+        basis = cost[root, currency]
+        worth[root] += units * price if price is not None else basis
+        paid[root] += basis
+    result = [
+        Investment(
+            root.rsplit(":", 1)[-1],
+            root,
+            worth[root].quantize(Decimal("0.01")),
+            paid[root].quantize(Decimal("0.01")),
+        )
+        for root in worth
+        if worth[root] or paid[root]
+    ]
+    return sorted(result, key=lambda i: (-i.worth, i.name))
 
 
 def _unsorted(

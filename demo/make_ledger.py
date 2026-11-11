@@ -26,10 +26,11 @@ ACCOUNTS = """\
   category: "Savings transfer"
 2025-01-01 open Assets:Transfers:Card USD
   category: "Card payment"
-2025-01-01 open Assets:Brokerage:Roth
-2025-01-01 open Assets:Brokerage:Roth:Cash USD
+2025-01-01 open Assets:Fidelity:Roth
+  fidelity-account: "1111"
+2025-01-01 open Assets:Fidelity:Roth:Cash USD
   category: "Investing"
-2025-01-01 open Assets:Brokerage:401k
+2025-01-01 open Assets:Fidelity:401k
   fidelity-account: "0000"
   contributions-from: "Income:Salary:401k"
 2025-01-01 open Income:Salary USD
@@ -115,13 +116,20 @@ def main(out: Path) -> None:
         f'{start} * "Opening balance"\n  Assets:Bank:Checking  1800.00 USD\n'
         f"  Equity:Opening-Balances\n"
     )
-    units, price = 0.0, 60.0
+    units, price, index = 0.0, 60.0, 100.0
     day = start
     while day <= today:
         if day.day == 1:
             lines.append(entry(day, "RENT PORTAL", "Expenses:Rent", 1100, "bofa_checking"))
             lines.append(
-                entry(day, "ROTH TRANSFER", "Assets:Brokerage:Roth:Cash", 300, "bofa_checking")
+                entry(day, "ROTH TRANSFER", "Assets:Fidelity:Roth:Cash", 300, "bofa_checking")
+            )
+            index *= 1 + rng.uniform(-0.03, 0.05)
+            lines.append(
+                f'{day} * "Fidelity" "Roth IRA purchase" #fidelity-positions\n'
+                f"  Assets:Fidelity:Roth  {300 / index:.3f} INDEX {{{{300.00 USD}}}}\n"
+                f"  Assets:Fidelity:Roth:Cash  -300.00 USD\n"
+                f"{day} price INDEX {index:.2f} USD\n"
             )
             lines.append(
                 entry(day, "TO HIGH YIELD", "Assets:HighYield:Savings", 500, "bofa_checking")
@@ -142,7 +150,7 @@ def main(out: Path) -> None:
             units += bought
             lines.append(
                 f'{day} * "Fidelity" "401(k) contribution"\n'
-                f"  Assets:Brokerage:401k  {bought} FFUND {{{{{contribution} USD}}}}\n"
+                f"  Assets:Fidelity:401k  {bought} FFUND {{{{{contribution} USD}}}}\n"
                 f"  Income:Salary:401k  -{contribution} USD\n"
                 f"{day} price FFUND {price:.2f} USD\n"
             )

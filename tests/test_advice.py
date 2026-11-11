@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from test_picture import GOALS, LEDGER, build_with
+from test_picture import GOALS, INVESTING, LEDGER, build_with
 
 from tally import advice
 from tally.categorizing import ClaudeError
@@ -42,6 +42,17 @@ def test_facts_spell_out_the_page() -> None:
     assert "February 2026: pay $2,500, take-home $2,000, spent $1,300" in text
     assert "- Groceries: $50, plan $300, usual $300." in text
     assert "Emergency fund: $200 of a $3,900 target, $3,700 to go; suggested $420" in text
+
+
+def test_facts_include_investing() -> None:
+    from decimal import Decimal
+
+    text = advice.facts(build_with(INVESTING, roth_limit=Decimal("7500")), ABOUT)
+    assert "- Roth: worth $1,540, paid $1,500, gain $40 (+3%)." in text
+    assert (
+        "Roth IRA 2026: $500 contributed of the $7,500 limit, $7,000 of room left; "
+        "contributions for 2026 can be made until April 15, 2027." in text
+    )
 
 
 def test_a_question_is_answered_once(tmp_path: Path) -> None:

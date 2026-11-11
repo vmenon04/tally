@@ -291,8 +291,11 @@ def _advise() -> None:
     if not waiting and advice.reviewed(folder, _last_month(today)):
         return
     try:
-        found, about = picture.from_folder(book.folder(folder), today)
-    except (book.LedgerError, accounts.AccountsError, plan.PlanError) as e:
+        settings = config.load(folder / "config.toml")
+        found, about = picture.from_folder(
+            book.folder(folder), today, settings.roth_limit, settings.roth_elsewhere
+        )
+    except (config.ConfigError, book.LedgerError, accounts.AccountsError, plan.PlanError) as e:
         print(f"advice: {e}", file=sys.stderr)
         return
     now = datetime.datetime.now(datetime.UTC)

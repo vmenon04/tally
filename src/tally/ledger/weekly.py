@@ -22,8 +22,8 @@ import beanquery
 from beancount import loader
 
 from tally.ledger import accounts, book, positions
+from tally.ledger.picture import ROTH_CASH
 
-ROTH_CASH = "Assets:Fidelity:Roth:Cash"
 # The day a purchase happened: `purchased` when the entry has it, else the entry's date.
 _DAY = "coalesce(date(entry_meta('purchased')), date)"
 

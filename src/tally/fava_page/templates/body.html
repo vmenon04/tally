@@ -51,6 +51,10 @@
   .tally .t-qa { border-left: 3px solid var(--t-pay); padding: 2px 0 2px 12px; margin: 10px 0; }
   .tally .t-q { font-weight: 600; margin: 0 0 4px; } .tally .t-a { margin: 0; line-height: 1.5; white-space: pre-line; }
   .tally table.t-list { table-layout: fixed; }
+  .tally table.t-invest td:first-child { width: 28%; }
+  .tally table.t-invest .t-head td { color: var(--t-muted); font-size: .85em; }
+  .tally table.t-invest .t-total td { font-weight: 600; border-bottom: 0; }
+  .tally table.t-invest small { color: var(--t-muted); }
   .tally select { max-width: 100%; }
   @media (max-width: 600px) {
     .tally .t-row { grid-template-columns: 1fr auto; } .tally .t-row .t-bar { grid-column: 1 / -1; grid-row: 2; }
@@ -170,6 +174,44 @@
       {{ chart_net_worth(p) }}
     </div>
   </div>
+
+  {% if p.investments or p.roth %}
+  <h2 id="investing">Investing <a class="t-more" href="{{ fava.page('balance_sheet') }}">details</a></h2>
+  {% if p.investments %}
+  <p class="t-note">Gain is what it's worth less what you paid for what it holds: what the market did with your money.</p>
+  <table class="t-list t-invest">
+    <tr class="t-head"><td></td><td class="t-amt">Worth</td><td class="t-amt">Paid</td><td class="t-amt">Gain</td></tr>
+    {% for i in p.investments %}
+      <tr>
+        <td><a href="{{ fava.account(i.account) }}">{{ i.name }}</a></td>
+        <td class="t-amt">{{ money(i.worth) }}</td>
+        <td class="t-amt">{{ money(i.paid) }}</td>
+        <td class="t-amt {{ 't-good' if i.gain >= 0 else 't-bad' }}">{{ '+' if i.gain >= 0 }}{{ money(i.gain) }}{% if i.share is not none %} <small>({{ '+' if i.share >= 0 }}{{ percent(i.share) }})</small>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    {% if p.investments|length > 1 %}
+    {% set worth = p.investments|sum(attribute='worth') %}{% set paid = p.investments|sum(attribute='paid') %}
+      <tr class="t-total">
+        <td>All</td>
+        <td class="t-amt">{{ money(worth) }}</td>
+        <td class="t-amt">{{ money(paid) }}</td>
+        <td class="t-amt {{ 't-good' if worth >= paid else 't-bad' }}">{{ '+' if worth >= paid }}{{ money(worth - paid) }}</td>
+      </tr>
+    {% endif %}
+  </table>
+  {% endif %}
+  {% if p.roth %}
+  {% set r = p.roth %}
+  <div class="t-rows" style="margin-top:14px">
+    <div class="t-row">
+      <div>Roth IRA {{ r.year }}<small class="t-note" style="display:block;margin:0">limit {{ money(r.limit) }}</small></div>
+      <div class="t-bar"><div class="t-fill {{ 't-over' if r.left < 0 else 't-goal' }}" style="width:{{ r.share * 100 }}%"></div></div>
+      <div class="t-nums">{{ money(r.put_in) }} in
+        <small>{% if r.left > 0 %}{{ money(r.left) }} of room, until {{ r.deadline.strftime('%b %d, %Y') }}{% elif r.left == 0 %}full for {{ r.year }}{% else %}<span class="t-bad">{{ money(-r.left) }} over</span>{% endif %}</small></div>
+    </div>
+  </div>
+  {% endif %}
+  {% endif %}
 
   <h2 id="needs-a-category">Needs a category{% if p.unsorted %} ({{ p.unsorted|length }}){% endif %}</h2>
   {% if p.unsorted %}

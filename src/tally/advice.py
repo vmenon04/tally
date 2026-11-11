@@ -189,6 +189,25 @@ def facts(p: Picture, about: list[str]) -> str:
                 f"- {g.name}: {_d(g.balance)}{target}; suggested {_d(g.suggested)} a month "
                 f"({_d(g.suggested / 2)} a paycheck); {_d(g.added)} added this month."
             )
+    if p.investments:
+        lines += [
+            "",
+            "Investments today (gain is worth less what was paid for what's held: the "
+            "market's doing, not money put in):",
+        ]
+        for i in p.investments:
+            share = "" if i.share is None else f" ({i.share * 100:+.0f}%)"
+            lines.append(
+                f"- {i.name}: worth {_d(i.worth)}, paid {_d(i.paid)}, gain {_d(i.gain)}{share}."
+            )
+    if p.roth:
+        r = p.roth
+        room = f"{_d(r.left)} of room left" if r.left >= 0 else f"{_d(-r.left)} over the limit"
+        lines += [
+            "",
+            f"Roth IRA {r.year}: {_d(r.put_in)} contributed of the {_d(r.limit)} limit, "
+            f"{room}; contributions for {r.year} can be made until {r.deadline:%B %d, %Y}.",
+        ]
     lines += ["", "Net worth at each month's end (today for this month):"]
     lines += [f"- {day:%b %d, %Y}: {_d(value)}" for day, value in p.net_worth]
     return "\n".join(lines)
