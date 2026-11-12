@@ -1,0 +1,10 @@
+[Unit]
+Description=tally: bring the ledger up to date every night
+
+[Timer]
+OnCalendar=*-*-* 03:30 America/New_York
+# If the server was off then, catch up when it's back.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
