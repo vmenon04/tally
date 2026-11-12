@@ -22,12 +22,14 @@
   .tally .t-chart .t-area { fill: var(--t-area); } .tally .t-chart .t-dot { fill: var(--t-line); }
   .tally .t-chart text { fill: currentColor; font-size: 15px; }
   .tally .t-chart .t-small { fill: var(--t-muted); font-size: 13px; }
-  .tally .t-chart .t-value { font-weight: 600; font-size: 13px; }
-  .tally .t-two .t-chart text { font-size: 20px; } .tally .t-two .t-chart .t-value { font-size: 22px; }
+  .tally .t-two .t-chart text { font-size: 20px; }
+  .tally .t-big { margin: 0 0 .4em; color: var(--t-muted); }
+  .tally .t-big b { font-size: 1.5em; margin-right: .3em; color: var(--text-color, CanvasText); font-variant-numeric: tabular-nums; }
   .tally .t-legend { display: flex; gap: 14px; font-size: .9em; color: var(--t-muted); }
   .tally .t-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; }
-  .tally .t-rows { display: grid; gap: 8px; }
-  .tally .t-row { display: grid; grid-template-columns: minmax(110px, 1.2fr) 3fr minmax(130px, 1fr); gap: 10px; align-items: center; }
+  /* One grid for all the rows, so each column is as wide as its longest entry and the bars line up. */
+  .tally .t-rows { display: grid; grid-template-columns: fit-content(38%) minmax(0, 1fr) max-content; gap: 10px 16px; }
+  .tally .t-row { display: grid; grid-template-columns: subgrid; grid-column: 1 / -1; align-items: center; }
   .tally .t-bar { position: relative; height: 12px; background: var(--t-track); border-radius: 6px; overflow: visible; }
   .tally .t-fill { position: absolute; inset: 0 auto 0 0; background: var(--t-spent); border-radius: 6px; }
   .tally .t-fill.t-over { background: var(--t-bad); }
@@ -36,8 +38,11 @@
   .tally .t-nums { text-align: right; font-variant-numeric: tabular-nums; font-size: .92em; }
   .tally .t-nums small { display: block; color: var(--t-muted); }
   .tally table.t-list { width: 100%; border-collapse: collapse; }
-  .tally table.t-list td { padding: 6px 4px; border-bottom: 1px solid var(--table-border, #ddd); }
-  .tally table.t-list td.t-amt { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  /* Fava boxes and stripes every table and keeps cells on one line; these are plain lists. */
+  .tally table.t-list tr { background: none; }
+  .tally table.t-list td { padding: 7px 4px; border: 0; border-bottom: 1px solid var(--table-border, #ddd); white-space: normal; }
+  .tally table.t-sort td:first-child { white-space: nowrap; }
+  .tally table.t-list td.t-amt { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; padding-left: 12px; }
   .tally form.t-pick { display: flex; gap: 6px; justify-content: flex-end; }
   .tally .t-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 24px; }
   .tally .t-two > div { min-width: 0; }
@@ -50,14 +55,20 @@
   .tally form.t-ask textarea { width: 100%; box-sizing: border-box; font: inherit; padding: 6px; }
   .tally .t-qa { border-left: 3px solid var(--t-pay); padding: 2px 0 2px 12px; margin: 10px 0; }
   .tally .t-q { font-weight: 600; margin: 0 0 4px; } .tally .t-a { margin: 0; line-height: 1.5; white-space: pre-line; }
-  .tally table.t-list { table-layout: fixed; }
+  .tally table.t-invest { table-layout: fixed; }
   .tally table.t-invest td:first-child { width: 28%; }
   .tally table.t-invest .t-head td { color: var(--t-muted); font-size: .85em; }
   .tally table.t-invest .t-total td { font-weight: 600; border-bottom: 0; }
   .tally table.t-invest small { color: var(--t-muted); }
   .tally select { max-width: 100%; }
   @media (max-width: 600px) {
-    .tally .t-row { grid-template-columns: 1fr auto; } .tally .t-row .t-bar { grid-column: 1 / -1; grid-row: 2; }
+    .tally .t-rows { grid-template-columns: minmax(0, 1fr) fit-content(60%); gap: 14px 10px; }
+    .tally .t-row { row-gap: 5px; } .tally .t-row .t-bar { grid-column: 1 / -1; grid-row: 2; }
+    /* The charts shrink with the screen, so their text is drawn bigger to stay readable. */
+    .tally .t-chart text, .tally .t-two .t-chart text { font-size: 26px; }
+    .tally .t-chart .t-small { font-size: 21px; }
+    .tally table.t-invest td:first-child { width: 24%; }
+    .tally table.t-invest small { display: block; }
     .tally table.t-sort tr { display: grid; grid-template-columns: auto 1fr auto; }
     .tally table.t-sort td:last-child { grid-column: 1 / -1; border-bottom-width: 2px; }
     .tally form.t-pick { justify-content: stretch; } .tally form.t-pick select { flex: 1; }
@@ -170,6 +181,10 @@
     </div>
     <div>
       <h2>Net worth <a class="t-more" href="{{ fava.page('balance_sheet') }}">details</a></h2>
+      {% set worth = p.net_worth[-1][1] %}
+      <p class="t-big"><b>{{ money(worth) }}</b>
+        {%- if p.net_worth|length > 1 %}{% set change = worth - p.net_worth[-2][1] %}
+        <span class="{{ 't-good' if change >= 0 else 't-bad' }}">{{ '+' if change >= 0 }}{{ money(change) }}</span> this month{% endif %}</p>
       <p class="t-note">Everything you have, less what you owe; investments at market value.</p>
       {{ chart_net_worth(p) }}
     </div>

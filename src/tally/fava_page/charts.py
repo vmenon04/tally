@@ -12,8 +12,9 @@ from tally.ledger.picture import Month
 
 type Money = Callable[[Decimal], str]
 
-_W, _H = 640, 220
-_PAD_TOP, _PAD_BOTTOM = 26, 40
+_W, _H = 640, 240
+_PAD_TOP, _PAD_BOTTOM = 16, 62  # the bottom holds two lines of labels, at phone sizes too
+_PAD_SIDE = 28  # keeps the net worth line's first and last labels inside the picture
 
 
 def months(found: Sequence[Month], money: Money) -> str:
@@ -36,7 +37,7 @@ def months(found: Sequence[Month], money: Money) -> str:
             )
         rate = "" if m.rate is None else f"{m.rate * 100:.0f}% kept"
         parts.append(
-            f'<text class="t-label" x="{x:.1f}" y="{_H - 22}" text-anchor="middle">'
+            f'<text class="t-label" x="{x:.1f}" y="{_H - 32}" text-anchor="middle">'
             f"{escape(m.name)}</text>"
             f'<text class="t-small" x="{x:.1f}" y="{_H - 6}" text-anchor="middle">{rate}</text>'
         )
@@ -56,33 +57,27 @@ def net_worth(points: Sequence[tuple[object, Decimal]], money: Money) -> str:
     low, high = min([*values, Decimal(0)]), max([*values, Decimal(1)])
     span = high - low or Decimal(1)
     height = _H - _PAD_TOP - _PAD_BOTTOM
-    step = _W / max(len(points) - 1, 1)
+    step = (_W - 2 * _PAD_SIDE) / max(len(points) - 1, 1)
 
     def y(v: Decimal) -> float:
         return _PAD_TOP + height - float((v - low) / span) * height
 
-    xy = [(i * step, y(v)) for i, v in enumerate(values)]
+    xy = [(_PAD_SIDE + i * step, y(v)) for i, v in enumerate(values)]
     line = " ".join(f"{x:.1f},{yy:.1f}" for x, yy in xy)
     zero = y(Decimal(0))
-    area = f"0,{zero:.1f} {line} {xy[-1][0]:.1f},{zero:.1f}"
+    area = f"{xy[0][0]:.1f},{zero:.1f} {line} {xy[-1][0]:.1f},{zero:.1f}"
     dots = "".join(
         f'<circle class="t-dot" cx="{x:.1f}" cy="{yy:.1f}" r="4"><title>{d:%b %d}: '
         f"{escape(money(v))}</title></circle>"
         for (x, yy), (d, v) in zip(xy, points, strict=True)
     )
     labels = "".join(
-        f'<text class="t-label" x="{min(max(x, 24), _W - 24):.1f}" y="{_H - 14}" '
-        f'text-anchor="middle">{d:%b}</text>'
+        f'<text class="t-label" x="{x:.1f}" y="{_H - 32}" text-anchor="middle">{d:%b}</text>'
         for (x, _), (d, _) in zip(xy, points, strict=True)
     )
-    last_x, last_y = xy[-1]
     return (
-        f'<svg class="t-chart" viewBox="-8 0 {_W + 16} {_H}" role="img" '
+        f'<svg class="t-chart" viewBox="0 0 {_W} {_H}" role="img" '
         f'aria-label="Net worth by month">'
         f'<polygon class="t-area" points="{area}"/>'
-        f'<polyline class="t-line" points="{line}"/>'
-        + dots
-        + labels
-        + f'<text class="t-value" x="{last_x - 6:.1f}" y="{max(last_y - 12, 14):.1f}" '
-        f'text-anchor="end">{escape(money(values[-1]))}</text>' + "</svg>"
+        f'<polyline class="t-line" points="{line}"/>' + dots + labels + "</svg>"
     )
