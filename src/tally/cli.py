@@ -32,6 +32,7 @@ from tally import (
     summary,
     summary_email,
     summary_note,
+    sure,
 )
 from tally.alerts import Alert
 from tally.importers import fidelity
@@ -89,6 +90,12 @@ def main(argv: list[str] | None = None) -> int:
         "notify-test",
         help="send a test notification",
         description="Send a test notification to the ntfy topic.",
+    )
+
+    commands.add_parser(
+        "sure-login",
+        help="save Sure's API key",
+        description="Save an API key made in Sure's settings, after checking Sure accepts it.",
     )
 
     report_parser = commands.add_parser(
@@ -173,6 +180,8 @@ def main(argv: list[str] | None = None) -> int:
         return _ntfy_setup(args.new_topic)
     if args.command == "notify-test":
         return _notify_test()
+    if args.command == "sure-login":
+        return _sure_login()
     if args.command == "report":
         return _report(*args.month)
     if args.command == "summary":
@@ -249,6 +258,25 @@ def _gmail_login() -> int:
         return 1
     gmail.save_password(gmail_password_file(), password)
     print(f"Gmail accepted it. Saved to {gmail_password_file()} (readable only by you).")
+    return 0
+
+
+def _sure_login() -> int:
+    """Ask for a Sure API key, check Sure accepts it, and save it."""
+    path = config.secrets_dir() / sure.API_KEY_FILE
+    try:
+        url = config.load(data_dir() / "config.toml").sure_url
+        key = getpass.getpass(f"API key for Sure at {url} (input is hidden): ").strip()
+        names = sure.account_names(sure.Client(url, key))
+    except (config.ConfigError, sure.SureError) as e:
+        print(f"sure-login: {e}", file=sys.stderr)
+        return 1
+    except (EOFError, KeyboardInterrupt):
+        print("\nsure-login: cancelled, nothing saved.", file=sys.stderr)
+        return 1
+    config.write_secret(path, key + "\n")
+    print(f"Sure accepted it. Saved to {path} (readable only by you).")
+    print(f"Sure has {len(names)} account(s): {', '.join(names) or 'none yet'}")
     return 0
 
 

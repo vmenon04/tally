@@ -76,3 +76,11 @@ def test_roth_settings(tmp_path: Path) -> None:
     assert (plain.roth_limit, plain.roth_elsewhere) == (None, Decimal(0))
     loaded = config.load(write(tmp_path, "roth_limit = 7500\nroth_elsewhere = 1234.50\n"))
     assert (loaded.roth_limit, loaded.roth_elsewhere) == (Decimal(7500), Decimal("1234.50"))
+
+
+def test_sure_url(tmp_path: Path) -> None:
+    assert config.load(write(tmp_path, "")).sure_url == "http://127.0.0.1:3200"
+    loaded = config.load(write(tmp_path, 'sure_url = "https://sure.example.com/"\n'))
+    assert loaded.sure_url == "https://sure.example.com"
+    with pytest.raises(config.ConfigError, match="sure_url must be"):
+        config.load(write(tmp_path, 'sure_url = "sure.example.com"\n'))

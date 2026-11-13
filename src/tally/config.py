@@ -7,6 +7,7 @@ from decimal import Decimal
 from pathlib import Path
 
 NTFY_SERVER = "https://ntfy.sh"
+SURE_URL = "http://127.0.0.1:3200"  # deploy/sure/compose.yml
 
 
 class ConfigError(ValueError):
@@ -26,6 +27,7 @@ class Config:
     # from another account). The weekly summary checks the plan against the limit.
     roth_limit: Decimal | None = None
     roth_elsewhere: Decimal = Decimal(0)
+    sure_url: str = SURE_URL  # where Sure listens
 
 
 def load(path: Path) -> Config:
@@ -45,6 +47,7 @@ def load(path: Path) -> Config:
             "ntfy_server",
             "roth_limit",
             "roth_elsewhere",
+            "sure_url",
         }
     )
     if unknown:
@@ -54,6 +57,9 @@ def load(path: Path) -> Config:
     ntfy_server = data.get("ntfy_server", NTFY_SERVER)
     if not isinstance(ntfy_server, str) or not ntfy_server.startswith("https://"):
         raise ConfigError(f"{path}: ntfy_server must be an https:// address")
+    sure_url = data.get("sure_url", SURE_URL)
+    if not isinstance(sure_url, str) or not sure_url.startswith(("http://", "https://")):
+        raise ConfigError(f"{path}: sure_url must be an http:// or https:// address")
     roth_limit = _amount(data, "roth_limit", path)
     roth_elsewhere = _amount(data, "roth_elsewhere", path)
     return Config(
@@ -62,6 +68,7 @@ def load(path: Path) -> Config:
         ntfy_server=ntfy_server.rstrip("/"),
         roth_limit=roth_limit,
         roth_elsewhere=roth_elsewhere if roth_elsewhere is not None else Decimal(0),
+        sure_url=sure_url.rstrip("/"),
     )
 
 

@@ -97,6 +97,17 @@ stores, so a new one would make the database unreadable. Then open the address a
 create your account, and set **Settings > Self-Hosting > Onboarding** to **Closed** so no
 one else can register.
 
+tally reaches Sure through its API. Make an API key in Sure's settings with read and write
+access, then save it on the server; the command asks for it with hidden input and checks
+Sure accepts it:
+
+```sh
+tally sure-login
+```
+
+The key is kept in `secrets/sure-api-key`. `sure_url` in `config.toml` says where Sure
+listens, if it isn't `http://127.0.0.1:3200`.
+
 To upgrade, change the image tag in `deploy/sure/compose.yml`, commit, and run the same two
 commands again.
 
