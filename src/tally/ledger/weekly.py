@@ -1,14 +1,11 @@
 """The weekly report, worked out from the ledger with bean-query.
 
-It's meant to replace the Sheet-based summary once the ledger has proven itself; until then
-it's sent at the end of that summary, so the two can be compared week by week.
-
 - spending per category, this month so far against the same days last month, and last
   month's total;
 - Roth IRA contributions this year against the limit.
 
 Spending belongs to the month the purchase happened (the `purchased` date when there is
-one, else the entry's date), the way the Sheet counts it, and includes pending alerts.
+one, else the entry's date), and includes pending alerts.
 """
 
 import calendar

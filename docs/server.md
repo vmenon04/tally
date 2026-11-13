@@ -71,6 +71,35 @@ ssh -t myserver 'sudo install -m 644 /tmp/tally-fava.service /etc/systemd/system
 Fava reloads the ledger when its files change, so imports show up without a restart.
 Anything you change in Fava's editor is committed by tally on its next import or sync.
 
+## Sure
+
+[Sure](https://github.com/we-promise/sure) is the web and phone UI. It runs beside tally as
+a Docker Compose stack ([`deploy/sure/compose.yml`](../deploy/sure/compose.yml)) in
+`/srv/sure`, owned by root, and listens on `127.0.0.1:3200` only. `tailscale serve` puts it
+on the tailnet at `https://<server>.<tailnet>.ts.net:8443`.
+
+The ledger stays the record. Sure's database holds a copy that tally can push again, so it
+isn't backed up.
+
+To install it:
+
+```sh
+ssh myserver 'mkdir -p /tmp/sure' && scp deploy/sure/compose.yml deploy/sure/install myserver:/tmp/sure/
+ssh -t myserver 'sudo sh /tmp/sure/install && rm -r /tmp/sure'
+```
+
+[`deploy/sure/install`](../deploy/sure/install) copies the compose file to `/srv/sure`,
+makes `/srv/sure/.env` with a random `SECRET_KEY_BASE` and database password, starts the
+containers and sets up `tailscale serve`.
+
+The `.env` is made once and never replaced: its `SECRET_KEY_BASE` encrypts what Sure
+stores, so a new one would make the database unreadable. Then open the address above,
+create your account, and set **Settings > Self-Hosting > Onboarding** to **Closed** so no
+one else can register.
+
+To upgrade, change the image tag in `deploy/sure/compose.yml`, commit, and run the same two
+commands again.
+
 ## Setting up a server
 
 From a clone of the repo on the server, with uv installed at `/srv/tally/bin/uv`:

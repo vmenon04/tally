@@ -1,0 +1,24 @@
+#!/bin/sh
+# Installs or upgrades Sure in /srv/sure from the compose.yml next to this script, starts
+# it, and puts it on the tailnet. Run as root on the server; see docs/server.md.
+set -eu
+
+if [ "$(id -u)" != 0 ]; then
+    echo "install: run with sudo" >&2
+    exit 1
+fi
+
+here=$(dirname "$0")
+umask 077
+install -d -m 700 /srv/sure
+install -m 600 "$here/compose.yml" /srv/sure/compose.yml
+
+# Made once and never replaced: SECRET_KEY_BASE encrypts what Sure stores, so a new one
+# would make the database unreadable.
+if [ ! -e /srv/sure/.env ]; then
+    printf 'SECRET_KEY_BASE=%s\nPOSTGRES_PASSWORD=%s\n' \
+        "$(openssl rand -hex 64)" "$(openssl rand -hex 24)" >/srv/sure/.env
+fi
+
+docker compose --project-directory /srv/sure up -d --wait
+tailscale serve --bg --https=8443 http://127.0.0.1:3200

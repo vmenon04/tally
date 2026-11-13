@@ -13,8 +13,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - run: uv sync --locked
-      - run: uv run ruff check
-      - run: uv run ruff format --check
-      - run: uv run mypy
-      - run: uv run pytest -q
+      - run: bin/check
+      - name: Sure's compose file is valid
+        run: docker compose -f deploy/sure/compose.yml config --quiet
+        env:
+          SECRET_KEY_BASE: check
+          POSTGRES_PASSWORD: check

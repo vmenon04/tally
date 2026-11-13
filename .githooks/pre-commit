@@ -25,7 +25,4 @@ if git diff --cached -U0 -- . ':(exclude).githooks/pre-commit' \
 fi
 
 # 3. Same checks as CI.
-uv run --locked ruff check
-uv run --locked ruff format --check
-uv run --locked mypy
-uv run --locked pytest -q
+"$(git rev-parse --show-toplevel)/bin/check"

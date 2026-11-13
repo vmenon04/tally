@@ -1,0 +1,80 @@
+# Sure (https://github.com/we-promise/sure), the web and phone UI tally fills from the ledger.
+# Installed as /srv/sure/compose.yml, next to an owner-only .env holding SECRET_KEY_BASE and
+# POSTGRES_PASSWORD. See docs/server.md.
+#
+# The ledger stays the record: everything in Sure's database can be pushed again by tally.
+# Sure listens on 127.0.0.1 only; `tailscale serve` puts it on the tailnet over HTTPS.
+# Its AI features, bank connections and email are left unconfigured: tally does that work.
+
+name: sure
+
+x-db-env: &db_env
+  POSTGRES_USER: sure
+  POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}"
+  POSTGRES_DB: sure_production
+
+x-rails-env: &rails_env
+  <<: *db_env
+  # Signs sessions and derives the keys that encrypt API keys at rest. Never change it
+  # once the database has data.
+  SECRET_KEY_BASE: "${SECRET_KEY_BASE:?set SECRET_KEY_BASE in .env}"
+  SELF_HOSTED: "true"
+  # tailscale serve terminates HTTPS; tally itself calls plain http://127.0.0.1:3200.
+  RAILS_ASSUME_SSL: "true"
+  RAILS_FORCE_SSL: "false"
+  DB_HOST: db
+  DB_PORT: 5432
+  REDIS_URL: redis://redis:6379/1
+
+x-sure: &sure
+  # Pinned: upgrade by changing the tag here, after reading the release notes.
+  image: ghcr.io/we-promise/sure:0.7.6-hotfix.1
+  restart: unless-stopped
+  volumes:
+    - app-storage:/rails/storage
+  environment:
+    <<: *rails_env
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  web:
+    <<: *sure
+    ports:
+      - "127.0.0.1:3200:3000"
+
+  worker:
+    <<: *sure
+    command: bundle exec sidekiq
+
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    environment:
+      <<: *db_env
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:8
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  app-storage:
+  postgres-data:
+  redis-data:
