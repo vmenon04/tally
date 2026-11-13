@@ -135,6 +135,27 @@ bean-check fails when an account's balance doesn't match an assertion. BofA expo
 their own balances; type the others from statements into `statements.beancount`. A row
 imported twice or missing then shows up as a failed balance.
 
+## Showing it in Sure
+
+[Sure](server.md#sure) is where you look at the money; the ledger stays the record. Once
+`tally sure-login` has saved a key, every `tally sync` makes Sure's transactions match the
+ledger's. An account takes part when its open directive names the Sure account it fills:
+
+    2026-08-31 open Assets:BofA:Checking USD
+      tally-account: "bofa_checking"
+      sure-account: "BofA Checking"
+
+Each posting tally imported to such an account, pending alerts included, is one Sure
+transaction: on the day of the purchase, named after the merchant, in the entry's category
+(categories Sure lacks are created). Both sides of a transfer between two such accounts are
+sent, and Sure pairs them up itself.
+
+Each sync adds what's missing, corrects what changed (a tip added when a purchase posts)
+and removes what the ledger no longer has. tally only ever touches the transactions it
+made, and leaves alone a category you set in Sure. `tally sync --dry-run` says what it
+would do. If Sure can't be reached the sync still does everything else, and the next one
+catches Sure up.
+
 ## Browsing it
 
 With `tally-fava.service` running ([Running on a server](server.md#fava-all-the-time)), open

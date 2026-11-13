@@ -44,7 +44,7 @@ password, unlike running tally, because new code can read the secrets.
 |---|---|---|
 | `tally-alerts.timer` | `tally alerts` | every 5 minutes |
 | `tally-summary.timer` | `tally summary --email --sync` | Sundays at 6pm New York time (at boot instead, if the server was off then) |
-| `tally-sync.timer` | `tally sync` | every night at 3:30am New York time, so Claude categorizes new merchants within a day and Fidelity holdings stay current |
+| `tally-sync.timer` | `tally sync` | every night at 3:30am New York time, so Claude categorizes new merchants within a day, Fidelity holdings stay current and Sure matches the ledger |
 
 Each runs through its `.service`, sandboxed so it can write only to `/srv/tally/data`.
 `systemctl list-timers 'tally-*'` shows the next runs; `journalctl -u tally-alerts -u

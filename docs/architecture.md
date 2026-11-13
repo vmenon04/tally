@@ -192,7 +192,8 @@ flowchart TD
     end
 
     subgraph ledgerpkg["Ledger"]
-        ledger_mods["ledger/: accounts, entries, importers,<br/>positions, book, categories, updating,<br/>history, parity, weekly, viewing"]
+        ledger_mods["ledger/: accounts, entries, importers,<br/>positions, book, categories, updating,<br/>history, parity, weekly, viewing, mirror"]
+        sure["sure.py<br/>Sure's API"]
     end
 
     store["store.py<br/>SQLite, migrations"]

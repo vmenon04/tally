@@ -591,7 +591,13 @@ def _sync(dry_run: bool) -> int:
     conn = store.connect_copy(db_path) if dry_run else store.connect(db_path)
     try:
         done = updating.sync(
-            folder, conn, _ask_claude, dry_run=dry_run, err=sys.stderr, brokerage=_brokerage()
+            folder,
+            conn,
+            _ask_claude,
+            dry_run=dry_run,
+            err=sys.stderr,
+            brokerage=_brokerage(),
+            sure=_sure(),
         )
     except (
         book.LedgerError,
@@ -637,7 +643,19 @@ def _sync(dry_run: bool) -> int:
         else:
             print("\nLedger: " + " ".join(done.check.problems()))
             print("\n".join(done.check.details()[:20]))
+    if done.sure_failed:
+        print(f"sync: Sure not updated: {done.sure_failed}", file=sys.stderr)
+    elif done.sure is not None:
+        print(f"\nSure: {done.sure.summary()}.")
     return 0
+
+
+def _sure() -> sure.Client | None:
+    """Sure's API, once `tally sure-login` has saved a key."""
+    folder = config.secrets_dir()
+    if not (folder / sure.API_KEY_FILE).exists():
+        return None
+    return sure.Client.from_secrets(config.load(data_dir() / "config.toml").sure_url, folder)
 
 
 def _brokerage() -> Callable[[], fidelity.Snapshot] | None:

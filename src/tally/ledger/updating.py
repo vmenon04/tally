@@ -20,8 +20,19 @@ from tally import categorizing, corrections, matching, pending, rules, store
 from tally.alerts import Alert
 from tally.importers import ParseError
 from tally.importers.fidelity import Snapshot
-from tally.ledger import accounts, book, categories, history, importers, parity, positions
+from tally.ledger import (
+    accounts,
+    book,
+    categories,
+    history,
+    importers,
+    mirror,
+    parity,
+    positions,
+)
 from tally.snaptrade import SnapTradeError
+from tally.sure import Client as SureClient
+from tally.sure import SureError
 from tally.transaction import Transaction, identity
 
 RULES = "rules.toml"
@@ -149,6 +160,8 @@ class SyncResult:
     holdings_added: int = 0  # ledger entries from the brokerage snapshot
     holdings_failed: str | None = None
     check: parity.Parity | None = None
+    sure: mirror.Plan | None = None  # what Sure needed to match the ledger
+    sure_failed: str | None = None
 
 
 def sync(
@@ -159,6 +172,7 @@ def sync(
     dry_run: bool,
     err: TextIO,
     brokerage: Callable[[], Snapshot] | None = None,
+    sure: SureClient | None = None,
 ) -> SyncResult | None:
     """`tally sync`: bring the ledger's categories up to date, then check it.
 
@@ -168,7 +182,8 @@ def sync(
     4. imported entries still in Uncategorized move to the category the rules now give;
     5. pending.beancount is rewritten;
     6. with brokerage (SnapTrade), today's holdings are recorded, as a positions export would;
-    7. the ledger is committed and pushed, and checked.
+    7. the ledger is committed and pushed, and checked;
+    8. with sure, Sure's transactions are made to match the ledger's.
 
     A dry run works it all out and saves nothing. None if there's no ledger.
     Raises LedgerError, AccountsError, RulesError or NotUpToDate.
@@ -205,6 +220,8 @@ def sync(
             _record_holdings(ledger, brokerage, result, dry_run=True)
         ledger = book.with_pending(ledger, book.pending_entries(ledger, waiting, month_rules))
         result.check = parity.compare(ledger, counted)
+        if sure is not None:
+            _mirror(ledger, sure, result, dry_run=True)
         return result
 
     if text != _rules_text(data_dir):
@@ -215,8 +232,21 @@ def sync(
         _record_holdings(book.load(ledger.folder, month_rules), brokerage, result, dry_run=False)
     if result.changes or result.holdings_added:
         save(ledger.folder, "Bring the ledger up to date", err)
-    result.check = parity.compare(book.load(ledger.folder, month_rules), counted)
+    ledger = book.load(ledger.folder, month_rules)
+    result.check = parity.compare(ledger, counted)
+    if sure is not None:
+        _mirror(ledger, sure, result, dry_run=False)
     return result
+
+
+def _mirror(ledger: book.Ledger, sure: SureClient, result: SyncResult, *, dry_run: bool) -> None:
+    """Make Sure match the ledger. A failure is noted, never raised: the next run finishes."""
+    try:
+        result.sure = mirror.plan(mirror.rows(ledger), sure)
+        if not dry_run:
+            mirror.apply(result.sure, sure)
+    except SureError as e:
+        result.sure_failed = str(e)
 
 
 def _record_holdings(

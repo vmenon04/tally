@@ -7,7 +7,7 @@ import pytest
 from beancount import loader
 from test_ledger_importers import BOFA
 
-from tally import categorizing, store
+from tally import categorizing, store, sure
 from tally.alerts import Alert
 from tally.cli import main
 from tally.ledger import accounts, book, updating, weekly
@@ -280,3 +280,48 @@ def test_merchant_contains_takes_alternatives() -> None:
     )
     assert found.counter("Savings transfer", "CAPITAL ONE") == "Assets:CapitalOne:Savings"
     assert found.category_of("Assets:BofA:Checking") is None
+
+
+def test_sync_fills_sure_once_a_key_is_saved(
+    ledger_ready: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    accounts_file = ledger_ready / "ledger" / "accounts.beancount"
+    accounts_file.write_text(
+        accounts_file.read_text().replace(
+            '  tally-account: "bofa_checking"\n',
+            '  tally-account: "bofa_checking"\n  sure-account: "Checking"\n',
+        )
+    )
+    _, out, _ = run(capsys, "sync", "--dry-run")
+    assert "Sure:" not in out  # no key yet
+
+    (tmp_path / "secrets").mkdir()
+    (tmp_path / "secrets" / "sure-api-key").write_text("key\n")
+    sent: list[str] = []
+
+    def request(self: sure.Client, method: str, path: str, **_: Any) -> Any:
+        sent.append(method)
+        name = path.removeprefix("/api/v1/")
+        items = [{"id": "a", "name": "Checking"}] if name == "accounts" else []
+        return {name: items, "pagination": {"total_pages": 1}} if method == "GET" else {"id": "x"}
+
+    monkeypatch.setattr(sure.Client, "request", request)
+    code, out, _ = run(capsys, "sync", "--dry-run")
+    assert code == 0
+    assert "Sure: 13 to add, 0 to correct, 0 to remove, 0 already right." in out
+    assert set(sent) == {"GET"}  # a dry run only reads
+
+    code, out, _ = run(capsys, "sync")
+    assert code == 0 and "Sure: 13 to add" in out
+    assert sent.count("POST") > 13  # the transactions, and their categories
+
+    def down(self: sure.Client, method: str, path: str, **_: Any) -> Any:
+        raise sure.SureError("couldn't reach Sure at http://127.0.0.1:3200: ConnectionError")
+
+    monkeypatch.setattr(sure.Client, "request", down)
+    code, out, err = run(capsys, "sync")
+    assert code == 0  # the ledger is still brought up to date
+    assert "sync: Sure not updated: couldn't reach Sure" in err
