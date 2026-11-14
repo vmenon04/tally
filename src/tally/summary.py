@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from tally import plan, report
+from tally.advice import Review
 from tally.alerts import Alert
 from tally.pending import is_pending
 from tally.plan import Targets
@@ -68,6 +69,7 @@ class Summary:
     coming_up: list[str]
     note: str | None  # why the plan comparisons are missing, if they are
     claude_note: str | None = None  # Claude's advice (see summary_note)
+    review: Review | None = None  # Claude's review of last month, in the first summary after it
 
     @property
     def week_total(self) -> Decimal:
@@ -137,12 +139,28 @@ def title(s: Summary) -> str:
     return f"tally: week of {start:%b %-d} – {s.today:%b %-d, %Y}"
 
 
+NOT_PROFESSIONAL = (
+    "General guidance from the numbers in your ledger, not a financial professional's advice."
+)
+
+
+def review_points(r: Review) -> list[tuple[str, list[str]]]:
+    """The review's points under their headings, leaving out empty ones."""
+    found = [("Went well", r.went_well), ("Watch", r.watch), ("Try next month", r.try_next)]
+    return [(heading, points) for heading, points in found if points]
+
+
 def format_summary(s: Summary) -> str:
     lines = [title(s)]
     if s.note:
         lines += ["", s.note]
     if s.claude_note:
         lines += ["", "CLAUDE'S NOTE", f"  {s.claude_note}"]
+    if s.review:
+        lines += ["", f"CLAUDE'S REVIEW OF {s.review.title.upper()}", f"  {s.review.headline}"]
+        for heading, points in review_points(s.review):
+            lines += [f"  {heading}:", *(f"  - {point}" for point in points)]
+        lines.append(f"  ({NOT_PROFESSIONAL})")
 
     plan_total = sum((c.plan for c in s.month if c.plan is not None), Decimal(0))
     days = calendar.monthrange(s.today.year, s.today.month)[1]

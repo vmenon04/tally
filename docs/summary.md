@@ -31,6 +31,17 @@ at the top; it can only comment, a note quoting a dollar amount the summary does
 refused, and if there's no note the summary still goes out and says why. If the ledger can't
 be read, the summary says so and uses `rules.toml` alone.
 
+The first emailed summary after a month ends also has Claude's review of that month: a
+headline, then what went well, what to watch and what to try next month. Claude gets the
+ledger's numbers written out as sentences (each month's pay, spending and savings; this
+month's categories against the plan; the merchants you spend most at; goals, investments,
+Roth IRA room and net worth), plus the `custom "about"` lines in `plan.beancount`. So those
+figures go to Anthropic, as merchant names already do for categorizing. It has no tools
+and does no sums: a review quoting a dollar amount those numbers don't show is asked again,
+then refused, and the summary says so and tries again the next week. Each review is kept
+in `data/advice/`, which is how tally knows it was sent; a summary only printed, not
+emailed, never writes one.
+
 For the Roth IRA check, add to `data/config.toml`:
 
 ```toml

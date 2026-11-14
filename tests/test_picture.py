@@ -245,7 +245,7 @@ def test_the_page_shows_investing(tmp_path: Path) -> None:
     from tally.fava_page import FavaLinks, render
 
     found = build_with(INVESTING, roth_limit=Decimal("7500"), roth_elsewhere=Decimal("140"))
-    text = render(found, tmp_path, fava=FavaLinks("../../"))
+    text = render(found, fava=FavaLinks("../../"))
     assert 'href="../../account/Assets:Fidelity:Roth/">Roth</a>' in text
     assert "+$40 <small>(+3%)</small>" in text
     assert "$640 in" in text and "$6,860 of room, until Apr 15, 2027" in text

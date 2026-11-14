@@ -188,7 +188,7 @@ flowchart TD
         plan["plan.py<br/>plan.beancount"]
         corrections["corrections.py<br/>pending fixes to rules"]
         categorizing["categorizing.py<br/>Claude's merchant rules"]
-        summary["summary.py<br/>weekly summary and advice"]
+        summary["summary.py<br/>weekly summary"]
     end
 
     subgraph ledgerpkg["Ledger"]

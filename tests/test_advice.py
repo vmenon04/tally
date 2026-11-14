@@ -1,12 +1,13 @@
 import datetime
 import json
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 import pytest
-from test_picture import GOALS, INVESTING, LEDGER, build_with
+from test_picture import GOALS, INVESTING, build_with
 
-from tally import advice
+from tally import advice, summary, summary_email
 from tally.categorizing import ClaudeError
 
 NOW = datetime.datetime(2026, 3, 10, 12, tzinfo=datetime.UTC)
@@ -32,11 +33,11 @@ REVIEW = {
     "headline": "A steady month.",
     "went_well": ["Rent on time."],
     "watch": [],
-    "try_next": [],
+    "try_next": ["Put $420 toward the emergency fund."],
 }
 
 
-def test_facts_spell_out_the_page() -> None:
+def test_facts_spell_out_the_picture() -> None:
     text = advice.facts(build_with(GOALS), ABOUT)
     assert "- first job; wants to travel more" in text
     assert "February 2026: pay $2,500, take-home $2,000, spent $1,300" in text
@@ -45,8 +46,6 @@ def test_facts_spell_out_the_page() -> None:
 
 
 def test_facts_include_investing() -> None:
-    from decimal import Decimal
-
     text = advice.facts(build_with(INVESTING, roth_limit=Decimal("7500")), ABOUT)
     assert "- Roth: worth $1,540, paid $1,500, gain $40 (+3%)." in text
     assert (
@@ -55,72 +54,43 @@ def test_facts_include_investing() -> None:
     )
 
 
-def test_a_question_is_answered_once(tmp_path: Path) -> None:
-    advice.ask(tmp_path, "  Can I afford a $700 trip?  ", NOW)
-    claude = Claude({"answer": "Yes: of the $600 left each month, put aside..."}, REVIEW)
-    done = advice.run(tmp_path, build_with(GOALS), ABOUT, claude, NOW)
-    assert len(done.answered) == 1 and done.reviewed == "2026-02"
-    [q] = advice.questions(tmp_path)
-    assert q.text == "Can I afford a $700 trip?" and q.answer and q.answer.startswith("Yes")
-    assert "THEIR QUESTION\nCan I afford a $700 trip?" in claude.prompts[0]
-    # Nothing left to do on the next run.
-    assert advice.run(tmp_path, build_with(GOALS), ABOUT, Claude(), NOW) == advice.Done([], None)
-    assert advice.reviewed(tmp_path, "2026-02")
-    review = advice.latest_review(tmp_path)
-    assert review is not None and review.title == "February 2026"
+def test_last_month_is_reviewed_once(tmp_path: Path) -> None:
+    found = advice.review(tmp_path, build_with(GOALS), ABOUT, Claude(REVIEW), NOW)
+    assert found is not None
+    assert (found.title, found.headline, found.watch) == ("February 2026", "A steady month.", [])
+    saved = json.loads((tmp_path / "advice" / "review-2026-02.json").read_text())
+    assert saved["headline"] == "A steady month."
+    # Written, so sent: the next summary has none, and doesn't ask.
+    assert advice.review(tmp_path, build_with(GOALS), ABOUT, Claude(), NOW) is None
 
 
 def test_an_amount_it_made_up_is_asked_again_then_refused(tmp_path: Path) -> None:
-    advice.ask(tmp_path, "How much should I save?", NOW)
-    claude = Claude(
-        {"answer": "Save $612 a month."},  # not in the facts
-        {"answer": "Save $600 a month."},
-        REVIEW,
-    )
-    advice.run(tmp_path, build_with(GOALS), ABOUT, claude, NOW)
+    made_up = {**REVIEW, "headline": "You saved $612."}  # not in the facts
+    claude = Claude(made_up, REVIEW)
+    assert advice.review(tmp_path, build_with(GOALS), ABOUT, claude, NOW) is not None
     assert "Your last answer quoted $612" in claude.prompts[1]
-    assert advice.questions(tmp_path)[0].answer == "Save $600 a month."
 
-    advice.ask(tmp_path, "And next year?", NOW + datetime.timedelta(seconds=1))
-    advice.run(tmp_path, build_with(GOALS), ABOUT, Claude({"answer": "$1"}, {"answer": "$2"}), NOW)
-    q = advice.questions(tmp_path)[0]
-    assert q.answer is None and q.error and "$2" in q.error
-    # Not tried again for a while, then it is.
-    assert advice.run(tmp_path, build_with(GOALS), ABOUT, Claude(), NOW).answered == []
-    later = NOW + advice.RETRY_AFTER
-    claude = Claude({"answer": "Keep going."})
-    assert len(advice.run(tmp_path, build_with(GOALS), ABOUT, claude, later).answered) == 1
+    other = tmp_path / "other"
+    with pytest.raises(ClaudeError, match=r"\$612"):
+        advice.review(other, build_with(GOALS), ABOUT, Claude(made_up, made_up), NOW)
 
 
-def test_a_failed_review_is_tried_again_later(tmp_path: Path) -> None:
-    claude = Claude(ClaudeError("no answer"))
-    assert advice.run(tmp_path, build_with(GOALS), ABOUT, claude, NOW).reviewed is None
-    saved = json.loads((tmp_path / "advice" / "review-2026-02.json").read_text())
-    assert saved["error"] == "no answer" and not advice.reviewed(tmp_path, "2026-02")
-    later = NOW + advice.RETRY_AFTER
-    assert advice.run(tmp_path, build_with(GOALS), ABOUT, Claude(REVIEW), later).reviewed
+def test_a_failed_review_is_tried_again_next_time(tmp_path: Path) -> None:
+    with pytest.raises(ClaudeError):
+        advice.review(tmp_path, build_with(GOALS), ABOUT, Claude(ClaudeError("no answer")), NOW)
+    assert not (tmp_path / "advice" / "review-2026-02.json").exists()
+    assert advice.review(tmp_path, build_with(GOALS), ABOUT, Claude(REVIEW), NOW) is not None
 
 
-def test_questions_must_be_short_and_say_something(tmp_path: Path) -> None:
-    with pytest.raises(advice.AdviceError):
-        advice.ask(tmp_path, "   ", NOW)
-    with pytest.raises(advice.AdviceError):
-        advice.ask(tmp_path, "x" * 601, NOW)
-
-
-def test_the_page_takes_a_question(tmp_path: Path) -> None:
-    from fava.application import create_app
-
-    folder = tmp_path / "ledger"
-    folder.mkdir()
-    (folder / "main.beancount").write_text(
-        LEDGER + '\n2026-01-01 custom "fava-extension" "tally.fava_page"\n'
+def test_the_review_is_in_the_summary(tmp_path: Path) -> None:
+    found = advice.review(tmp_path, build_with(GOALS), ABOUT, Claude(REVIEW), NOW)
+    s = summary.Summary(NOW.date(), [], [], None, [], [], None, review=found)
+    text = summary.format_summary(s)
+    assert (
+        "CLAUDE'S REVIEW OF FEBRUARY 2026\n  A steady month.\n  Went well:\n  - Rent on time."
+        in text
     )
-    app = create_app([str(folder / "main.beancount")])
-    app.testing = True
-    client = app.test_client()
-    sent = client.post("/beancount/extension/Tally/ask", data={"question": "Am I on track?"})
-    assert sent.status_code == 303
-    assert [q.text for q in advice.questions(tmp_path)] == ["Am I on track?"]
-    page = client.get("/beancount/extension/Tally/").get_data(as_text=True)
-    assert "Am I on track?" in page and "Waiting for Claude" in page
+    assert "Watch:" not in text
+    html = summary_email.format_html(s)
+    assert "Claude&#x27;s review of February 2026" in html
+    assert '<li style="margin:2px 0;">Put $420 toward the emergency fund.</li>' in html

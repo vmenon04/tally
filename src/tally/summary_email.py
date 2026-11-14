@@ -10,7 +10,16 @@ from decimal import Decimal
 from html import escape
 
 from tally import report
-from tally.summary import AHEAD, CategoryLine, Item, Summary, title, whole
+from tally.summary import (
+    AHEAD,
+    NOT_PROFESSIONAL,
+    CategoryLine,
+    Item,
+    Summary,
+    review_points,
+    title,
+    whole,
+)
 
 _FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
 _TEXT = "#202124"
@@ -32,6 +41,17 @@ def format_html(s: Summary, extra: str = "") -> str:
     if s.claude_note:
         parts.append(_heading("Claude's note"))
         parts.append(_callout(s.claude_note, _BLUE, "#e8f0fe"))
+    if s.review:
+        parts.append(_heading(f"Claude's review of {s.review.title}"))
+        parts.append(f'<p style="margin:8px 0;font-weight:600;">{escape(s.review.headline)}</p>')
+        for heading, points in review_points(s.review):
+            items = "".join(f'<li style="margin:2px 0;">{escape(p)}</li>' for p in points)
+            parts.append(
+                f'<p style="margin:10px 0 2px;color:{_MUTED};">{escape(heading)}</p>'
+                f'<ul style="margin:0;padding-left:20px;">{items}</ul>'
+            )
+        small = f"margin:8px 0 0;font-size:12px;color:{_MUTED};"
+        parts.append(f'<p style="{small}">{escape(NOT_PROFESSIONAL)}</p>')
     parts.append(_heading("This week"))
     parts.append(_week(s.week))
     month = calendar.month_name[s.today.month]

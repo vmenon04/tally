@@ -168,10 +168,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if ok else 1
     if args.command == "alerts":
         if not args.reread:
-            code = _alerts_from_gmail(dry_run=args.dry_run)
-            if not args.dry_run:
-                _advise()
-            return code
+            return _alerts_from_gmail(dry_run=args.dry_run)
         ok = alert_reading.reread(data_dir(), dry_run=args.dry_run, out=sys.stdout, err=sys.stderr)
         return 0 if ok else 1
     if args.command == "gmail-login":
@@ -304,39 +301,6 @@ def _alerts_from_gmail(dry_run: bool) -> int:
         events += [notify.Event("not_found", f"not-found:{a.message_id}") for a in run.not_found]
         _notify(events, mailbox_ok=run.failure is None)
     return 0 if run.ok else 1
-
-
-def _advise() -> None:
-    """Answer questions asked on the Tally page, and review last month once it's over.
-
-    Quiet when there's nothing to do; never fails the alerts run.
-    """
-    folder = data_dir()
-    if not book.exists(folder):
-        return
-    waiting = any(q.answer is None for q in advice.questions(folder, limit=20))
-    today = datetime.datetime.now().astimezone().date()
-    if not waiting and advice.reviewed(folder, _last_month(today)):
-        return
-    try:
-        settings = config.load(folder / "config.toml")
-        found, about = picture.from_folder(
-            book.folder(folder), today, settings.roth_limit, settings.roth_elsewhere
-        )
-    except (config.ConfigError, book.LedgerError, accounts.AccountsError, plan.PlanError) as e:
-        print(f"advice: {e}", file=sys.stderr)
-        return
-    now = datetime.datetime.now(datetime.UTC)
-    done = advice.run(folder, found, about, _ask_claude, now)
-    events = [notify.Event("answer", f"answer:{i}") for i in done.answered]
-    if done.reviewed:
-        events.append(notify.Event("review", f"review:{done.reviewed}"))
-    if events:
-        _notify(events, mailbox_ok=True)
-
-
-def _last_month(today: datetime.date) -> str:
-    return f"{today.replace(day=1) - datetime.timedelta(days=1):%Y-%m}"
 
 
 def ntfy_topic_file() -> Path:
@@ -491,6 +455,10 @@ def _summary(as_of: datetime.date | None, *, email: bool, sync: bool) -> int:
         result = dataclasses.replace(result, look_out=[*result.look_out, *ledger_problems])
     if as_of is None:
         result = _with_claude_note(result)
+    if as_of is None and email:
+        # Only when emailing: the review is written once, so a summary only printed would
+        # use it up.
+        result = _with_review(result, today, settings)
     text = summary.format_summary(result)
     ledger_text, ledger_html = _ledger_report(today, settings)
     if ledger_text:
@@ -678,6 +646,29 @@ def _with_claude_note(result: summary.Summary) -> summary.Summary:
     except categorizing.ClaudeError as e:
         return dataclasses.replace(result, look_out=[*result.look_out, f"No note from Claude: {e}"])
     return dataclasses.replace(result, claude_note=note)
+
+
+def _with_review(
+    result: summary.Summary, today: datetime.date, settings: config.Config
+) -> summary.Summary:
+    """The summary with Claude's review of last month, if it's due; why not, if it fails."""
+    folder = data_dir()
+    if not book.exists(folder):
+        return result
+    try:
+        found, about = picture.from_folder(
+            book.folder(folder), today, settings.roth_limit, settings.roth_elsewhere
+        )
+        written = advice.review(
+            folder, found, about, _ask_claude, datetime.datetime.now(datetime.UTC)
+        )
+    except (book.LedgerError, accounts.AccountsError, plan.PlanError) as e:
+        problem = f"No review of last month from Claude: {e}"
+    except categorizing.ClaudeError as e:
+        problem = f"No review of last month from Claude (tried again next week): {e}"
+    else:
+        return dataclasses.replace(result, review=written)
+    return dataclasses.replace(result, look_out=[*result.look_out, problem])
 
 
 def _ask_claude_quickly(question: str, schema: dict[str, Any]) -> Any:

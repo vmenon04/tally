@@ -1,11 +1,11 @@
-"""The Tally page in Fava: your money at a glance, Claude's advice, and purchases to categorize.
+"""The Tally page in Fava: your money at a glance, and purchases to categorize.
 
 Fava loads it from a line in the ledger:
 
     2026-01-01 custom "fava-extension" "tally.fava_page"
 
 Each category and chart links to the matching Fava page for the details. Nothing here works
-anything out: the numbers come from tally.ledger.picture, the advice from tally.advice.
+anything out: the numbers come from tally.ledger.picture.
 Picking a category changes only the account on that purchase's category line, the edit
 tally itself makes when it moves an entry out of Uncategorized; amounts, dates and the
 bank's side are never touched, and tally keeps it like any edit made in Fava.
@@ -25,7 +25,7 @@ from flask import redirect, request
 from markupsafe import Markup
 from werkzeug.wrappers import Response
 
-from tally import advice, config, plan
+from tally import config, plan
 from tally.fava_page import charts
 from tally.ledger import accounts, book, categories, entries, picture
 from tally.rules import UNCATEGORIZED
@@ -62,21 +62,11 @@ class Tally(FavaExtensionBase):
     report_title = "Tally"
 
     def body(self) -> Markup:
-        folder = self._folder()
         return render(
-            picture_of(self._entries(), folder),
-            folder.parent,
+            picture_of(self._entries(), self._folder()),
             # The page is at <ledger>/extension/Tally/; its forms post next to it.
             fava=FavaLinks("../../"),
         )
-
-    @extension_endpoint("ask", ["POST"])  # type: ignore[untyped-decorator,arg-type]
-    def ask(self) -> Response:
-        try:
-            ask(self._folder().parent, request.form.get("question", ""))
-        except Refused as e:
-            return Response(str(e), status=e.status)
-        return redirect(f"{request.referrer or './'}#advice", code=303)
 
     @extension_endpoint("categorize", ["POST"])  # type: ignore[untyped-decorator,arg-type]
     def categorize(self) -> Response:
@@ -99,15 +89,13 @@ class Tally(FavaExtensionBase):
         return Path(self.ledger.beancount_file_path).parent
 
 
-def render(p: picture.Picture, data_dir: Path, *, fava: FavaLinks) -> Markup:
+def render(p: picture.Picture, *, fava: FavaLinks) -> Markup:
     """The page's content."""
     return Markup(  # noqa: S704 (rendered with autoescape)
         _ENV.get_template("body.html").render(
             p=p,
             m=p.this_month,
-            review=advice.latest_review(data_dir),
-            questions=advice.questions(data_dir),
-            actions={"ask": "ask", "categorize": "categorize"},
+            actions={"categorize": "categorize"},
             fava=fava,
             money=money,
             percent=percent,
@@ -156,14 +144,6 @@ def categorize(
     categories.apply(
         [categories.Change(path, line, other.account, found.counter(category, payee), payee)]
     )
-
-
-def ask(data_dir: Path, question: str) -> None:
-    """Save a question for tally to answer. Raises Refused."""
-    try:
-        advice.ask(data_dir, question, datetime.datetime.now(datetime.UTC))
-    except advice.AdviceError as e:
-        raise Refused(400, str(e)) from e
 
 
 def money(amount: Decimal, cents: bool = False) -> str:
