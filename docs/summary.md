@@ -14,7 +14,8 @@ It covers the 7 days up to today (or the `--as-of` day; anything later is left o
   In a month's first days, how the month before ended.
 - **Look out for:** categories over plan or ahead of pace, big purchases, uncategorized
   transactions, alerts missing from a bank export, the monthly import when it's due, and
-  anything wrong with the ledger (a row missing or doubled, a bean-check error).
+  anything wrong with the ledger (a row missing or doubled, a bean-check error, a
+  balance that differs from the bank's).
 - **Coming up:** next month's paychecks, planned spending and Roth IRA transfer, and whether the
   year's planned Roth IRA contributions fit the limit.
 - **From the ledger:** a bean-query report: spending per category this month so far, the same

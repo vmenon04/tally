@@ -18,6 +18,10 @@ password (never your account password). The mailbox is opened read-only, so noth
 marked, moved or deleted. Each email read is kept in `data/alerts/gmail/`, so it's never
 fetched twice; a refused email isn't kept, so it's reported on every run.
 
+BofA's daily "Your Available Balance" email isn't an alert, but it's kept too: `tally sync`
+compares the newest one with the ledger (see [Catching dropped and duplicated
+rows](ledger.md#catching-dropped-and-duplicated-rows)).
+
 An email is only accepted when Gmail's `Authentication-Results` header shows the bank signed
 it. Alerts are provisional (the amount can change before it posts) and are kept apart from
 imported transactions. The command matches alerts to imported CSV rows (same account, dated

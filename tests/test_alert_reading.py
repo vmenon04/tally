@@ -102,6 +102,19 @@ def test_other_emails_are_skipped(data: Path, capsys: pytest.CaptureFixture[str]
     assert "0 added, 0 already stored, 2 skipped, 0 refused." in out
 
 
+def test_a_balance_email_is_kept_and_one_that_cant_be_read_is_refused(
+    data: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    balance = (FIXTURES / "bofa_balance_alert.eml").read_bytes()
+    save(data, "balance.eml", balance)
+    save(data, "changed.eml", balance.replace(b" Balance </td>", b" Total </td>"))
+    assert main(["alerts", "--reread"]) == 1
+    captured = capsys.readouterr()
+    assert "balance.eml: skipped, a balance: …1234  2026-04-01  1234.56" in captured.out
+    assert "changed.eml: refused: expected one 'Balance' line" in captured.err
+    assert "0 added, 0 already stored, 1 skipped, 1 refused." in captured.out
+
+
 def test_alerts_folder_is_made_owner_only(data: Path) -> None:
     put_fixtures(data)
     (data / "alerts").chmod(0o755)

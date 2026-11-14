@@ -17,7 +17,7 @@ from typing import Any, TextIO
 from beancount.core import data
 
 from tally import categorizing, corrections, matching, pending, rules, store
-from tally.alerts import Alert
+from tally.alerts import Alert, bofa
 from tally.importers import ParseError
 from tally.importers.fidelity import Snapshot
 from tally.ledger import (
@@ -219,7 +219,7 @@ def sync(
         if brokerage is not None:
             _record_holdings(ledger, brokerage, result, dry_run=True)
         ledger = book.with_pending(ledger, book.pending_entries(ledger, waiting, month_rules))
-        result.check = parity.compare(ledger, counted)
+        result.check = _compare(data_dir, ledger, counted)
         if sure is not None:
             _mirror(ledger, sure, result, dry_run=True)
         return result
@@ -233,7 +233,7 @@ def sync(
     if result.changes or result.holdings_added:
         save(ledger.folder, "Bring the ledger up to date", err)
     ledger = book.load(ledger.folder, month_rules)
-    result.check = parity.compare(ledger, counted)
+    result.check = _compare(data_dir, ledger, counted)
     if sure is not None:
         _mirror(ledger, sure, result, dry_run=False)
     return result
@@ -287,7 +287,13 @@ def check(data_dir: Path, conn: sqlite3.Connection) -> parity.Parity | None:
     ledger = book.with_pending(
         session.ledger, book.pending_entries(session.ledger, waiting, session.rules)
     )
-    return parity.compare(ledger, [*stored, *(pending.as_transaction(a) for a in waiting)])
+    return _compare(data_dir, ledger, [*stored, *(pending.as_transaction(a) for a in waiting)])
+
+
+def _compare(data_dir: Path, ledger: book.Ledger, counted: list[Transaction]) -> parity.Parity:
+    """parity.compare, with the newest balance email the alerts mailbox has for each account."""
+    emails = sorted((data_dir / "alerts" / "gmail").glob("*.eml"))
+    return parity.compare(ledger, counted, bofa.latest_balances(emails))
 
 
 def _keep_pending_fixes(session: Session, conn: sqlite3.Connection) -> list[str]:

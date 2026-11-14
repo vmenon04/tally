@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 from beancount import loader
+from beancount.core.data import Transaction
 from test_ledger_importers import BOFA
 
 from tally import categorizing, store, sure
@@ -269,6 +270,65 @@ def test_check_counts_rows_and_finds_extras(ledger_ready: Path) -> None:
     extra = updating.check(ledger_ready, conn)
     conn.close()
     assert extra is not None and extra.extra == 1
+
+
+BALANCE_EMAIL = Path(__file__).parent / "fixtures" / "bofa_balance_alert.eml"
+
+
+def a_balance_email(data: Path, amount: str, *, label: str = "1234") -> None:
+    """Bank of America says checking had amount on Apr 1, 2026."""
+    folder = data / "alerts" / "gmail"
+    folder.mkdir(parents=True, exist_ok=True)
+    text = BALANCE_EMAIL.read_text().replace("$1,234.56", amount).replace("- 1234", f"- {label}")
+    (folder / "balance.eml").write_text(text)
+    accounts_file = data / "ledger" / "accounts.beancount"
+    accounts_file.write_text(
+        ACCOUNTS.replace('"bofa_checking"', '"bofa_checking"\n  bofa-account: "1234"')
+    )
+
+
+def checking_before_april(data: Path) -> Decimal:
+    found, _, _ = loader.load_file(str(data / "ledger" / "main.beancount"))
+    return sum(
+        (
+            p.units.number
+            for e in found
+            if isinstance(e, Transaction)
+            and e.meta.get("purchased", e.date) < datetime.date(2026, 4, 1)
+            for p in e.postings
+            if p.account == "Assets:BofA:Checking" and p.units is not None and p.units.number
+        ),
+        Decimal(0),
+    )
+
+
+def test_the_ledger_is_checked_against_the_banks_balance(ledger_ready: Path) -> None:
+    held = checking_before_april(ledger_ready)
+    conn = store.connect(ledger_ready / "tally.db")
+    a_balance_email(ledger_ready, f"${held:,.2f}")
+    agrees = updating.check(ledger_ready, conn)
+    a_balance_email(ledger_ready, f"${held + 300:,.2f}")
+    short = updating.check(ledger_ready, conn)
+    conn.close()
+    assert agrees is not None and agrees.ok
+    assert short is not None and not short.ok
+    assert short.problems() == [
+        f"Bank of America said Assets:BofA:Checking had ${held + 300:,.2f} on Apr 01, but the "
+        f"ledger has ${held:,.2f} by then ($300.00 more at the bank): a CSV import should "
+        "explain it."
+    ]
+
+
+def test_a_balance_for_an_account_the_ledger_doesnt_name_says_so(ledger_ready: Path) -> None:
+    a_balance_email(ledger_ready, "$1.00", label="9876")
+    conn = store.connect(ledger_ready / "tally.db")
+    found = updating.check(ledger_ready, conn)
+    conn.close()
+    assert found is not None
+    assert found.balances == [
+        "Bank of America sent a balance for the account ending 9876, but no open directive "
+        'has bofa-account: "9876".'
+    ]
 
 
 def test_merchant_contains_takes_alternatives() -> None:

@@ -42,8 +42,8 @@ answer. `tally sync` (Sundays, or by hand) does that:
 2. Claude categorizes merchants no rule covers yet, and its answers become merchant rules;
 3. imported entries still in Uncategorized move to the category the rules now give, changing
    only the account name on that line; tally commits and pushes;
-4. it checks the ledger: every imported row and pending alert has exactly one entry, and
-   bean-check is clean.
+4. it checks the ledger: every imported row and pending alert has exactly one entry,
+   bean-check is clean, and the ledger agrees with the bank's newest balance email.
 
 `tally sync --dry-run` shows all of it and saves nothing. The weekly summary lists any problem
 under "look out for". Entries you wrote yourself (no `tally-id`) and entries you split into
@@ -134,6 +134,20 @@ change was; importing it is a possible next step.
 bean-check fails when an account's balance doesn't match an assertion. BofA exports assert
 their own balances; type the others from statements into `statements.beancount`. A row
 imported twice or missing then shows up as a failed balance.
+
+Between exports, BofA's daily balance email does the same for the days the ledger has only
+alerts. Turn it on in BofA's alert settings and name the account it's for:
+
+    2026-08-31 open Assets:BofA:Checking USD
+      tally-account: "bofa_checking"
+      bofa-account: "1234"                  # the last four the balance email shows
+
+`tally sync` compares the newest email with the ledger's balance before the day it names
+(each purchase counted on the day it was made, as the bank does) and says when they
+differ. Money that moves without an alert (a transfer, a card payment, Zelle) shows up there
+until the next CSV import brings it in. It's a check, not an assertion: the email's
+"available" balance can differ by a hold or a late-night purchase, so it isn't written to
+the ledger.
 
 ## Showing it in Sure
 

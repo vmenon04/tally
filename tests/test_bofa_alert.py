@@ -148,3 +148,50 @@ def test_balance_email_is_not_an_alert() -> None:
         path=DEPOSIT,
     )
     assert bofa.parse(raw) is None
+
+
+BALANCE = FIXTURES / "bofa_balance_alert.eml"
+
+
+def test_balance_in_full() -> None:
+    assert bofa.balance(BALANCE.read_bytes()) == bofa.Balance(
+        label="1234",
+        date=datetime.date(2026, 4, 1),
+        amount=Decimal("1234.56"),
+        received=datetime.datetime(
+            2026, 4, 1, 6, 21, 55, tzinfo=datetime.timezone(datetime.timedelta(hours=-5))
+        ),
+    )
+
+
+def test_a_balance_email_is_not_an_alert_and_an_alert_is_not_a_balance() -> None:
+    assert bofa.parse(BALANCE.read_bytes()) is None
+    assert bofa.balance(FIXTURE.read_bytes()) is None
+
+
+def test_an_overdrawn_balance_is_negative() -> None:
+    raw = fixture(("> $1,234.56 <", "> -$12.34 <"), path=BALANCE)
+    found = bofa.balance(raw)
+    assert found is not None
+    assert found.amount == Decimal("-12.34")
+
+
+def test_a_balance_email_with_a_failed_signature_is_refused() -> None:
+    raw = fixture(("dkim=pass header.i=@ealerts", "dkim=fail header.i=@ealerts"), path=BALANCE)
+    with pytest.raises(AlertError, match="signed by bankofamerica.com"):
+        bofa.balance(raw)
+
+
+def test_latest_balances_takes_the_newest_email_per_account(tmp_path: Path) -> None:
+    older = tmp_path / "a.eml"
+    older.write_bytes(
+        fixture(
+            ("Wed, 01 Apr 2026 06:21:55", "Tue, 31 Mar 2026 06:21:55"),
+            ("April 1, 2026", "March 31, 2026"),
+            path=BALANCE,
+        )
+    )
+    (tmp_path / "b.eml").write_bytes(BALANCE.read_bytes())
+    (tmp_path / "c.eml").write_bytes(FIXTURE.read_bytes())  # an alert, not a balance
+    found = bofa.latest_balances(sorted(tmp_path.glob("*.eml")))
+    assert [(b.label, b.date) for b in found] == [("1234", datetime.date(2026, 4, 1))]

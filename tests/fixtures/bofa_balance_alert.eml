@@ -1,0 +1,54 @@
+Delivered-To: someone@example.com
+Received: by 2002:a05:6000:0:b0:0:0:0 with SMTP id test790;
+        Wed, 01 Apr 2026 04:21:58 -0700 (PDT)
+Authentication-Results: mx.google.com;
+       dkim=pass header.i=@ealerts.bankofamerica.com header.s=testselector header.b=MnOpQr56;
+       spf=pass (google.com: domain of bounce-test@bounce.ealerts.bankofamerica.com designates 192.0.2.20 as permitted sender) smtp.mailfrom=bounce-test@bounce.ealerts.bankofamerica.com;
+       dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=ealerts.bankofamerica.com
+From: "Bank of America" <onlinebanking@ealerts.bankofamerica.com>
+To: <someone@example.com>
+Subject: Your Available Balance
+Date: Wed, 01 Apr 2026 06:21:55 -0500
+MIME-Version: 1.0
+Message-ID: <00000000-test-alert-0004@example.xt.local>
+Content-Type: multipart/alternative; boundary="test-boundary"
+
+--test-boundary
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+Hi, CUSTOMER, here's your available balance
+Balance: $1,234.56
+Account: PERSONAL CHECKING/SAVINGS ACCOUNT -1234
+Date: April 1, 2026
+
+--test-boundary
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+<!DOCTYPE html>
+<html>
+<head>
+ <style type="text/css">
+ #outlook a{padding:0;}
+ </style>
+</head>
+<body>
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+  <tr><td style="font-size: 24px;"> Your available balance </td></tr>
+  <tr><td>
+    <table cellpadding="0" cellspacing="0" border="0" align="center">
+      <tr><td style="text-align: left;"> Balance </td>
+          <td style="text-align: right;"> <b> $1,234.56 </b> </td></tr>
+      <tr><td style="text-align: left;"> Account </td>
+          <td style="text-align: right;"> <b> PERSONAL CHECKING/SAVINGS ACCOUNT - 1234 </b> </td></tr>
+      <tr><td style="text-align: left;"> Date </td>
+          <td style="text-align: right;"> <b> April 1, 2026 </b> </td></tr>
+    </table>
+  </td></tr>
+  <tr><td><a href="https://www.example.com/"><b>VIEW ACCOUNT</b></a></td></tr>
+  <tr><td>This balance may be different from what displays in Online Banking if you've had subsequent activity on your account since we sent this message.</td></tr>
+</table>
+</body>
+</html>
+--test-boundary--

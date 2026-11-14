@@ -187,9 +187,16 @@ def _read_one(
         return "skipped", None
     try:
         alert = parse(raw)
+        stated = bofa.balance(raw) if alert is None else None
     except AlertError as e:
         print(f"{name}: refused: {e}", file=err)
         return "refused", None
+    if stated is not None:
+        # Kept with the others; the ledger check reads the newest (see parity).
+        print(
+            f"{name}: skipped, a balance: …{stated.label}  {stated.date}  {stated.amount}", file=out
+        )
+        return "skipped", None
     if alert is None:
         print(f"{name}: skipped, not a transaction alert", file=out)
         return "skipped", None
