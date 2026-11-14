@@ -20,6 +20,8 @@ x-rails-env: &rails_env
   # once the database has data.
   SECRET_KEY_BASE: "${SECRET_KEY_BASE:?set SECRET_KEY_BASE in .env}"
   SELF_HOSTED: "true"
+  # Its name in titles, the phone's home screen and emails; brand/ has the logo.
+  PRODUCT_NAME: tally
   # tailscale serve terminates HTTPS; tally itself calls plain http://127.0.0.1:3200.
   RAILS_ASSUME_SSL: "true"
   RAILS_FORCE_SSL: "false"
@@ -51,6 +53,12 @@ services:
     <<: *sure
     ports:
       - "127.0.0.1:3200:3000"
+    # brand/apply puts tally's logo in place of Sure's, then starts the server as usual.
+    volumes:
+      - app-storage:/rails/storage
+      - /srv/sure/brand:/tally-brand:ro
+    entrypoint: ["/tally-brand/apply"]
+    command: ["./bin/rails", "server"]
 
   worker:
     <<: *sure

@@ -1,0 +1,20 @@
+#!/bin/sh
+# Puts tally's logo in place of Sure's, then starts Sure's web server as the image would.
+# Run as the web container's entrypoint (see ../compose.yml), from /tally-brand. Files are
+# matched by name, so this keeps working when a new image changes the assets' digests.
+#
+# The icons are made from mark.svg (full.svg for the square ones) with rsvg-convert.
+set -eu
+b=/tally-brand
+p=/rails/public
+for f in favicon.ico favicon-16x16.png favicon-32x32.png apple-touch-icon.png \
+    android-chrome-192x192.png mstile-150x150.png logo-pwa.png; do
+    cp "$b/$f" "$p/$f"
+done
+cp "$b/logo-pwa.png" "$p/android-chrome-512x512.png"
+cp "$b/logo-pwa.png" "$p/logo-pwa-maskable.png"
+cp "$b/mark.svg" "$p/logo-offline.svg"
+cp "$b/mono.svg" "$p/safari-pinned-tab.svg"
+for f in "$p"/assets/logomark-*.svg; do cp "$b/mark.svg" "$f"; done
+for f in "$p"/assets/logo-color-*.png; do cp "$b/logo-color.png" "$f"; done
+exec /rails/bin/docker-entrypoint "$@"

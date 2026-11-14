@@ -72,7 +72,7 @@ isn't backed up.
 To install it:
 
 ```sh
-ssh myserver 'mkdir -p /tmp/sure' && scp deploy/sure/compose.yml deploy/sure/install myserver:/tmp/sure/
+ssh myserver 'mkdir -p /tmp/sure' && scp -r deploy/sure/compose.yml deploy/sure/install deploy/sure/brand myserver:/tmp/sure/
 ssh -t myserver 'sudo sh /tmp/sure/install && rm -r /tmp/sure'
 ```
 
@@ -95,6 +95,11 @@ tally sure-login
 
 The key is kept in `secrets/sure-api-key`. `sure_url` in `config.toml` says where Sure
 listens, if it isn't `http://127.0.0.1:3200`.
+
+It's named tally (`PRODUCT_NAME` in the compose file) and wears tally's logo: when the web
+container starts, [`deploy/sure/brand/apply`](../deploy/sure/brand/apply) copies the icons in
+`deploy/sure/brand` over Sure's, by name, so it keeps working across upgrades. Browsers keep
+old icons for a while; a phone's home screen icon changes once it's added again.
 
 To upgrade, change the image tag in `deploy/sure/compose.yml`, commit, and run the same two
 commands again.

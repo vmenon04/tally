@@ -13,6 +13,10 @@ here=$(dirname "$0")
 umask 077
 install -d -m 700 /srv/sure
 install -m 600 "$here/compose.yml" /srv/sure/compose.yml
+# The logo, read by the web container (which runs as another user), so readable by all.
+install -d -m 755 /srv/sure/brand
+install -m 644 "$here"/brand/* /srv/sure/brand/
+chmod 755 /srv/sure/brand/apply
 
 # Made once and never replaced: SECRET_KEY_BASE encrypts what Sure stores, so a new one
 # would make the database unreadable.
