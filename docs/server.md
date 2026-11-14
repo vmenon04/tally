@@ -109,14 +109,19 @@ commands again.
 Sure's chat is answered by tally, so it needs no AI API key. Sure's **External** assistant
 posts each conversation to `tally chat` ([`deploy/tally-chat.service`](../deploy/tally-chat.service)),
 which asks Claude, the way categorizing does, to reply from the same facts as the monthly
-review ([summary.md](summary.md)). A reply quoting a dollar amount that neither the facts nor
-the conversation shows is asked again once, then refused. Claude sees no single transactions,
-so it says when a question needs them. A reply takes 10 to 30 seconds and shows up whole.
+review ([summary.md](summary.md)). For more, such as single purchases or a merchant, it looks
+things up in Sure through `tally lookups`, an MCP server that passes on only Sure's tools that
+read (see `src/tally/lookups.py`), so Claude never gets Sure's token and can't change anything.
+A reply quoting a dollar amount that neither the facts, the conversation nor a lookup shows is
+asked again once, then refused. A reply takes 10 to 30 seconds and shows up whole.
 
 `tally chat` serves on the Unix socket `/srv/tally-chat/chat.sock`. A relay in Sure's compose
 file (`tally-chat`, nginx) passes Sure's requests to it; it has no port on the server, so only
 Sure's containers reach it. Requests need the token in `secrets/chat-token`, which `install`
-makes once as `CHAT_TOKEN` in `/srv/sure/.env` and copies for tally.
+makes once as `CHAT_TOKEN` in `/srv/sure/.env` and copies for tally. Likewise `MCP_TOKEN`
+(tally's copy is `secrets/sure-mcp-token`) lets the lookups into Sure's `/mcp`, as the user
+`MCP_USER_EMAIL`, which `install` asks for the first time. Without `secrets/sure-mcp-token`,
+the chat answers from the facts alone.
 
 To set it up, install the service, then run Sure's install again (above), which adds the token,
 the socket's folder and the relay, and starts the service:

@@ -16,6 +16,7 @@ import calendar
 import datetime
 import json
 import re
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from decimal import Decimal
 from pathlib import Path
@@ -27,6 +28,7 @@ from tally.ledger.picture import Picture
 
 FOLDER = "advice"
 _MONEY = re.compile(r"\$\d[\d,]*(?:\.\d+)?")
+_NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
 
 
 @dataclass(slots=True)
@@ -142,20 +144,31 @@ def facts(p: Picture, about: list[str]) -> str:
     return "\n".join(lines)
 
 
-def ask_checked(ask_claude: Ask, prompt: str, schema: dict[str, Any], allowed: str) -> Any:
-    """Ask, and ask once more if the answer quotes amounts it wasn't given."""
+def ask_checked(
+    ask_claude: Ask,
+    prompt: str,
+    schema: dict[str, Any],
+    allowed: str,
+    looked_up: Callable[[], str] = lambda: "",
+) -> Any:
+    """Ask, and ask once more if the answer quotes amounts it wasn't given.
+
+    allowed has the amounts it was given (as $ amounts); looked_up gives what it looked up
+    while answering, whose every number counts as given.
+    """
     shown = {_value(a) for a in _MONEY.findall(allowed)}
     for attempt in range(2):
         output = ask_claude(prompt, schema)
         if not isinstance(output, dict):
             raise ClaudeError(f"unexpected answer: {str(output)[:200]}")
-        made_up = [a for a in _MONEY.findall(json.dumps(output)) if _value(a) not in shown]
+        known = shown | {_value(n) for n in _NUMBER.findall(looked_up())}
+        made_up = [a for a in _MONEY.findall(json.dumps(output)) if _value(a) not in known]
         if not made_up:
             return output
         if attempt == 0:
             prompt += (
-                f"\n\nYour last answer quoted {', '.join(sorted(set(made_up)))}, which the facts "
-                "don't show. Quote only amounts the facts show; describe "
+                f"\n\nYour last answer quoted {', '.join(sorted(set(made_up)))}, which neither "
+                "the facts nor a lookup shows. Quote only amounts they show; describe "
                 "anything else in words."
             )
     raise ClaudeError(f"it quoted amounts the facts don't show: {sorted(set(made_up))}")

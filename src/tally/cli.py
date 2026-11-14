@@ -8,6 +8,7 @@ import io
 import os
 import re
 import sys
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ from tally import (
     corrections,
     gmail,
     importing,
+    lookups,
     mailer,
     matching,
     notify,
@@ -170,6 +172,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     chat_parser.add_argument("--socket", type=Path, required=True, help="listen on this socket")
 
+    lookups_parser = commands.add_parser(
+        "lookups",
+        help="pass Sure's read-only tools to Claude (tally chat starts it)",
+        description="An MCP server on stdin and stdout offering Sure's tools that only read, "
+        "adding each result to the record file. tally chat starts it for Claude.",
+    )
+    lookups_parser.add_argument("--sure", required=True, help="where Sure listens")
+    lookups_parser.add_argument("--token-file", type=Path, required=True)
+    lookups_parser.add_argument("--record", type=Path, required=True)
+
     args = parser.parse_args(argv)
     if args.command == "import":
         ok = importing.run(
@@ -215,6 +227,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "chat":
         return _chat(args.socket)
+    if args.command == "lookups":
+        token = categorizing.load_token(args.token_file)
+        if token is None:
+            print(f"lookups: no token in {args.token_file}", file=sys.stderr)
+            return 1
+        lookups.serve(lookups.sure(args.sure, token), args.record, sys.stdin, sys.stdout)
+        return 0
     parser.print_help()
     return 0
 
@@ -689,6 +708,9 @@ def _chat(socket: Path) -> int:
         print(f"chat: no token in {config.secrets_dir() / 'chat-token'}", file=sys.stderr)
         return 1
     folder = data_dir()
+    # Sure's MCP token: without it, Claude answers from the facts alone.
+    sure_token = config.secrets_dir() / "sure-mcp-token"
+    program = str(Path(sys.executable).with_name("tally"))
 
     def answer(said: list[chat.Message]) -> str:
         today = datetime.datetime.now().astimezone().date()
@@ -696,7 +718,21 @@ def _chat(socket: Path) -> int:
         found, about = picture.from_folder(
             book.folder(folder), today, settings.roth_limit, settings.roth_elsewhere
         )
-        return chat.reply(said, advice.facts(found, about), _ask_claude)
+        known = advice.facts(found, about)
+        if not sure_token.exists():
+            return chat.reply(said, known, _ask_claude)
+        with tempfile.TemporaryDirectory() as temporary:
+            record = Path(temporary) / "looked-up"
+            record.touch()
+            mcp = chat.lookups_config(program, settings.sure_url, sure_token.resolve(), record)
+            claude_token = categorizing.load_token(config.secrets_dir() / "claude-token")
+
+            def ask(question: str, schema: dict[str, Any]) -> Any:
+                return categorizing.ask_claude(
+                    question, schema, claude_token, mcp=mcp, allowed=chat.LOOKUPS
+                )
+
+            return chat.reply(said, known, ask, record.read_text)
 
     try:
         server = chat.server(socket, token, answer)

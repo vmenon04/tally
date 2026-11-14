@@ -1,6 +1,6 @@
 # Sure (https://github.com/we-promise/sure), the web and phone UI tally fills from the ledger.
 # Installed as /srv/sure/compose.yml, next to an owner-only .env holding SECRET_KEY_BASE,
-# POSTGRES_PASSWORD and CHAT_TOKEN. See docs/server.md.
+# POSTGRES_PASSWORD, CHAT_TOKEN, MCP_TOKEN and MCP_USER_EMAIL. See docs/server.md.
 #
 # The ledger stays the record: everything in Sure's database can be pushed again by tally.
 # Sure listens on 127.0.0.1 only; `tailscale serve` puts it at the server's tailnet address.
@@ -33,6 +33,9 @@ x-rails-env: &rails_env
   EXTERNAL_ASSISTANT_URL: http://tally-chat/v1/chat/completions
   EXTERNAL_ASSISTANT_TOKEN: "${CHAT_TOKEN:?set CHAT_TOKEN in .env}"
   EXTERNAL_ASSISTANT_MODEL: tally
+  # tally lookups reads your data for the chat at /mcp with this token, as this user.
+  MCP_API_TOKEN: "${MCP_TOKEN:?set MCP_TOKEN in .env}"
+  MCP_USER_EMAIL: "${MCP_USER_EMAIL:?set MCP_USER_EMAIL in .env}"
 
 x-sure: &sure
   # Pinned: upgrade by changing the tag here, after reading the release notes.

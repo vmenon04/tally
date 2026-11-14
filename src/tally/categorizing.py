@@ -99,12 +99,19 @@ def follow_correction(text: str, t: Transaction, category: str) -> tuple[str, bo
 
 
 def ask_claude(
-    question: str, schema: dict[str, Any], token: str | None, timeout: int = TIMEOUT
+    question: str,
+    schema: dict[str, Any],
+    token: str | None,
+    timeout: int = TIMEOUT,
+    *,
+    mcp: dict[str, Any] | None = None,
+    allowed: Sequence[str] = (),
 ) -> Any:
-    """Ask Claude Code, with no tools, and return its structured answer.
+    """Ask Claude Code, with none of its own tools, and return its structured answer.
 
     token is a long-lived token from `claude setup-token`; without one, Claude Code uses
-    whatever account it's logged in to.
+    whatever account it's logged in to. mcp is an MCP configuration ({"mcpServers": ...})
+    whose tools named in allowed Claude may use; it may use no others.
     """
     program = shutil.which("claude") or str(Path.home() / ".local" / "bin" / "claude")
     command = [
@@ -123,6 +130,8 @@ def ask_claude(
         "--json-schema",
         json.dumps(schema),
     ]
+    if mcp is not None:
+        command += ["--mcp-config", json.dumps(mcp), "--allowedTools", ",".join(allowed)]
     env = dict(os.environ)
     if token:
         env["CLAUDE_CODE_OAUTH_TOKEN"] = token

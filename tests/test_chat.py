@@ -46,6 +46,33 @@ def test_reply_quoting_a_made_up_amount_is_asked_again_then_refused() -> None:
     assert "Your last answer quoted $999" in claude.prompts[1]
 
 
+def test_reply_may_quote_amounts_it_looked_up() -> None:
+    claude = Claude({"reply": "Trader Joe's got $90.57 in October."})
+    looked_up = '{"transactions": [], "total_expenses": "90.57"}'
+    text = chat.reply(said("Trader Joe's in October?"), KNOWN, claude, lambda: looked_up)
+    assert text == "Trader Joe's got $90.57 in October."
+    assert "look it up with the sure tools" in claude.prompts[0]
+
+
+def test_reply_without_lookups_says_it_sees_only_the_facts() -> None:
+    claude = Claude({"reply": "Fine."})
+    chat.reply(said("hi"), KNOWN, claude)
+    assert "You see only the facts below" in claude.prompts[0]
+    assert "sure tools" not in claude.prompts[0]
+
+
+def test_lookups_config_starts_tally_lookups_with_the_record(tmp_path: Path) -> None:
+    config = chat.lookups_config("/bin/tally", "http://sure", tmp_path / "t", tmp_path / "r")
+    server = config["mcpServers"]["sure"]
+    assert server["command"] == "/bin/tally"
+    assert server["args"][0] == "lookups" and server["args"][-2:] == [
+        "--record",
+        str(tmp_path / "r"),
+    ]
+    assert "mcp__sure__get_transactions" in chat.LOOKUPS
+    assert not any("delete" in name for name in chat.LOOKUPS)
+
+
 def test_conversation_keeps_the_chat_and_needs_their_message_last() -> None:
     body = {
         "messages": [

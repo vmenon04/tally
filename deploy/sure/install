@@ -25,12 +25,22 @@ if [ ! -e /srv/sure/.env ]; then
         "$(openssl rand -hex 64)" "$(openssl rand -hex 24)" >/srv/sure/.env
 fi
 
-# The token Sure's chat gives `tally chat`, made once; tally keeps a copy in its secrets.
-if ! grep -q '^CHAT_TOKEN=' /srv/sure/.env; then
-    printf 'CHAT_TOKEN=%s\n' "$(openssl rand -hex 32)" >>/srv/sure/.env
+# Tokens made once, of which tally keeps a copy in its secrets: the one Sure's chat gives
+# `tally chat`, and the one `tally lookups` gives Sure's /mcp for the chat's lookups.
+for pair in CHAT_TOKEN:chat-token MCP_TOKEN:sure-mcp-token; do
+    name=${pair%%:*}
+    if ! grep -q "^$name=" /srv/sure/.env; then
+        printf '%s=%s\n' "$name" "$(openssl rand -hex 32)" >>/srv/sure/.env
+    fi
+    sed -n "s/^$name=//p" /srv/sure/.env >"/srv/tally/secrets/${pair#*:}"
+    chown tally:tally "/srv/tally/secrets/${pair#*:}"
+done
+# Whose data the lookups read: the account you sign in to Sure with.
+if ! grep -q '^MCP_USER_EMAIL=' /srv/sure/.env; then
+    printf 'The email you sign in to Sure with: '
+    read -r email
+    printf 'MCP_USER_EMAIL=%s\n' "$email" >>/srv/sure/.env
 fi
-sed -n 's/^CHAT_TOKEN=//p' /srv/sure/.env >/srv/tally/secrets/chat-token
-chown tally:tally /srv/tally/secrets/chat-token
 # Where tally-chat.service makes its socket: anyone may open it, so it needs the token.
 install -d -o tally -g tally -m 755 /srv/tally-chat
 
