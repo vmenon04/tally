@@ -220,3 +220,10 @@ def test_transactions_tally_didnt_make_are_never_touched(folder: Path) -> None:
 def test_an_account_sure_lacks_is_named(folder: Path) -> None:
     with pytest.raises(sure.SureError, match="no account named Savings"):
         mirror.plan(mirror.rows(load(folder)), FakeSure(accounts=("Checking", "Card")))
+
+
+def test_a_ledger_that_names_no_sure_account_says_so(folder: Path) -> None:
+    accounts = folder / "accounts.beancount"
+    accounts.write_text(re.sub(r"  sure-account: .*\n", "", accounts.read_text()))
+    with pytest.raises(sure.SureError, match="no open directive in the ledger has a sure-account"):
+        mirror.rows(load(folder))

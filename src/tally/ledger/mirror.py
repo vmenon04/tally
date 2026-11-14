@@ -68,12 +68,14 @@ class Plan:
 
 
 def rows(ledger: book.Ledger) -> list[Row]:
-    """What Sure should hold, from the ledger's imported entries."""
+    """What Sure should hold, from the ledger's imported entries. Raises SureError."""
     names = {
         entry.account: str(entry.meta[ACCOUNT_KEY])
         for entry in ledger.entries
         if isinstance(entry, data.Open) and ACCOUNT_KEY in (entry.meta or {})
     }
+    if not names:
+        raise SureError(f"no open directive in the ledger has a {ACCOUNT_KEY} line")
     seen: Counter[tuple[str, str]] = Counter()
     found = []
     for entry in ledger.entries:
