@@ -3,6 +3,8 @@ name = "tally"
 version = "0.1.0"
 description = "Personal finance tracker: imports transactions into a Beancount ledger, categorizes them, and shows where the money goes."
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.13"
 dependencies = [
     "beancount>=3.2",
