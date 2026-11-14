@@ -110,7 +110,7 @@ def test_a_balance_email_is_kept_and_one_that_cant_be_read_is_refused(
     save(data, "changed.eml", balance.replace(b" Balance </td>", b" Total </td>"))
     assert main(["alerts", "--reread"]) == 1
     captured = capsys.readouterr()
-    assert "balance.eml: skipped, a balance: …1234  2026-04-01  1234.56" in captured.out
+    assert "balance.eml: skipped, a balance: 2026-04-01  1234.56" in captured.out
     assert "changed.eml: refused: expected one 'Balance' line" in captured.err
     assert "0 added, 0 already stored, 1 skipped, 1 refused." in captured.out
 

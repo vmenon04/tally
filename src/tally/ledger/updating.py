@@ -291,9 +291,9 @@ def check(data_dir: Path, conn: sqlite3.Connection) -> parity.Parity | None:
 
 
 def _compare(data_dir: Path, ledger: book.Ledger, counted: list[Transaction]) -> parity.Parity:
-    """parity.compare, with the newest balance email the alerts mailbox has for each account."""
+    """parity.compare, with the newest balance email from the alerts mailbox."""
     emails = sorted((data_dir / "alerts" / "gmail").glob("*.eml"))
-    return parity.compare(ledger, counted, bofa.latest_balances(emails))
+    return parity.compare(ledger, counted, bofa.latest_balance(emails))
 
 
 def _keep_pending_fixes(session: Session, conn: sqlite3.Connection) -> list[str]:

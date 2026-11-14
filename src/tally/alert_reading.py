@@ -193,9 +193,7 @@ def _read_one(
         return "refused", None
     if stated is not None:
         # Kept with the others; the ledger check reads the newest (see parity).
-        print(
-            f"{name}: skipped, a balance: …{stated.label}  {stated.date}  {stated.amount}", file=out
-        )
+        print(f"{name}: skipped, a balance: {stated.date}  {stated.amount}", file=out)
         return "skipped", None
     if alert is None:
         print(f"{name}: skipped, not a transaction alert", file=out)

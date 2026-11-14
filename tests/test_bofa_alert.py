@@ -155,7 +155,6 @@ BALANCE = FIXTURES / "bofa_balance_alert.eml"
 
 def test_balance_in_full() -> None:
     assert bofa.balance(BALANCE.read_bytes()) == bofa.Balance(
-        label="1234",
         date=datetime.date(2026, 4, 1),
         amount=Decimal("1234.56"),
         received=datetime.datetime(
@@ -182,7 +181,7 @@ def test_a_balance_email_with_a_failed_signature_is_refused() -> None:
         bofa.balance(raw)
 
 
-def test_latest_balances_takes_the_newest_email_per_account(tmp_path: Path) -> None:
+def test_latest_balance_takes_the_newest_email(tmp_path: Path) -> None:
     older = tmp_path / "a.eml"
     older.write_bytes(
         fixture(
@@ -193,5 +192,6 @@ def test_latest_balances_takes_the_newest_email_per_account(tmp_path: Path) -> N
     )
     (tmp_path / "b.eml").write_bytes(BALANCE.read_bytes())
     (tmp_path / "c.eml").write_bytes(FIXTURE.read_bytes())  # an alert, not a balance
-    found = bofa.latest_balances(sorted(tmp_path.glob("*.eml")))
-    assert [(b.label, b.date) for b in found] == [("1234", datetime.date(2026, 4, 1))]
+    found = bofa.latest_balance(sorted(tmp_path.glob("*.eml")))
+    assert found is not None and found.date == datetime.date(2026, 4, 1)
+    assert bofa.latest_balance([tmp_path / "c.eml"]) is None

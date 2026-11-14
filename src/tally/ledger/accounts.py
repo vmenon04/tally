@@ -5,7 +5,6 @@ names accounts and bean-check sees every account tally writes to:
 
     2026-09-19 open Assets:BofA:Checking USD
       tally-account: "bofa_checking"        # rows from this export post here
-      bofa-account: "1234"                  # BofA's balance emails for the account ending 1234
 
     2026-09-01 open Expenses:Groceries
       category: "Groceries"                 # rows in this category post their other side here
@@ -63,7 +62,6 @@ class Accounts:
     categories: dict[str, tuple[_Choice, ...]] = field(default_factory=dict)
     fidelity_accounts: dict[str, str] = field(default_factory=dict)  # last four -> account
     contributions_from: dict[str, str] = field(default_factory=dict)  # last four -> income
-    bofa_accounts: dict[str, str] = field(default_factory=dict)  # last four -> account
     fixed: frozenset[str] = frozenset()  # categories that are once-a-month bills
 
     def fidelity(self, label: str) -> str:
@@ -113,7 +111,6 @@ def from_entries(entries: Iterable[data.Directive]) -> Accounts:
     categories: dict[str, list[_Choice]] = {}
     fidelity: dict[str, str] = {}
     contributions: dict[str, str] = {}
-    bofa: dict[str, str] = {}
     fixed: set[str] = set()
     for entry in entries:
         if not isinstance(entry, data.Open):
@@ -136,12 +133,6 @@ def from_entries(entries: Iterable[data.Directive]) -> Accounts:
             if label in fidelity:
                 raise AccountsError(f'fidelity-account: "{label}" is on two accounts')
             fidelity[label] = entry.account
-        bofa_label = meta.get("bofa-account")
-        if bofa_label is not None:
-            _text(entry, "bofa-account", bofa_label)
-            if bofa_label in bofa:
-                raise AccountsError(f'bofa-account: "{bofa_label}" is on two accounts')
-            bofa[bofa_label] = entry.account
         source = meta.get("contributions-from")
         if source is not None:
             _text(entry, "contributions-from", source)
@@ -167,7 +158,6 @@ def from_entries(entries: Iterable[data.Directive]) -> Accounts:
         {k: tuple(v) for k, v in categories.items()},
         fidelity,
         contributions,
-        bofa,
         frozenset(fixed),
     )
 

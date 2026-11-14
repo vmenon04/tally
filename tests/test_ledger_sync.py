@@ -275,16 +275,11 @@ def test_check_counts_rows_and_finds_extras(ledger_ready: Path) -> None:
 BALANCE_EMAIL = Path(__file__).parent / "fixtures" / "bofa_balance_alert.eml"
 
 
-def a_balance_email(data: Path, amount: str, *, label: str = "1234") -> None:
+def a_balance_email(data: Path, amount: str) -> None:
     """Bank of America says checking had amount on Apr 1, 2026."""
     folder = data / "alerts" / "gmail"
     folder.mkdir(parents=True, exist_ok=True)
-    text = BALANCE_EMAIL.read_text().replace("$1,234.56", amount).replace("- 1234", f"- {label}")
-    (folder / "balance.eml").write_text(text)
-    accounts_file = data / "ledger" / "accounts.beancount"
-    accounts_file.write_text(
-        ACCOUNTS.replace('"bofa_checking"', '"bofa_checking"\n  bofa-account: "1234"')
-    )
+    (folder / "balance.eml").write_text(BALANCE_EMAIL.read_text().replace("$1,234.56", amount))
 
 
 def checking_before_april(data: Path) -> Decimal:
@@ -316,18 +311,6 @@ def test_the_ledger_is_checked_against_the_banks_balance(ledger_ready: Path) -> 
         f"Bank of America said Assets:BofA:Checking had ${held + 300:,.2f} on Apr 01, but the "
         f"ledger has ${held:,.2f} by then ($300.00 more at the bank): a CSV import should "
         "explain it."
-    ]
-
-
-def test_a_balance_for_an_account_the_ledger_doesnt_name_says_so(ledger_ready: Path) -> None:
-    a_balance_email(ledger_ready, "$1.00", label="9876")
-    conn = store.connect(ledger_ready / "tally.db")
-    found = updating.check(ledger_ready, conn)
-    conn.close()
-    assert found is not None
-    assert found.balances == [
-        "Bank of America sent a balance for the account ending 9876, but no open directive "
-        'has bofa-account: "9876".'
     ]
 
 

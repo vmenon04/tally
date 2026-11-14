@@ -135,14 +135,9 @@ bean-check fails when an account's balance doesn't match an assertion. BofA expo
 their own balances; type the others from statements into `statements.beancount`. A row
 imported twice or missing then shows up as a failed balance.
 
-Between exports, BofA's daily balance email does the same for the days the ledger has only
-alerts. Turn it on in BofA's alert settings and name the account it's for:
-
-    2026-08-31 open Assets:BofA:Checking USD
-      tally-account: "bofa_checking"
-      bofa-account: "1234"                  # the last four the balance email shows
-
-`tally sync` compares the newest email with the ledger's balance before the day it names
+Between exports, BofA's daily balance email does the same for checking, for the days the
+ledger has only alerts. Turn it on in BofA's alert settings, for checking only: like the
+alerts, it's taken to be for checking. `tally sync` compares the newest email with the ledger's balance before the day it names
 (each purchase counted on the day it was made, as the bank does) and says when they
 differ. Money that moves without an alert (a transfer, a card payment, Zelle) shows up there
 until the next CSV import brings it in. It's a check, not an assertion: the email's

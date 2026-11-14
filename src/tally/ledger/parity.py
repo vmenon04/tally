@@ -4,7 +4,7 @@
   tally-id, and the ledger has no tally entries tally doesn't know (a row lost or doubled
   on the way in);
 - bean-check: the ledger has no errors (failed balances above all);
-- bank balances: each account's newest BofA balance email agrees with the ledger. The email
+- bank balance: the newest BofA balance email agrees with the ledger's checking. The email
   comes early in the day it names, so it's compared with the ledger before that day, with
   each purchase on the day it was made. Money that moved without an alert (a transfer, a
   card payment) shows up here until a CSV import brings it in.
@@ -17,6 +17,7 @@ from decimal import Decimal
 
 from beancount.core import data
 
+from tally.alerts import bofa
 from tally.alerts.bofa import Balance
 from tally.ledger import book, entries
 from tally.transaction import Transaction, identity
@@ -28,11 +29,11 @@ class Parity:
     missing: list[Transaction] = field(default_factory=list)  # in tally, not the ledger
     extra: int = 0  # tally entries in the ledger that tally doesn't have
     errors: list[str] = field(default_factory=list)  # bean-check's
-    balances: list[str] = field(default_factory=list)  # where the bank disagrees, a sentence each
+    balance: str | None = None  # how the bank's balance disagrees, if it does
 
     @property
     def ok(self) -> bool:
-        return not (self.missing or self.extra or self.errors or self.balances)
+        return not (self.missing or self.extra or self.errors or self.balance)
 
     def problems(self) -> list[str]:
         """What's wrong, one sentence each, for the sync output and the weekly summary."""
@@ -46,7 +47,7 @@ class Parity:
                 f"bean-check finds {len(self.errors)} problem(s) in the ledger, "
                 f"first: {self.errors[0]}"
             )
-        return found + self.balances
+        return found + ([self.balance] if self.balance else [])
 
     def details(self) -> list[str]:
         lines = [f"  missing: {t.date}  {t.amount:>10}  {t.merchant}" for t in self.missing]
@@ -55,10 +56,10 @@ class Parity:
 
 
 def compare(
-    ledger: book.Ledger, counted: Sequence[Transaction], stated: Sequence[Balance] = ()
+    ledger: book.Ledger, counted: Sequence[Transaction], stated: Balance | None = None
 ) -> Parity:
     """counted: the posted rows and waiting alerts tally knows; stated: the newest balance
-    email for each account."""
+    email."""
     ours = Counter(identity(t) for t in counted)
     theirs = Counter(
         e.meta[entries.ID_KEY]
@@ -78,17 +79,14 @@ def compare(
         missing,
         extra,
         list(ledger.errors),
-        [problem for b in stated if (problem := _disagrees(ledger, b))],
+        _disagrees(ledger, stated) if stated else None,
     )
 
 
 def _disagrees(ledger: book.Ledger, stated: Balance) -> str | None:
-    account = ledger.accounts.bofa_accounts.get(stated.label)
+    account = ledger.accounts.sources.get(bofa.ACCOUNT)
     if account is None:
-        return (
-            f"Bank of America sent a balance for the account ending {stated.label}, but no "
-            f'open directive has bofa-account: "{stated.label}".'
-        )
+        return None
     held = sum(
         (
             p.units.number
