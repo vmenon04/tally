@@ -165,36 +165,18 @@ made, and leaves alone a category you set in Sure. `tally sync --dry-run` says w
 would do. If Sure can't be reached the sync still does everything else, and the next one
 catches Sure up.
 
-## Browsing it
+## Editing it
 
-With `tally-fava.service` running ([Running on a server](server.md#fava-all-the-time)), open
-the server's Tailscale address on any of your devices, or run `tally-remote fava` and open
-http://localhost:5000. Fava has no login, so it never listens on a network address: it
-serves on a Unix socket only your account, `tally` and root can open.
+Sure shows the ledger day to day, and the weekly summary, Claude's monthly review and Sure's
+chat all work from it. To edit it, run `tally-remote fava` and open http://localhost:5000
+([Running on a server](server.md#fava-to-edit-the-ledger)). Fava has no login, so it never
+listens on a network address: it serves on a Unix socket only your account, `tally` and root
+can open, for as long as `tally-remote fava` runs.
 
-## The Tally page
+## What tally works out
 
-Fava's own pages are made for accountants. The **Tally** page (in Fava's sidebar) shows
-what matters day to day, on a phone as well as a computer, and links to Fava's own pages for
-the details: each category opens its account, and the charts open the income statement and
-balance sheet:
-
-- this month so far: pay in, spent, kept and your savings rate, and whether you're over or
-  under the pace your plan allows by today;
-- pay against spending for the last six months;
-- each category this month, against its plan and its usual (the average of the months
-  before);
-- the places that got the most this month, and your net worth month by month;
-- **Investing**: each account with `fidelity-account:`, what it's worth today, what you paid
-  for what it holds (its cost basis, plus cash), and the gain between them, the market's
-  doing; and this year's Roth IRA contributions against `roth_limit` in `config.toml` (see
-  [the summary docs](summary.md)), with the room left and the deadline. Contributions are
-  money into `Assets:Fidelity:Roth:Cash` from your bank this year, plus `roth_elsewhere`;
-- **Needs a category**: every purchase still in Uncategorized, with a list of your
-  categories to pick from. Saving changes only the account on that purchase's category
-  line, the same edit you'd make in Fava's editor, and tally keeps it the same way.
-
-Pay counts everything booked to Income but Fidelity's market income, so 401(k) payroll
+Claude's monthly review and Sure's chat go by these numbers, worked out from the ledger
+(`src/tally/ledger/picture.py`). Pay counts everything booked to Income but Fidelity's market income, so 401(k) payroll
 contributions count as pay. Kept is pay less spending, so it's low until payday.
 
 **Goals** are money set aside, each in a savings account of its own, so its progress is
@@ -204,7 +186,7 @@ that account's balance. Write them in `plan.beancount`:
     2026-11-01 custom "goal" "Travel" Assets:BofA:Savings
     2026-11-01 custom "goal" "Laptop" Assets:BofA:Savings "target" 1200.00 USD
 
-"months" sets the target to that many months of your usual spending. The page suggests
+"months" sets the target to that many months of your usual spending. Claude's review suggests
 how much to put into each one a month, from what's usually left over the last three whole
 months: take-home pay (pay less 401(k) contributions), less spending, less this month's
 `roth-plan`. A "months" goal still short of its target gets 70% of that and the others
@@ -224,11 +206,6 @@ pad, and the ledger books the difference as interest:
     2026-12-01 pad Assets:CapitalOne:Savings Income:Interest
     2026-12-05 balance Assets:CapitalOne:Savings  1234.56 USD
 
-Turn it on with these lines in the ledger (the second makes it Fava's first page):
-
-    2026-01-01 custom "fava-extension" "tally.fava_page"
-    2026-01-01 custom "fava-option" "default-page" "extension/Tally/"
-
 Bills that come once a month count in full against the pace instead of a little each day.
 Mark their accounts in `accounts.beancount` with `fixed: TRUE`:
 
@@ -236,7 +213,7 @@ Mark their accounts in `accounts.beancount` with `fixed: TRUE`:
       category: "Rent + fees"
       fixed: TRUE
 
-To work on the page without real data, make a made-up ledger and serve it:
+To try tally without real data, make a made-up ledger and open it:
 
     uv run python demo/make_ledger.py /tmp/tally-demo
     TALLY_DATA_DIR=/tmp/tally-demo uv run tally fava

@@ -3,7 +3,7 @@
 tally runs on one home server. Everything it knows comes from two sources: the CSV exports
 you download from each bank, which are the record of what posted, and the alert emails the
 banks send at purchase time, which are provisional and give early warning. It keeps a
-Beancount ledger (pushed to its own repo on Forgejo, browsed with Fava), emails a weekly
+Beancount ledger (pushed to its own repo on Forgejo, edited with Fava), emails a weekly
 summary and sends headline-only push notifications. There are no bank logins and no
 aggregators.
 
@@ -23,7 +23,7 @@ flowchart LR
 
     subgraph mac["Mac"]
         browser["Browser<br/>download CSV exports"]
-        fava_view["Browser<br/>Fava, over an SSH tunnel"]
+        fava_view["Browser<br/>Fava, over an SSH tunnel, to edit"]
     end
 
     subgraph server["Home server: myserver"]

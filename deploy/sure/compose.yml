@@ -3,7 +3,7 @@
 # POSTGRES_PASSWORD and CHAT_TOKEN. See docs/server.md.
 #
 # The ledger stays the record: everything in Sure's database can be pushed again by tally.
-# Sure listens on 127.0.0.1 only; `tailscale serve` puts it on the tailnet over HTTPS.
+# Sure listens on 127.0.0.1 only; `tailscale serve` puts it at the server's tailnet address.
 # Its chat is answered by tally (see tally-chat below); its other AI features, bank
 # connections and email are left unconfigured: tally does that work.
 

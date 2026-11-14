@@ -121,16 +121,21 @@ class _Handler(BaseHTTPRequestHandler):
         self._send(200, {"object": "list", "data": [{"id": MODEL_ID, "object": "model"}]})
 
     def do_POST(self) -> None:
+        # Read first, whatever the answer: closing on a sender still sending breaks its pipe.
+        try:
+            size = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            size = -1
+        body = self.rfile.read(size) if 0 <= size <= _MOST else None
         if not self._allowed():
             return
         if self.path.rstrip("/") != "/v1/chat/completions":
             self._send(404, {"error": {"message": "not found"}})
             return
         try:
-            size = int(self.headers.get("Content-Length") or 0)
-            if size > _MOST:
-                raise ValueError("the conversation is too long")
-            said = conversation(json.loads(self.rfile.read(size)))
+            if body is None:
+                raise ValueError("the conversation is too long, or its length isn't given")
+            said = conversation(json.loads(body))
         except (ValueError, json.JSONDecodeError) as e:
             self._send(400, {"error": {"message": str(e)}})
             return

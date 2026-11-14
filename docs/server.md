@@ -51,24 +51,12 @@ Each runs through its `.service`, sandboxed so it can write only to `/srv/tally/
 tally-summary -u tally-sync` shows errors (the output itself isn't logged, since it names merchants and
 amounts). Commands run through `tally-run` aren't sandboxed, but run as the same `tally` user.
 
-## Fava, all the time
+## Fava, to edit the ledger
 
-`tally-fava.service` runs Fava for the ledger, sandboxed with no network at all: it serves
-on the Unix socket `/srv/tally-inbox/fava.sock`, in a folder only your account, `tally` and
-root can open. Other accounts on the server can't reach it. Two ways in:
-
-- **Tailscale** (phone, laptop): `tailscale serve` on the server forwards
-  `https://<server>.<tailnet>.ts.net` to the socket, for your tailnet's devices only.
-- **SSH** (any machine with your key): `tally-remote fava`, then http://localhost:5000.
-
-To install it:
-
-```sh
-scp deploy/tally-fava.service myserver:/tmp/
-ssh -t myserver 'sudo install -m 644 /tmp/tally-fava.service /etc/systemd/system/ && rm /tmp/tally-fava.service && sudo systemctl daemon-reload && sudo systemctl enable --now tally-fava'
-```
-
-Fava reloads the ledger when its files change, so imports show up without a restart.
+Sure shows the ledger day to day. To edit it (your plan, a category, a line that fails
+bean-check), run `tally-remote fava` and open http://localhost:5000. It starts Fava on the
+server for as long as it stays open, on the Unix socket `/srv/tally-inbox/fava.sock` in a
+folder only your account, `tally` and root can open, and SSH forwards your port to it.
 Anything you change in Fava's editor is committed by tally on its next import or sync.
 
 ## Sure
@@ -76,7 +64,7 @@ Anything you change in Fava's editor is committed by tally on its next import or
 [Sure](https://github.com/we-promise/sure) is the web and phone UI. It runs beside tally as
 a Docker Compose stack ([`deploy/sure/compose.yml`](../deploy/sure/compose.yml)) in
 `/srv/sure`, owned by root, and listens on `127.0.0.1:3200` only. `tailscale serve` puts it
-on the tailnet at `https://<server>.<tailnet>.ts.net:8443`.
+on the tailnet at `https://<server>.<tailnet>.ts.net`.
 
 The ledger stays the record. Sure's database holds a copy that tally can push again, so it
 isn't backed up.
@@ -134,7 +122,7 @@ ssh -t myserver 'sudo install -m 644 /tmp/tally-chat.service /etc/systemd/system
 ```
 
 Then turn on AI for your user in Sure's settings. `tally-remote deploy` restarts `tally chat`
-(and Fava) onto the new code.
+onto the new code.
 
 ## Setting up a server
 
@@ -153,4 +141,4 @@ sudo systemctl daemon-reload
 Then `bin/tally-remote deploy` from your machine, copy `data/` and `secrets/` into
 `/srv/tally` (owned by `tally`, 700 folders and 600 files), and
 `sudo systemctl enable --now tally-alerts.timer tally-summary.timer tally-sync.timer`.
-Fava and Sure's chat are set up as above.
+Sure and its chat are set up as above.

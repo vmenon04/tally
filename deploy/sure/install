@@ -31,7 +31,7 @@ chown tally:tally /srv/tally/secrets/chat-token
 install -d -o tally -g tally -m 755 /srv/tally-chat
 
 docker compose --project-directory /srv/sure up -d --wait
-tailscale serve --bg --https=8443 http://127.0.0.1:3200
+tailscale serve --bg http://127.0.0.1:3200
 # tally chat starts once its token and folder are there (see docs/server.md).
 if systemctl is-enabled --quiet tally-chat; then
     systemctl restart tally-chat

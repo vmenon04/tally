@@ -1,6 +1,5 @@
 import datetime
 from decimal import Decimal
-from pathlib import Path
 
 import pytest
 from beancount import loader
@@ -100,48 +99,6 @@ def test_merchants_and_net_worth(found: picture.Picture) -> None:
     assert day == datetime.date(2026, 2, 28) and worth == Decimal("1405.00")
 
 
-def test_unsorted_and_choices(found: picture.Picture) -> None:
-    assert [(u.tally_id, u.payee, u.amount) for u in found.unsorted] == [
-        ("a5", "MYSTERY SHOP", Decimal("40.00"))
-    ]
-    assert "Groceries" in found.choices and "Uncategorized" not in found.choices
-
-
-def test_the_page_renders_and_saves_a_category(tmp_path: Path) -> None:
-    from fava.application import create_app
-
-    folder = tmp_path / "ledger"
-    (folder / "imported").mkdir(parents=True)
-    head, body = LEDGER.split("\n2026-02-14", 1)
-    (folder / "main.beancount").write_text(
-        head
-        + '\n2026-01-01 custom "fava-extension" "tally.fava_page"\n'
-        + 'include "imported/*.beancount"\ninclude "pending.beancount"\n'
-    )
-    (folder / "imported" / "2026.beancount").write_text("2026-02-14" + body)
-    (folder / "pending.beancount").write_text("")
-    app = create_app([str(folder / "main.beancount")])
-    app.testing = True
-    client = app.test_client()
-    page = client.get("/beancount/extension/Tally/")
-    assert page.status_code == 200
-    text = page.get_data(as_text=True)
-    assert "Needs a category (1)" in text and 'value="a5"' in text
-    link = "../../account/Expenses:Groceries/"
-    assert f'href="{link}"' in text
-    assert 'id="investing"' not in text  # nothing invested in this ledger
-    assert client.get("/beancount/account/Expenses:Groceries/").status_code == 200
-
-    url = "/beancount/extension/Tally/categorize"
-    assert client.post(url, data={"tally_id": "a5", "category": "Nope"}).status_code == 400
-    assert client.post(url, data={"tally_id": "a2", "category": "Rent + fees"}).status_code == 409
-    saved = client.post(url, data={"tally_id": "a5", "category": "Groceries"})
-    assert saved.status_code == 303
-    after = (folder / "imported" / "2026.beancount").read_text()
-    assert "  Expenses:Groceries  40.00 USD" in after
-    assert "Expenses:Uncategorized" not in after
-
-
 GOALS = """
 2026-01-01 open Assets:Fund2
   fidelity-account: "2222"
@@ -239,13 +196,3 @@ def test_investments_show_worth_paid_and_gain() -> None:
     assert (found.roth.put_in, found.roth.left) == (Decimal("640.00"), Decimal("6860.00"))
     assert found.roth.deadline == datetime.date(2027, 4, 15)
     assert build_with(INVESTING).roth is None  # without a limit
-
-
-def test_the_page_shows_investing(tmp_path: Path) -> None:
-    from tally.fava_page import FavaLinks, render
-
-    found = build_with(INVESTING, roth_limit=Decimal("7500"), roth_elsewhere=Decimal("140"))
-    text = render(found, fava=FavaLinks("../../"))
-    assert 'href="../../account/Assets:Fidelity:Roth/">Roth</a>' in text
-    assert "+$40 <small>(+3%)</small>" in text
-    assert "$640 in" in text and "$6,860 of room, until Apr 15, 2027" in text

@@ -47,8 +47,8 @@ def serve(data_dir: Path, *, socket: Path | None, port: int) -> None:
         pass
     finally:
         server.server_close()
-        # Only if it's still ours: another Fava may have replaced it since (the always-on one
-        # started while an SSH session's was running), and removing that would cut it off.
+        # Only if it's still ours: another Fava may have replaced it since (a second
+        # `tally-remote fava`), and removing that would cut it off.
         if socket is not None and _inode(socket) == ours:
             socket.unlink(missing_ok=True)
 

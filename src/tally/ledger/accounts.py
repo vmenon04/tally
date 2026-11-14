@@ -21,7 +21,7 @@ names accounts and bean-check sees every account tally writes to:
       merchant-contains: "KEEP THE CHANGE|SAV 1234"  # only merchants containing one of these
 
 A category whose account has `fixed: TRUE` is a bill that comes once a month (rent,
-utilities): the Tally page counts it in full instead of measuring it against the month's pace.
+utilities): the pace by today counts it in full instead of a little each day.
 
 merchant-contains matches any case, and | separates alternatives. A category can have
 several accounts told apart by merchant-contains, plus at most one without it, which takes

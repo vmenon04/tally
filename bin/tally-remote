@@ -3,7 +3,7 @@
 #
 #     tally-remote import FILE...     send bank CSVs to the server and import them
 #     tally-remote deploy             push this repo's last commit, then install it on the server
-#     tally-remote fava [PORT]        browse the ledger at http://localhost:PORT (default 5000)
+#     tally-remote fava [PORT]        edit the ledger in Fava at http://localhost:PORT (default 5000)
 #     tally-remote COMMAND ...        any other tally command, e.g. report 2026-10, sync --dry-run
 #
 # TALLY_HOST names the server (default: myserver). See docs/server.md.
@@ -47,11 +47,11 @@ deploy() {
     git -C "$repo" archive --format=tar.gz HEAD | ssh -q "$HOST" "cat >$archive"
     echo "deploying $(git -C "$repo" log --oneline -1)"
     status=0
-    # The services that run all the time restart onto the new code (try-restart leaves one
-    # that isn't running alone); sudo remembers the password from the deploy.
+    # tally chat runs all the time, so it restarts onto the new code (try-restart leaves it
+    # alone if it isn't running); sudo remembers the password from the deploy.
     ssh -t -q "$HOST" "sudo -u tally /usr/local/bin/tally-deploy $archive $commit &&
-        { sudo systemctl try-restart tally-fava tally-chat ||
-            echo 'tally-remote: restart tally-fava and tally-chat by hand' >&2; }" || status=$?
+        { sudo systemctl try-restart tally-chat ||
+            echo 'tally-remote: restart tally-chat by hand' >&2; }" || status=$?
     ssh -q "$HOST" "rm -f $archive"
     exit $status
 }
@@ -64,14 +64,10 @@ case ${1:-} in
         deploy
         ;;
     fava)
-        # Forwards a port on this machine to Fava's socket on the server, in a folder only
-        # your account and tally can open. If tally-fava.service is running, that's the Fava
-        # you get; otherwise one is started for as long as this stays open.
+        # Starts Fava on the server for as long as this stays open, on a socket in a folder
+        # only your account and tally can open, and forwards a port on this machine to it.
         port=${2:-5000}
         echo "Fava: http://localhost:$port  (Ctrl-C to stop)"
-        if ssh -q "$HOST" "systemctl is-active --quiet tally-fava"; then
-            exec ssh -N -q -o ExitOnForwardFailure=yes -L "127.0.0.1:$port:$DROP/fava.sock" "$HOST"
-        fi
         exec ssh -t -q -o ExitOnForwardFailure=yes -L "127.0.0.1:$port:$DROP/fava.sock" "$HOST" \
             "sudo -n -u tally /usr/local/bin/tally-run fava --socket $DROP/fava.sock"
         ;;

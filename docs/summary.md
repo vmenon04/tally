@@ -21,7 +21,7 @@ It covers the 7 days up to today (or the `--as-of` day; anything later is left o
 - **From the ledger:** a bean-query report: spending per category this month so far, the same
   days last month and all of last month, and the year's Roth IRA contributions.
 
-Categories are the ledger's, so a category you set in Fava shows here. The plan comes from the
+Categories are the ledger's, so a category you set in the ledger shows here. The plan comes from the
 ledger's `plan.beancount` ([The Beancount ledger](ledger.md#your-plan)). Spending counts by the
 day a purchase happened and includes pending alerts.
 

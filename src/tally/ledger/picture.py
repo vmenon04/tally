@@ -1,10 +1,10 @@
-"""Your money at a glance, worked out from the ledger: what the Tally page in Fava shows.
+"""Your money at a glance, worked out from the ledger: what Claude's review and the chat
+go by (see advice).
 
 - each of the last months: pay in, spending out, what was kept, and the savings rate;
 - this month by category, against the plan and against the months before;
 - the merchants that got the most this month;
 - net worth at the end of each month, holdings at their market price;
-- the purchases nobody has given a category yet;
 - each goal's balance against its target, and a suggested amount to put in each month;
 - each Fidelity account: what it's worth, what was paid for what it holds, and the gain;
 - this year's Roth IRA contributions against the limit.
@@ -38,7 +38,6 @@ from beancount.core import data, position, prices
 
 from tally.ledger import accounts, entries, positions
 from tally.plan import ROTH, Goal, Targets
-from tally.rules import UNCATEGORIZED
 
 MONTHS = 6
 TOP_MERCHANTS = 8
@@ -152,25 +151,12 @@ class RothRoom:
 
 
 @dataclass(frozen=True, slots=True)
-class Unsorted:
-    """A purchase still in Uncategorized."""
-
-    tally_id: str
-    date: datetime.date
-    payee: str
-    amount: Decimal
-    pending: bool
-
-
-@dataclass(frozen=True, slots=True)
 class Picture:
     today: datetime.date
     months: list[Month]  # oldest first, this month last
     categories: list[Category]  # biggest first
     merchants: list[tuple[str, Decimal]]  # this month, biggest first
     net_worth: list[tuple[datetime.date, Decimal]]  # each month's end (today for this one)
-    unsorted: list[Unsorted]  # newest first
-    choices: list[str]  # categories a purchase can be given
     goals: list[GoalView]
     spare: Spare | None  # None until there's a whole month with pay
     investments: list[Investment]  # most valuable first
@@ -222,9 +208,7 @@ def from_folder(
         raise book.LedgerError(f"the ledger has {len(errors)} error(s); run bean-check")
     found = accounts.from_entries(loaded)
     targets = read(loaded, found, today)
-    picture = build(
-        loaded, found, targets, today, folder / book.PENDING, roth_limit, roth_elsewhere
-    )
+    picture = build(loaded, found, targets, today, roth_limit, roth_elsewhere)
     return picture, targets.about
 
 
@@ -233,7 +217,6 @@ def build(
     found: accounts.Accounts,
     targets: Targets,
     today: datetime.date,
-    pending_file: Path | None = None,
     roth_limit: Decimal | None = None,
     roth_elsewhere: Decimal = _ZERO,
 ) -> Picture:
@@ -290,8 +273,6 @@ def build(
             :TOP_MERCHANTS
         ],
         _net_worth(loaded, price_map, starts, today),
-        _unsorted(loaded, found, pending_file),
-        choices(found),
         _goals(targets, balances, added, spare),
         spare,
         _investments(loaded, found, price_map, today),
@@ -464,41 +445,6 @@ def _investments(
         if worth[root] or paid[root]
     ]
     return sorted(result, key=lambda i: (-i.worth, i.name))
-
-
-def _unsorted(
-    loaded: Sequence[data.Directive], found: accounts.Accounts, pending_file: Path | None
-) -> list[Unsorted]:
-    sources = set(found.sources.values())
-    result = []
-    for e in loaded:
-        if not isinstance(e, data.Transaction) or entries.ID_KEY not in e.meta:
-            continue
-        others = [p for p in e.postings if p.account not in sources]
-        if len(e.postings) != 2 or len(others) != 1 or others[0].units is None:
-            continue
-        if found.category_of(others[0].account) != UNCATEGORIZED:
-            continue
-        filename = Path(str(e.meta.get("filename", "")))
-        pending = pending_file is not None and filename.resolve() == pending_file.resolve()
-        result.append(
-            Unsorted(
-                str(e.meta[entries.ID_KEY]),
-                _purchased(e),
-                e.payee or e.narration or "",
-                others[0].units.number or _ZERO,
-                pending,
-            )
-        )
-    return sorted(result, key=lambda u: u.date, reverse=True)
-
-
-def choices(found: accounts.Accounts) -> list[str]:
-    return [
-        name
-        for name, options in found.categories.items()
-        if name != UNCATEGORIZED and any(c.merchant_contains is None for c in options)
-    ]
 
 
 def _is_pay(account: str) -> bool:

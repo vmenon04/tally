@@ -1,10 +1,10 @@
-"""Write a made-up ledger to try the Tally page in Fava without real data.
+"""Write a made-up ledger to try tally without real data.
 
     uv run python demo/make_ledger.py /tmp/tally-demo
     TALLY_DATA_DIR=/tmp/tally-demo uv run tally fava
 
 Everything in it is fabricated: merchants, amounts, accounts. It's dated around today, so
-the page always has a current month to show.
+there's always a current month to show.
 """
 
 import datetime
@@ -77,8 +77,6 @@ PLAN = """\
 MAIN = """\
 option "title" "Demo ledger (made up)"
 option "operating_currency" "USD"
-2025-01-01 custom "fava-extension" "tally.fava_page"
-2025-01-01 custom "fava-option" "default-page" "extension/Tally/"
 include "accounts.beancount"
 include "plan.beancount"
 include "imported/*.beancount"
