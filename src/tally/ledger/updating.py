@@ -242,7 +242,7 @@ def sync(
 def _mirror(ledger: book.Ledger, sure: SureClient, result: SyncResult, *, dry_run: bool) -> None:
     """Make Sure match the ledger. A failure is noted, never raised: the next run finishes."""
     try:
-        result.sure = mirror.plan(mirror.rows(ledger), sure)
+        result.sure = mirror.plan(mirror.rows(ledger), sure, mirror.balances(ledger))
         if not dry_run:
             mirror.apply(result.sure, sure)
     except SureError as e:

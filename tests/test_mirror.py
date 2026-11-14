@@ -65,6 +65,7 @@ class FakeSure(sure.Client):
     url: str = "http://sure.test"
     api_key: str = "key"
     accounts: tuple[str, ...] = ("Checking", "Card", "Savings")
+    balances: dict[str, int] = field(default_factory=dict)  # name -> cents, as Sure shows it
     categories: dict[str, str] = field(default_factory=dict)  # ID -> name
     transactions: dict[str, dict[str, Any]] = field(default_factory=dict)
     calls: list[str] = field(default_factory=list)
@@ -76,7 +77,7 @@ class FakeSure(sure.Client):
         name = path.removeprefix("/api/v1/")
         if method == "GET":
             items: list[dict[str, Any]] = {
-                "accounts": [{"id": f"a-{n}", "name": n} for n in self.accounts],
+                "accounts": [self._account(n) for n in self.accounts],
                 "categories": [{"id": i, "name": n} for i, n in self.categories.items()],
                 "transactions": list(self.transactions.values()),
             }[name]
@@ -110,6 +111,13 @@ class FakeSure(sure.Client):
         self._write(found[1], body["transaction"])
         return self.transactions[found[1]]
 
+    def _account(self, name: str) -> dict[str, Any]:
+        found: dict[str, Any] = {"id": f"a-{name}", "name": name}
+        if name in self.balances:
+            found["balance_cents"] = self.balances[name]
+            found["classification"] = "liability" if name == "Card" else "asset"
+        return found
+
     def _write(self, key: str, sent: dict[str, Any]) -> None:
         t = self.transactions[key]
         t.update(date=sent["date"], amount_decimal=str(sent["amount"]), name=sent["name"])
@@ -134,7 +142,8 @@ def load(folder: Path) -> book.Ledger:
 
 
 def push(folder: Path, fake: FakeSure) -> mirror.Plan:
-    found = mirror.plan(mirror.rows(load(folder)), fake)
+    ledger = load(folder)
+    found = mirror.plan(mirror.rows(ledger), fake, mirror.balances(ledger))
     mirror.apply(found, fake)
     return found
 
@@ -227,3 +236,19 @@ def test_a_ledger_that_names_no_sure_account_says_so(folder: Path) -> None:
     accounts.write_text(re.sub(r"  sure-account: .*\n", "", accounts.read_text()))
     with pytest.raises(sure.SureError, match="no open directive in the ledger has a sure-account"):
         mirror.rows(load(folder))
+
+
+def test_balances_are_compared_with_the_ledgers(folder: Path) -> None:
+    # The ledger: checking -46.65 (with the entry written by hand), the card owes 38.00.
+    fake = FakeSure(balances={"Checking": -4665, "Card": 3800, "Savings": 55})
+    push(folder, fake)
+    assert push(folder, fake).differ == []
+
+    fake.balances["Card"] = 3700  # say, a charge dated before Sure's opening balance
+    assert push(folder, fake).differ == [("Card", Decimal("37.00"), Decimal("38.00"))]
+
+
+def test_an_account_this_run_changes_is_not_compared(folder: Path) -> None:
+    # Sure works its balances out again later, so they'd differ for a while after a change.
+    fake = FakeSure(balances={"Checking": 0, "Card": 0, "Savings": 0})
+    assert push(folder, fake).differ == []

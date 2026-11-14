@@ -63,5 +63,5 @@ nothing else to set up. The summary is printed either way; if sending fails, the
 why and exits with an error.
 
 On the server, `tally-summary.timer` runs `tally sync` and sends it every Sunday at 6pm New York
-time. If the sync fails, the summary still goes out, and its first "look out for" item says
-why. See [Running on a server](server.md).
+time. If the sync fails, or Sure couldn't be updated or has a balance that differs from the
+ledger's, the summary still goes out, and its first "look out for" item says so. See [Running on a server](server.md).

@@ -15,6 +15,11 @@ the entry's tally-id), and only ever changes or deletes those.
 Each run compares the two and makes Sure match: missing transactions are created, changed
 ones corrected, and ones the ledger no longer has (a pending alert that posted) deleted.
 A category already set in Sure is left alone, since that is where you correct them.
+
+It also compares each account's balance in Sure with the ledger's, so a difference the
+transactions can't show is caught: Sure works out balances from an opening balance it
+keeps itself, and ignores transactions dated before it. Only accounts this run leaves
+alone are compared, since Sure works out balances again some time after a change.
 """
 
 from collections import Counter
@@ -53,6 +58,8 @@ class Plan:
     same: int = 0
     kept: int = 0  # categories set in Sure that differ from the ledger's, left alone
     accounts: dict[str, str] = field(default_factory=dict)  # Sure account name -> ID
+    # Sure account name, its balance in Sure, and the ledger's (Sure's way round).
+    differ: list[tuple[str, Decimal, Decimal]] = field(default_factory=list)
     categories: dict[str, str] = field(default_factory=dict)  # Sure category name -> ID
 
     @property
@@ -67,8 +74,8 @@ class Plan:
         )
 
 
-def rows(ledger: book.Ledger) -> list[Row]:
-    """What Sure should hold, from the ledger's imported entries. Raises SureError."""
+def _names(ledger: book.Ledger) -> dict[str, str]:
+    """Each ledger account that fills a Sure account, and that Sure account's name."""
     names = {
         entry.account: str(entry.meta[ACCOUNT_KEY])
         for entry in ledger.entries
@@ -76,6 +83,12 @@ def rows(ledger: book.Ledger) -> list[Row]:
     }
     if not names:
         raise SureError(f"no open directive in the ledger has a {ACCOUNT_KEY} line")
+    return names
+
+
+def rows(ledger: book.Ledger) -> list[Row]:
+    """What Sure should hold, from the ledger's imported entries. Raises SureError."""
+    names = _names(ledger)
     seen: Counter[tuple[str, str]] = Counter()
     found = []
     for entry in ledger.entries:
@@ -110,11 +123,24 @@ def rows(ledger: book.Ledger) -> list[Row]:
     return found
 
 
-def plan(wanted: list[Row], client: Client) -> Plan:
+def balances(ledger: book.Ledger) -> dict[str, Decimal]:
+    """Each Sure account's balance in the ledger, as the ledger signs it."""
+    names = _names(ledger)
+    found: dict[str, Decimal] = {name: Decimal(0) for name in names.values()}
+    for entry in ledger.entries:
+        if isinstance(entry, data.Transaction):
+            for posting in entry.postings:
+                if posting.account in names and posting.units is not None:
+                    found[names[posting.account]] += posting.units.number or Decimal(0)
+    return found
+
+
+def plan(
+    wanted: list[Row], client: Client, ledger_balances: dict[str, Decimal] | None = None
+) -> Plan:
     """Compare with what Sure has. Reads only. Raises SureError."""
-    result = Plan(
-        accounts={str(a["name"]): str(a["id"]) for a in client.each("/api/v1/accounts", "accounts")}
-    )
+    theirs_accounts = list(client.each("/api/v1/accounts", "accounts"))
+    result = Plan(accounts={str(a["name"]): str(a["id"]) for a in theirs_accounts})
     unknown = sorted({row.account for row in wanted} - set(result.accounts))
     if unknown:
         raise SureError(f"Sure has no account named {', '.join(unknown)}")
@@ -140,6 +166,19 @@ def plan(wanted: list[Row], client: Client) -> Plan:
         else:
             result.update.append((str(theirs["id"]), row, fill))
     result.delete = [str(t["id"]) for t in ours.values()]
+    changed = {row.account for row in result.create} | {row.account for _, row, _ in result.update}
+    changed |= {str(t["account"]["name"]) for t in ours.values()}
+    for account in theirs_accounts:
+        name = str(account["name"])
+        if ledger_balances is None or name not in ledger_balances or name in changed:
+            continue
+        if "balance_cents" not in account:
+            continue
+        theirs = Decimal(int(account["balance_cents"])) / 100
+        mine = ledger_balances[name]
+        mine = -mine if account.get("classification") == "liability" else mine
+        if theirs != mine:
+            result.differ.append((name, theirs, mine))
     return result
 
 

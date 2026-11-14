@@ -11,7 +11,7 @@ from test_ledger_importers import BOFA
 from tally import categorizing, store, sure
 from tally.alerts import Alert
 from tally.cli import main
-from tally.ledger import accounts, book, updating, weekly
+from tally.ledger import accounts, book, mirror, updating, weekly
 
 # Rules and a ledger to match.
 RULES = (
@@ -368,3 +368,23 @@ def test_sync_fills_sure_once_a_key_is_saved(
     code, out, err = run(capsys, "sync")
     assert code == 0  # the ledger is still brought up to date
     assert "sync: Sure not updated: couldn't reach Sure" in err
+
+    def wrong_balance(self: sure.Client, method: str, path: str, **_: Any) -> Any:
+        name = path.removeprefix("/api/v1/")
+        if name == "transactions":
+            # Everything tally sent is there, so only the balance is compared.
+            return {name: [], "pagination": {"total_pages": 1}}
+        items = (
+            [{"id": "a", "name": "Checking", "balance_cents": 1, "classification": "asset"}]
+            if name == "accounts"
+            else []
+        )
+        return {name: items, "pagination": {"total_pages": 1}}
+
+    monkeypatch.setattr(sure.Client, "request", wrong_balance)
+    monkeypatch.setattr(mirror, "rows", lambda ledger: [])
+    code, out, err = run(capsys, "sync", "--dry-run")
+    assert code == 0
+    assert "  Checking: Sure says 0.01, the ledger " in out
+    assert "sync: Sure's balance for Checking differs from the ledger's" in err
+    assert "0.01" not in err  # no amounts where the scheduled runs log

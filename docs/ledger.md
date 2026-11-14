@@ -165,6 +165,13 @@ made, and leaves alone a category you set in Sure. `tally sync --dry-run` says w
 would do. If Sure can't be reached the sync still does everything else, and the next one
 catches Sure up.
 
+Each sync also compares every Sure account's balance with the ledger's, for the accounts it
+didn't just change (Sure works balances out again a little later). They can differ even when
+the transactions agree: Sure counts from an opening balance it keeps itself, and ignores a
+transaction dated before it, which happens when a purchase made before the opening day
+posted after it. The sync names any account that differs, and so does the weekly summary;
+`tally sync --dry-run` gives both balances.
+
 ## Editing it
 
 Sure shows the ledger day to day, and the weekly summary, Claude's monthly review and Sure's

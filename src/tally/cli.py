@@ -565,9 +565,13 @@ def _quiet_sync() -> str | None:
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
         code = _sync(dry_run=False)
-    if code == 0:
-        return None
     lines = [line.strip() for line in [*err.getvalue().splitlines(), *out.getvalue().splitlines()]]
+    if code == 0:
+        # It worked, but Sure may not match: that's worth hearing about too.
+        sure_lines = [
+            line.removeprefix("sync: ") for line in lines if line.startswith("sync: Sure")
+        ]
+        return "; ".join(sure_lines) + "." if sure_lines else None
     reason = next(
         (line for line in lines if line.startswith("sync:") and not line.startswith(CLAUDE_FAILED)),
         "it stopped with an error",
@@ -646,6 +650,14 @@ def _sync(dry_run: bool) -> int:
         print(f"sync: Sure not updated: {done.sure_failed}", file=sys.stderr)
     elif done.sure is not None:
         print(f"\nSure: {done.sure.summary()}.")
+        for name, theirs, mine in done.sure.differ:
+            print(f"  {name}: Sure says {theirs:,.2f}, the ledger {mine:,.2f}")
+            # Without amounts: the scheduled runs log errors, and nothing that names money.
+            print(
+                f"sync: Sure's balance for {name} differs from the ledger's "
+                "(`tally sync --dry-run` says by how much)",
+                file=sys.stderr,
+            )
     return 0
 
 
