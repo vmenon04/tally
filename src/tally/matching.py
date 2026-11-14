@@ -114,7 +114,8 @@ def names_agree(alert_name: str, posted_name: str) -> bool:
 
 def name_words(name: str) -> list[str]:
     """The words of a merchant name that identify it: "SQ *JOE'S #12" -> ["SQ", "JOES"]."""
-    joined = re.sub(r"['-]", "", name.upper())
+    # Only between letters: "WAL-MART" is one word, but "MBTA-5500" is a name and a number.
+    joined = re.sub(r"(?<=[A-Z])['-](?=[A-Z])", "", name.upper())
     return [w for w in re.split(r"[^A-Z0-9]+", joined) if w and not re.search(r"\d", w)]
 
 
