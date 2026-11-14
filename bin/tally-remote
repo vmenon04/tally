@@ -47,7 +47,11 @@ deploy() {
     git -C "$repo" archive --format=tar.gz HEAD | ssh -q "$HOST" "cat >$archive"
     echo "deploying $(git -C "$repo" log --oneline -1)"
     status=0
-    ssh -t -q "$HOST" "sudo -u tally /usr/local/bin/tally-deploy $archive $commit" || status=$?
+    # The services that run all the time restart onto the new code (try-restart leaves one
+    # that isn't running alone); sudo remembers the password from the deploy.
+    ssh -t -q "$HOST" "sudo -u tally /usr/local/bin/tally-deploy $archive $commit &&
+        { sudo systemctl try-restart tally-fava tally-chat ||
+            echo 'tally-remote: restart tally-fava and tally-chat by hand' >&2; }" || status=$?
     ssh -q "$HOST" "rm -f $archive"
     exit $status
 }

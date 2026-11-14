@@ -16,6 +16,7 @@ from tally import (
     advice,
     alert_reading,
     categorizing,
+    chat,
     config,
     corrections,
     gmail,
@@ -160,6 +161,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     fava_parser.add_argument("--port", type=int, default=5000, help="default: 5000")
 
+    chat_parser = commands.add_parser(
+        "chat",
+        help="answer Sure's chat from the ledger",
+        description="Answer Sure's chat (its External assistant) on a Unix socket until "
+        "stopped, with Claude working from the ledger. Requests need the token in "
+        "secrets/chat-token. See docs/server.md.",
+    )
+    chat_parser.add_argument("--socket", type=Path, required=True, help="listen on this socket")
+
     args = parser.parse_args(argv)
     if args.command == "import":
         ok = importing.run(
@@ -203,6 +213,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"fava: {e}", file=sys.stderr)
             return 1
         return 0
+    if args.command == "chat":
+        return _chat(args.socket)
     parser.print_help()
     return 0
 
@@ -669,6 +681,31 @@ def _with_review(
     else:
         return dataclasses.replace(result, review=written)
     return dataclasses.replace(result, look_out=[*result.look_out, problem])
+
+
+def _chat(socket: Path) -> int:
+    token = categorizing.load_token(config.secrets_dir() / "chat-token")
+    if token is None:
+        print(f"chat: no token in {config.secrets_dir() / 'chat-token'}", file=sys.stderr)
+        return 1
+    folder = data_dir()
+
+    def answer(said: list[chat.Message]) -> str:
+        today = datetime.datetime.now().astimezone().date()
+        settings = config.load(folder / "config.toml")
+        found, about = picture.from_folder(
+            book.folder(folder), today, settings.roth_limit, settings.roth_elsewhere
+        )
+        return chat.reply(said, advice.facts(found, about), _ask_claude)
+
+    try:
+        server = chat.server(socket, token, answer)
+    except OSError as e:
+        print(f"chat: {e}", file=sys.stderr)
+        return 1
+    with server:
+        server.serve_forever()
+    return 0
 
 
 def _ask_claude_quickly(question: str, schema: dict[str, Any]) -> Any:

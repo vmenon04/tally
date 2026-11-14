@@ -1,6 +1,7 @@
 #!/bin/sh
 # Installs or upgrades Sure in /srv/sure from the compose.yml next to this script, starts
-# it, and puts it on the tailnet. Run as root on the server; see docs/server.md.
+# it, and puts it on the tailnet. Needs tally set up first, since Sure's chat goes to
+# tally chat. Run as root on the server; see docs/server.md.
 set -eu
 
 if [ "$(id -u)" != 0 ]; then
@@ -20,5 +21,18 @@ if [ ! -e /srv/sure/.env ]; then
         "$(openssl rand -hex 64)" "$(openssl rand -hex 24)" >/srv/sure/.env
 fi
 
+# The token Sure's chat gives `tally chat`, made once; tally keeps a copy in its secrets.
+if ! grep -q '^CHAT_TOKEN=' /srv/sure/.env; then
+    printf 'CHAT_TOKEN=%s\n' "$(openssl rand -hex 32)" >>/srv/sure/.env
+fi
+sed -n 's/^CHAT_TOKEN=//p' /srv/sure/.env >/srv/tally/secrets/chat-token
+chown tally:tally /srv/tally/secrets/chat-token
+# Where tally-chat.service makes its socket: anyone may open it, so it needs the token.
+install -d -o tally -g tally -m 755 /srv/tally-chat
+
 docker compose --project-directory /srv/sure up -d --wait
 tailscale serve --bg --https=8443 http://127.0.0.1:3200
+# tally chat starts once its token and folder are there (see docs/server.md).
+if systemctl is-enabled --quiet tally-chat; then
+    systemctl restart tally-chat
+fi

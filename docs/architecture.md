@@ -66,6 +66,7 @@ Solid lines run on their own; dotted lines are steps you do by hand.
 | CSV → database | Posted transactions | The bank is recognized by file contents. BofA running balances must add up, and a gap in its history stops the import. Rows are deduplicated by identity. |
 | tally → Forgejo | The ledger | A token for the one repo, in secrets/, given to git through its environment (never its command line or config). Forgejo is reached on localhost. |
 | Fava → you | The ledger, read and edit | Runs only while `tally-remote fava` is open, on a Unix socket in a folder only your account and tally can open; SSH forwards it to your machine. |
+| Sure → tally chat | Your chat messages; replies from the ledger | `tally chat` listens on a Unix socket, reached only through a relay container on Sure's own network with no port on the server, and answers only requests carrying the token Sure was given. Claude gets no tools, and a reply quoting a dollar amount neither the ledger nor the chat shows is refused. |
 | tally → ntfy | Headlines | ntfy topics have no password, so the topic is 128 random bits and messages carry only kinds and counts. |
 | Server | Everything | A `tally` user with no login, sudo or docker. `/srv/tally` is 700. The systemd sandbox allows writes to `/srv/tally/data` only. Files are 600 and folders 700. |
 
@@ -189,6 +190,7 @@ flowchart TD
         corrections["corrections.py<br/>pending fixes to rules"]
         categorizing["categorizing.py<br/>Claude's merchant rules"]
         summary["summary.py<br/>weekly summary"]
+        advice["advice.py, chat.py<br/>Claude's review and Sure's chat"]
     end
 
     subgraph ledgerpkg["Ledger"]
@@ -201,7 +203,7 @@ flowchart TD
     transaction["transaction.py<br/>Transaction, identity"]
 
     cli --> alert_reading & importing & notify & gmail & config & store & pending
-    cli --> rules & report & plan & summary & ledger_mods
+    cli --> rules & report & plan & summary & advice & ledger_mods
 
     alert_reading --> gmail & matching & store & alerts_pkg & alerts_discover & alerts_bofa
     alert_reading --> importing & ledger_mods

@@ -111,6 +111,31 @@ listens, if it isn't `http://127.0.0.1:3200`.
 To upgrade, change the image tag in `deploy/sure/compose.yml`, commit, and run the same two
 commands again.
 
+### Sure's chat
+
+Sure's chat is answered by tally, so it needs no AI API key. Sure's **External** assistant
+posts each conversation to `tally chat` ([`deploy/tally-chat.service`](../deploy/tally-chat.service)),
+which asks Claude, the way categorizing does, to reply from the same facts as the monthly
+review ([summary.md](summary.md)). A reply quoting a dollar amount that neither the facts nor
+the conversation shows is asked again once, then refused. Claude sees no single transactions,
+so it says when a question needs them. A reply takes 10 to 30 seconds and shows up whole.
+
+`tally chat` serves on the Unix socket `/srv/tally-chat/chat.sock`. A relay in Sure's compose
+file (`tally-chat`, nginx) passes Sure's requests to it; it has no port on the server, so only
+Sure's containers reach it. Requests need the token in `secrets/chat-token`, which `install`
+makes once as `CHAT_TOKEN` in `/srv/sure/.env` and copies for tally.
+
+To set it up, install the service, then run Sure's install again (above), which adds the token,
+the socket's folder and the relay, and starts the service:
+
+```sh
+scp deploy/tally-chat.service myserver:/tmp/
+ssh -t myserver 'sudo install -m 644 /tmp/tally-chat.service /etc/systemd/system/ && rm /tmp/tally-chat.service && sudo systemctl daemon-reload && sudo systemctl enable tally-chat'
+```
+
+Then turn on AI for your user in Sure's settings. `tally-remote deploy` restarts `tally chat`
+(and Fava) onto the new code.
+
 ## Setting up a server
 
 From a clone of the repo on the server, with uv installed at `/srv/tally/bin/uv`:
@@ -128,3 +153,4 @@ sudo systemctl daemon-reload
 Then `bin/tally-remote deploy` from your machine, copy `data/` and `secrets/` into
 `/srv/tally` (owned by `tally`, 700 folders and 600 files), and
 `sudo systemctl enable --now tally-alerts.timer tally-summary.timer tally-sync.timer`.
+Fava and Sure's chat are set up as above.

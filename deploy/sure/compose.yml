@@ -1,10 +1,11 @@
 # Sure (https://github.com/we-promise/sure), the web and phone UI tally fills from the ledger.
-# Installed as /srv/sure/compose.yml, next to an owner-only .env holding SECRET_KEY_BASE and
-# POSTGRES_PASSWORD. See docs/server.md.
+# Installed as /srv/sure/compose.yml, next to an owner-only .env holding SECRET_KEY_BASE,
+# POSTGRES_PASSWORD and CHAT_TOKEN. See docs/server.md.
 #
 # The ledger stays the record: everything in Sure's database can be pushed again by tally.
 # Sure listens on 127.0.0.1 only; `tailscale serve` puts it on the tailnet over HTTPS.
-# Its AI features, bank connections and email are left unconfigured: tally does that work.
+# Its chat is answered by tally (see tally-chat below); its other AI features, bank
+# connections and email are left unconfigured: tally does that work.
 
 name: sure
 
@@ -25,6 +26,11 @@ x-rails-env: &rails_env
   DB_HOST: db
   DB_PORT: 5432
   REDIS_URL: redis://redis:6379/1
+  # The chat goes to `tally chat`, through the relay below.
+  ASSISTANT_TYPE: external
+  EXTERNAL_ASSISTANT_URL: http://tally-chat/v1/chat/completions
+  EXTERNAL_ASSISTANT_TOKEN: "${CHAT_TOKEN:?set CHAT_TOKEN in .env}"
+  EXTERNAL_ASSISTANT_MODEL: tally
 
 x-sure: &sure
   # Pinned: upgrade by changing the tag here, after reading the release notes.
@@ -50,6 +56,17 @@ services:
     <<: *sure
     command: bundle exec sidekiq
 
+  # Passes Sure's chat to `tally chat` on its Unix socket. It has no port on the server, so
+  # only Sure's containers reach it.
+  tally-chat:
+    image: nginx:1.28.0-alpine
+    restart: unless-stopped
+    volumes:
+      - /srv/tally-chat:/run/tally-chat
+    configs:
+      - source: tally-chat
+        target: /etc/nginx/conf.d/default.conf
+
   db:
     image: postgres:16
     restart: unless-stopped
@@ -73,6 +90,20 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+configs:
+  tally-chat:
+    content: |
+      server {
+          listen 80;
+          access_log off;
+          location / {
+              proxy_pass http://unix:/run/tally-chat/chat.sock;
+              # Claude takes a while; tally sends a comment every few seconds meanwhile.
+              proxy_buffering off;
+              proxy_read_timeout 5m;
+          }
+      }
 
 volumes:
   app-storage:
