@@ -26,7 +26,8 @@ An email is only accepted when Gmail's `Authentication-Results` header shows the
 it. Alerts are provisional (the amount can change before it posts) and are kept apart from
 imported transactions. The command matches alerts to imported CSV rows (same account, dated
 a day before to three days after, agreeing merchant name, same amount or up to 30% more for
-a tip, exactly the same for a deposit or refund, whose window counts from the row's posted
+a tip, any amount for a $1.00 gas station check, less for a round hold of $50 or more (a gas
+pump's, a hotel's), exactly the same for a deposit or refund, whose window counts from the row's posted
 date because that's the date their alerts give; the full rules are at the top of
 `src/tally/matching.py`) and lists the rest as *waiting* (the CSVs don't reach that date yet)
 or *not found* (they do, but have no such row).

@@ -3,7 +3,9 @@
 A posted row explains an alert when it is on the same account, dated from a day before the
 alert to three days after (the CSVs date a row by the purchase, and alerts sent around
 midnight can land a day off), its merchant name agrees, and its amount is the same, up to
-30% more (a tip), or anything when the alert was a $1.00 authorization (gas stations).
+30% more (a tip), anything when the alert was a $1.00 authorization (gas stations), or
+less when the alert was a hold of whole dollars, $50 or more (a gas pump's $200, a
+hotel's), which the card later settles for what was actually spent.
 Money in (a deposit, a refund) has no tip or hold, so its amount must be exactly the same,
 and its alert gives the day it posted, so the window is counted from the row's posted date
 (a refund's CSV date is the merchant's, which can be days earlier).
@@ -30,6 +32,7 @@ DAYS_BEFORE = 1
 DAYS_AFTER = 3
 TIP = Decimal("1.30")
 AUTHORIZATION = Decimal("1.00")
+HOLD = Decimal(50)  # whole-dollar alerts from this much may settle for less
 # A CSV that reaches this many days past an alert's date would show its row by now.
 COVERED_AFTER = datetime.timedelta(days=3)
 
@@ -135,5 +138,7 @@ def _amount_fits(alerted: Decimal, posted: Decimal) -> bool:
         return posted == alerted
     alerted, posted = abs(alerted), abs(posted)
     if alerted == AUTHORIZATION:
+        return True
+    if alerted >= HOLD and alerted == alerted.to_integral_value() and posted < alerted:
         return True
     return alerted <= posted <= alerted * TIP

@@ -99,6 +99,18 @@ def test_posted_amount_lower_than_alert_is_not_a_match() -> None:
     assert matched([alert(12, "-10.00")], [tx(12, "-9.99")]) == []
 
 
+def test_a_round_hold_matches_what_it_settled_for() -> None:
+    a = alert(10, "-200.00", "MAPLE GAS #0469 Outside")
+    t = tx(10, "-35.04", "MAPLE GAS #0469 OUTSIDE SPRINGFIELD IL")
+    assert matched([a], [t]) == [(a, t)]
+
+
+def test_a_hold_needs_its_merchant_and_whole_dollars_from_50() -> None:
+    assert matched([alert(12, "-200.00")], [tx(12, "-35.04", "OAK BAKERY SPRINGFIELD IL")]) == []
+    assert matched([alert(12, "-49.00")], [tx(12, "-35.04")]) == []
+    assert matched([alert(12, "-200.50")], [tx(12, "-35.04")]) == []
+
+
 def test_one_dollar_authorization_matches_any_amount() -> None:
     a = alert(12, "-1.00", "MAPLE GAS #0412")
     t = tx(13, "-48.17", "MAPLE GAS 0412 SPRINGFIELD IL")
