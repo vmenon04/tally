@@ -1,8 +1,8 @@
 # Alert emails and notifications
 
 tally reads a separate Gmail account that receives only the bank alerts (a filter in your
-main Gmail forwards them): Discover "Transaction Alert" and "Merchant refund/credit posted to
-your account" emails, and BofA "Your debit card was used" and "A direct deposit was credited
+main Gmail forwards them): Discover "Transaction Alert", "Merchant refund/credit posted to
+your account" and "We've received your payment" emails, and BofA "Your debit card was used" and "A direct deposit was credited
 to your account" emails. Put its address in `data/config.toml` as `gmail_account = "..."`,
 turn on 2-Step Verification for that account, create an app password for it at
 myaccount.google.com/apppasswords, then:

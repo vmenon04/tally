@@ -135,3 +135,43 @@ def test_html_lines() -> None:
         "<p>One <strong>line</strong>\n  still one</p><p>A&nbsp;&amp; B<br/>C</p></body></html>"
     )
     assert html_lines(html) == ["One line still one", "A & B", "C"]
+
+
+PAYMENT = FIXTURES / "discover_payment_alert.eml"
+
+
+def test_payment_in_full() -> None:
+    # Money in, dated the day it posted, named as the export names an online payment so the
+    # posted row matches it and the rules categorize it.
+    assert parse(PAYMENT.read_bytes()) == Alert(
+        account="discover",
+        date=datetime.date(2026, 3, 16),
+        merchant="INTERNET PAYMENT - THANK YOU",
+        amount=Decimal("1250.00"),
+        message_id="<0100000000000000-test-alert-0005@email.amazonses.com>",
+        received=datetime.datetime(2026, 3, 17, 12, 48, 59, tzinfo=datetime.UTC),
+    )
+
+
+def test_payment_matches_its_posted_row() -> None:
+    from tally.matching import match
+    from tally.transaction import Transaction
+
+    alert = parse(PAYMENT.read_bytes())
+    assert alert is not None
+    row = Transaction(
+        "discover",
+        datetime.date(2026, 3, 16),
+        datetime.date(2026, 3, 16),
+        "INTERNET PAYMENT - THANK YOU",
+        "INTERNET PAYMENT - THANK YOU",
+        Decimal("1250.00"),
+    )
+    found = match([alert], [row])
+    assert [(m.transaction, m.by_amount_only) for m in found.matches] == [(row, False)]
+
+
+def test_payment_with_a_changed_layout_is_refused() -> None:
+    raw = fixture(("posted to your account on <strong>", "posted on <strong>"), path=PAYMENT)
+    with pytest.raises(AlertError, match="Your payment of"):
+        parse(raw)

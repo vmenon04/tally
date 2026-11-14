@@ -21,9 +21,18 @@ gives the day the refund posted, not the day of the purchase or the return:
     Merchant:
     MAPLE MARKET #0412
 
-Other emails from Discover (statements, payments, offers) are not alerts and give None.
+A payment email ("We've received your payment") gives the day it posted too:
+
+    Thanks for your payment
+    Your payment of $1,234.56 posted to your account on November 12, 2026.
+
+It doesn't name the payment, so its alert takes the name Discover's export gives an online
+payment, which the rules already categorize and the posted row matches.
+
+Other emails from Discover (statements, offers) are not alerts and give None.
 """
 
+import re
 from decimal import Decimal
 
 from tally.alerts import (
@@ -42,6 +51,9 @@ ACCOUNT = "discover"
 DOMAIN = "discover.com"
 PURCHASE = "Transaction Alert"
 REFUND = "Merchant refund/credit posted to your account"
+PAYMENT = "We've received your payment"
+PAYMENT_NAME = "INTERNET PAYMENT - THANK YOU"
+_PAYMENT_LINE = re.compile(r"Your payment of (\S+) posted to your account on (.+)\.")
 
 
 def parse(raw: bytes) -> Alert | None:
@@ -49,7 +61,7 @@ def parse(raw: bytes) -> Alert | None:
     message = read(raw)
     check_sender(message, DOMAIN)
     subject = " ".join(str(message["Subject"] or "").split())
-    if subject not in (PURCHASE, REFUND):
+    if subject not in (PURCHASE, REFUND, PAYMENT):
         return None
     html = message.get_body(("html",))
     if html is None:
@@ -59,6 +71,12 @@ def parse(raw: bytes) -> Alert | None:
         date = _field(lines, "Date:")
         merchant = _field(lines, "Merchant:")
         amount = Decimal(0) - parse_amount(_field(lines, "Amount:"))
+    elif subject == PAYMENT:
+        found = [m for m in map(_PAYMENT_LINE.fullmatch, lines) if m]
+        if len(found) != 1:
+            raise AlertError("expected one 'Your payment of ... posted' line in the email")
+        date, merchant = found[0].group(2), PAYMENT_NAME
+        amount = parse_amount(found[0].group(1))
     else:
         date = _after(lines, "Posting Date:")
         merchant = _after(lines, "Merchant:")
