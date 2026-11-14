@@ -86,7 +86,7 @@ def _amount(data: dict[str, object], key: str, path: Path) -> Decimal | None:
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, int | Decimal) or value < 0:
-        raise ConfigError(f"{path}: {key} must be an amount like 7500 or 1234.00")
+        raise ConfigError(f"{path}: {key} must be an amount like 7500 or 1200.00")
     return Decimal(value)
 
 

@@ -74,8 +74,8 @@ def test_secrets_dir(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_roth_settings(tmp_path: Path) -> None:
     plain = config.load(write(tmp_path, ""))
     assert (plain.roth_limit, plain.roth_elsewhere) == (None, Decimal(0))
-    loaded = config.load(write(tmp_path, "roth_limit = 7500\nroth_elsewhere = 1234.50\n"))
-    assert (loaded.roth_limit, loaded.roth_elsewhere) == (Decimal(7500), Decimal("1234.50"))
+    loaded = config.load(write(tmp_path, "roth_limit = 7500\nroth_elsewhere = 1200.50\n"))
+    assert (loaded.roth_limit, loaded.roth_elsewhere) == (Decimal(7500), Decimal("1200.50"))
 
 
 def test_sure_url(tmp_path: Path) -> None:
