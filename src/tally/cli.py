@@ -30,6 +30,7 @@ from tally import (
     plan,
     report,
     rules,
+    simplefin,
     snaptrade,
     store,
     summary,
@@ -140,6 +141,19 @@ def main(argv: list[str] | None = None) -> int:
         "--dry-run", action="store_true", help="show what would change without changing it"
     )
 
+    commands.add_parser(
+        "simplefin-login",
+        help="claim a SimpleFIN setup token and save its access",
+        description="Ask for a setup token from bridge.simplefin.org (hidden input), claim it "
+        "for an access URL, and save that in secrets/. A token can be claimed only once.",
+    )
+    commands.add_parser(
+        "simplefin",
+        help="show what SimpleFIN sees for your accounts",
+        description="List the accounts SimpleFIN Bridge sees, their balances, and how many "
+        "transactions it has from the last 30 days. Read-only.",
+    )
+
     snaptrade_parser = commands.add_parser(
         "snaptrade",
         help="show what SnapTrade has for your brokerage accounts",
@@ -207,6 +221,10 @@ def main(argv: list[str] | None = None) -> int:
         return _summary(args.as_of, email=args.email, sync=args.sync)
     if args.command == "sync":
         return _sync(dry_run=args.dry_run)
+    if args.command == "simplefin-login":
+        return _simplefin_login()
+    if args.command == "simplefin":
+        return _simplefin()
     if args.command == "snaptrade":
         try:
             client = snaptrade.Client.from_secrets(config.secrets_dir())
@@ -305,6 +323,41 @@ def _sure_login() -> int:
     config.write_secret(path, key + "\n")
     print(f"Sure accepted it. Saved to {path} (readable only by you).")
     print(f"Sure has {len(names)} account(s): {', '.join(names) or 'none yet'}")
+    return 0
+
+
+def _simplefin_login() -> int:
+    """Claim a SimpleFIN setup token, save the access URL, and say what it can see."""
+    path = config.secrets_dir() / simplefin.ACCESS_FILE
+    try:
+        token = getpass.getpass("SimpleFIN setup token (input is hidden): ").strip()
+        access = simplefin.claim(token)
+    except simplefin.SimpleFINError as e:
+        print(f"simplefin-login: {e}", file=sys.stderr)
+        return 1
+    except (EOFError, KeyboardInterrupt):
+        print("\nsimplefin-login: cancelled, nothing saved.", file=sys.stderr)
+        return 1
+    config.write_secret(path, access + "\n")
+    print(f"Claimed. Saved the access to {path} (readable only by you).")
+    return _simplefin(balances_only=True)
+
+
+def _simplefin(*, balances_only: bool = False) -> int:
+    path = config.secrets_dir() / simplefin.ACCESS_FILE
+    access = categorizing.load_token(path)
+    if access is None:
+        print(f"simplefin: no access saved at {path}; run `tally simplefin-login`", file=sys.stderr)
+        return 1
+    today = datetime.datetime.now().astimezone().date()
+    try:
+        found = simplefin.fetch(
+            access, today - datetime.timedelta(days=30), balances_only=balances_only
+        )
+    except simplefin.SimpleFINError as e:
+        print(f"simplefin: {e}", file=sys.stderr)
+        return 1
+    print("\n".join(simplefin.overview(found, today)))
     return 0
 
 
