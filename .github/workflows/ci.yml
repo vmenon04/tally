@@ -19,3 +19,6 @@ jobs:
         env:
           SECRET_KEY_BASE: check
           POSTGRES_PASSWORD: check
+          CHAT_TOKEN: check
+          MCP_TOKEN: check
+          MCP_USER_EMAIL: check@example.com

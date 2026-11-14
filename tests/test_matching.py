@@ -52,7 +52,7 @@ def matched(alerts: list[Alert], rows: list[Transaction]) -> list[tuple[Alert, T
         ("SPO*MAPLECAFE", ["SPO", "MAPLECAFE"]),
         ("TICKETS -5551234567 ,IL", ["TICKETS", "IL"]),
         ("#1234 5678", []),
-        ("MBTA-550012345678-1234", ["MBTA"]),
+        ("METRO-550012345678-1234", ["METRO"]),
         ("7-ELEVEN 34908", ["ELEVEN"]),
     ],
 )
@@ -71,7 +71,7 @@ def test_name_words(name: str, words: list[str]) -> None:
         ("SPO*MAPLECAFE", "MAPLECAFE SPRINGFIELD IL", True),
         ("PIZZA PLACE", "CAFE BADGEPAY 555-123-4567 MA", False),
         ("#0412", "#0412 SPRINGFIELD IL", False),
-        ("MBTA-550012345678-1234", "MBTA-550012345678 BOSTON MA", True),
+        ("METRO-550012345678-1234", "METRO-550012345678 SPRINGFIELD IL", True),
         ("7-ELEVEN 34908", "7-ELEVEN 34908 SPRINGFIELD IL", True),
     ],
 )
