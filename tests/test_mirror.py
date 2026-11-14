@@ -1,3 +1,4 @@
+import datetime
 import re
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -69,6 +70,7 @@ class FakeSure(sure.Client):
     categories: dict[str, str] = field(default_factory=dict)  # ID -> name
     transactions: dict[str, dict[str, Any]] = field(default_factory=dict)
     calls: list[str] = field(default_factory=list)
+    valued: list[tuple[str, str, float]] = field(default_factory=list)
 
     def request(
         self, method: str, path: str, *, params: dict[str, str] | None = None, body: Any = None
@@ -86,6 +88,11 @@ class FakeSure(sure.Client):
                 name: items[(page - 1) * 2 : page * 2],
                 "pagination": {"total_pages": max(1, -(-len(items) // 2))},
             }
+        if (method, name) == ("POST", "valuations"):
+            sent = body["valuation"]
+            self.valued.append((sent["account_id"], sent["date"], sent["amount"]))
+            self.balances[sent["account_id"].removeprefix("a-")] = round(sent["amount"] * 100)
+            return {"id": "v"}
         if (method, name) == ("POST", "categories"):
             new_id = f"c-{len(self.categories) + 1}"
             self.categories[new_id] = body["category"]["name"]
@@ -252,3 +259,47 @@ def test_an_account_this_run_changes_is_not_compared(folder: Path) -> None:
     # Sure works its balances out again later, so they'd differ for a while after a change.
     fake = FakeSure(balances={"Checking": 0, "Card": 0, "Savings": 0})
     assert push(folder, fake).differ == []
+
+
+INVESTING = """
+2026-01-01 open Equity:Opening-Balances
+2026-01-01 open Assets:Fidelity:Roth
+  fidelity-account: "1234"
+  sure-account: "Roth"
+2026-01-01 open Assets:Fidelity:Roth:Cash USD
+2026-03-01 * "Fidelity" "Roth: holdings as of Mar 01, 2026" #fidelity-positions
+  fidelity-account: "1234"
+  Assets:Fidelity:Roth       10 ABC {10.00 USD}
+  Assets:Fidelity:Roth:Cash  5.00 USD
+  Equity:Opening-Balances
+2026-03-09 price ABC 12.00 USD
+"""
+
+
+def test_an_investment_accounts_worth_is_recorded_once_it_changes(folder: Path) -> None:
+    (folder / "main.beancount").write_text(
+        (folder / "main.beancount").read_text() + 'include "investing.beancount"\n'
+    )
+    (folder / "investing.beancount").write_text(INVESTING)
+    ledger = load(folder)
+    today = datetime.date(2026, 3, 10)
+    assert mirror.worth(ledger, today) == {"Roth": Decimal("125.00")}  # 10 at 12.00, and cash
+    assert "Roth" not in mirror.balances(ledger)  # its worth isn't a sum of transactions
+    assert all(row.account != "Roth" for row in mirror.rows(ledger))
+
+    fake = FakeSure(accounts=("Checking", "Card", "Savings", "Roth"), balances={"Roth": 0})
+
+    def push_worth() -> mirror.Plan:
+        found = mirror.plan(mirror.rows(ledger), fake, None, mirror.worth(ledger, today), today)
+        mirror.apply(found, fake)
+        return found
+
+    assert push_worth().value == [("Roth", Decimal("125.00"))]
+    assert fake.valued == [("a-Roth", "2026-03-10", 125.0)]
+    assert push_worth().value == []  # Sure shows it now
+    assert len(fake.valued) == 1
+
+
+def test_an_investment_account_sure_lacks_is_named(folder: Path) -> None:
+    with pytest.raises(sure.SureError, match="no account named Roth"):
+        mirror.plan([], FakeSure(), None, {"Roth": Decimal(1)}, datetime.date(2026, 3, 10))

@@ -172,6 +172,18 @@ transaction dated before it, which happens when a purchase made before the openi
 posted after it. The sync names any account that differs, and so does the weekly summary;
 `tally sync --dry-run` gives both balances.
 
+A Fidelity account takes part the same way, filling a manual **Investment** account you make
+in Sure:
+
+    2026-09-01 open Assets:Fidelity:Roth
+      fidelity-account: "1234"
+      sure-account: "Fidelity Roth IRA"
+
+Sure gets no transactions for it. Each sync records what it's worth that day (holdings at
+their latest price, plus cash) as a balance update, when that differs from what Sure shows,
+so Sure has its value, its history from then on, and counts it in net worth. What it holds
+stays in the ledger.
+
 ## Editing it
 
 Sure shows the ledger day to day, and the weekly summary, Claude's monthly review and Sure's

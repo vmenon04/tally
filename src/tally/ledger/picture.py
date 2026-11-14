@@ -275,7 +275,7 @@ def build(
         _net_worth(loaded, price_map, starts, today),
         _goals(targets, balances, added, spare),
         spare,
-        _investments(loaded, found, price_map, today),
+        investments(loaded, found, price_map, today),
         None if roth_limit is None else RothRoom(today.year, roth_limit, roth_in),
     )
 
@@ -401,12 +401,13 @@ def _net_worth(
     return found
 
 
-def _investments(
+def investments(
     loaded: Sequence[data.Directive],
     found: accounts.Accounts,
     price_map: prices.PriceMap,
     today: datetime.date,
 ) -> list[Investment]:
+    """Each Fidelity account's worth today, and what was paid for what it holds."""
     roots = set(found.fidelity_accounts.values())
     held: dict[tuple[str, str], Decimal] = defaultdict(Decimal)  # (root, currency) -> units
     cost: dict[tuple[str, str], Decimal] = defaultdict(Decimal)  # -> what it cost, in USD
