@@ -26,7 +26,7 @@ flowchart LR
         fava_view["Browser<br/>Fava, over an SSH tunnel, to edit"]
     end
 
-    subgraph server["Home server: myserver"]
+    subgraph server["Home server"]
         timer["systemd timer<br/>every 5 min"]
         tally["tally<br/>user: tally, sandboxed"]
         data[("/srv/tally/data<br/>tally.db, rules.toml, config.toml,<br/>emails, CSVs, ledger/ (git clone)")]

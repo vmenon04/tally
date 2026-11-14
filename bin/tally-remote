@@ -6,10 +6,14 @@
 #     tally-remote fava [PORT]        edit the ledger in Fava at http://localhost:PORT (default 5000)
 #     tally-remote COMMAND ...        any other tally command, e.g. report 2026-10, sync --dry-run
 #
-# TALLY_HOST names the server (default: myserver). See docs/server.md.
+# TALLY_HOST names the server, an entry in ~/.ssh/config: set it in your environment or in
+# the repo's .env (see .env.example). See docs/server.md.
 set -euo pipefail
 
-HOST=${TALLY_HOST:-myserver}
+if [[ -z ${TALLY_HOST:-} && -f "$(dirname "$0")/../.env" ]]; then
+    TALLY_HOST=$(sed -n 's/^TALLY_HOST=//p' "$(dirname "$0")/../.env")
+fi
+HOST=${TALLY_HOST:?set TALLY_HOST to your server, here or in .env (see .env.example)}
 DROP=/srv/tally-inbox
 
 # Runs tally-run on the server with these arguments, quoted for the remote shell.

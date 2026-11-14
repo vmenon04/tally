@@ -28,7 +28,8 @@ tally sync --dry-run
 tally deploy                      # install the last commit (asks for your sudo password)
 ```
 
-`TALLY_HOST` names the server (default `myserver`, an entry in `~/.ssh/config`). `import`
+`TALLY_HOST` names the server, an entry in `~/.ssh/config`. Set it in your environment or in
+the repo's `.env` (copy [`.env.example`](../.env.example); `.env` is never committed). `import`
 moves the dropped files into `data/inbox` first, so the usual inbox rules apply: a file that
 fails stays there, and a dry run leaves them there.
 
@@ -72,8 +73,8 @@ isn't backed up.
 To install it:
 
 ```sh
-ssh myserver 'mkdir -p /tmp/sure' && scp -r deploy/sure/compose.yml deploy/sure/install deploy/sure/brand myserver:/tmp/sure/
-ssh -t myserver 'sudo sh /tmp/sure/install && rm -r /tmp/sure'
+ssh "$TALLY_HOST" 'mkdir -p /tmp/sure' && scp -r deploy/sure/compose.yml deploy/sure/install deploy/sure/brand "$TALLY_HOST":/tmp/sure/
+ssh -t "$TALLY_HOST" 'sudo sh /tmp/sure/install && rm -r /tmp/sure'
 ```
 
 [`deploy/sure/install`](../deploy/sure/install) copies the compose file to `/srv/sure`,
@@ -127,8 +128,8 @@ To set it up, install the service, then run Sure's install again (above), which 
 the socket's folder and the relay, and starts the service:
 
 ```sh
-scp deploy/tally-chat.service myserver:/tmp/
-ssh -t myserver 'sudo install -m 644 /tmp/tally-chat.service /etc/systemd/system/ && rm /tmp/tally-chat.service && sudo systemctl daemon-reload && sudo systemctl enable tally-chat'
+scp deploy/tally-chat.service "$TALLY_HOST":/tmp/
+ssh -t "$TALLY_HOST" 'sudo install -m 644 /tmp/tally-chat.service /etc/systemd/system/ && rm /tmp/tally-chat.service && sudo systemctl daemon-reload && sudo systemctl enable tally-chat'
 ```
 
 Then turn on AI for your user in Sure's settings. `tally-remote deploy` restarts `tally chat`
@@ -143,7 +144,8 @@ sudo useradd --system --user-group --home-dir /srv/tally --create-home --shell /
 sudo chmod 700 /srv/tally
 sudo install -d -o "$USER" -g tally -m 2770 /srv/tally-inbox
 sudo install -m 755 deploy/tally-run deploy/tally-deploy /usr/local/bin/
-sudo visudo -c -f deploy/sudoers && sudo install -m 440 deploy/sudoers /etc/sudoers.d/tally
+sed "s/^YOUR_ACCOUNT/$USER/" deploy/sudoers >/tmp/tally-sudoers
+sudo visudo -c -f /tmp/tally-sudoers && sudo install -m 440 /tmp/tally-sudoers /etc/sudoers.d/tally && rm /tmp/tally-sudoers
 sudo install -m 644 deploy/tally-*.service deploy/tally-*.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 ```
