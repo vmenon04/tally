@@ -23,8 +23,9 @@ what you put in.
 Money moved between cash and holdings balances itself, so contributions from BofA (already
 in `:Cash`) aren't counted twice. It also adds each holding's price, and balance
 assertions for the day after, so a later snapshot or a hand edit that disagrees fails
-bean-check. Accounts are matched by `fidelity-account:` metadata, the last four characters
-of the account number.
+bean-check. Only the first snapshot of a day is recorded, since a second would contradict
+those assertions; the next day's picks up whatever changed. Accounts are matched by
+`fidelity-account:` metadata, the last four characters of the account number.
 """
 
 import datetime
@@ -62,11 +63,16 @@ def entries(
             continue  # an empty account you don't track
         holdings_account = found.fidelity(account.label)
         cash_account = f"{holdings_account}:Cash"
-        earlier = _snapshots(existing, account.label)
-        if any(e.date > day for e in earlier):
+        recorded = _asserted(existing, holdings_account, cash_account)
+        if recorded is not None and recorded > after:
             raise ParseError(
                 f"the ledger already has a newer Fidelity snapshot for account …{account.label}"
             )
+        if recorded == after:
+            # This day's snapshot is in already, and a second one would contradict its
+            # balance assertions. Anything that changed since shows up in the next day's.
+            continue
+        earlier = _snapshots(existing, account.label)
         held = _held(existing, holdings_account, day)
         since = max((e.date for e in earlier), default=None)
         dividends = _between(account.dividends, since, day)
@@ -242,6 +248,14 @@ def _snapshots(existing: Sequence[data.Directive], label: str) -> list[data.Tran
         for e in existing
         if isinstance(e, data.Transaction) and TAG in e.tags and e.meta.get(LABEL_KEY) == label
     ]
+
+
+def _asserted(existing: Sequence[data.Directive], *accounts: str) -> datetime.date | None:
+    """The latest balance assertion on these accounts: the day after the last snapshot."""
+    return max(
+        (e.date for e in existing if isinstance(e, data.Balance) and e.account in accounts),
+        default=None,
+    )
 
 
 def _held(

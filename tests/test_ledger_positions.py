@@ -245,6 +245,21 @@ def test_without_cost_basis_new_units_cost_todays_price(
     assert book.check(data_dir / "ledger") == []
 
 
+def test_only_the_first_snapshot_of_a_day_is_recorded(
+    data_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["import", str(POSITIONS)]) == 0
+    day = datetime.date(2026, 3, 27)
+    add_snapshot(data_dir, holdings_snapshot(day, "110.123", "16.00", None))
+    # Later the same day the holdings differ: the next day's snapshot records that.
+    add_snapshot(data_dir, holdings_snapshot(day, "120.123", "16.00", None))
+    assert held(data_dir, "Assets:Fidelity:401k", "FFTGX")[0] == Decimal("110.123")
+    assert book.check(data_dir / "ledger") == []
+    add_snapshot(data_dir, holdings_snapshot(day.replace(day=28), "120.123", "16.00", None))
+    assert held(data_dir, "Assets:Fidelity:401k", "FFTGX")[0] == Decimal("120.123")
+    assert book.check(data_dir / "ledger") == []
+
+
 def test_an_empty_account_you_dont_track_is_skipped(data_dir: Path) -> None:
     from tally import rules
 
