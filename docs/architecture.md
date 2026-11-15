@@ -2,8 +2,7 @@
 
 tally runs on one home server. What it knows about your bank and card accounts comes from
 SimpleFIN Bridge, which reads them for you: posted transactions, pending ones, and each
-account's balance. Fidelity holdings come from SnapTrade. CSV exports still work, for
-accounts SimpleFIN doesn't fill. It keeps a Beancount ledger (pushed to its own repo on
+account's balance. Fidelity holdings come from SnapTrade. It keeps a Beancount ledger (pushed to its own repo on
 Forgejo, edited with Fava), fills Sure from it, emails a weekly summary and sends
 headline-only push notifications.
 
@@ -58,7 +57,6 @@ Solid lines run on their own; dotted lines are steps you do by hand.
 | Boundary | What crosses it | What protects it |
 |---|---|---|
 | Banks → SimpleFIN → tally | Transactions and balances | SimpleFIN holds the bank connections; tally holds only an access URL, read-only, in secrets/, never printed or logged. Its rows are checked against what's stored (same posted date and amount) and each account's balance against the ledger's. |
-| CSV → database | Posted transactions | The bank is recognized by file contents. BofA running balances must add up, and a gap in its history stops the import. Rows are deduplicated by identity. |
 | tally → Forgejo | The ledger | A token for the one repo, in secrets/, given to git through its environment (never its command line or config). Forgejo is reached on localhost. |
 | Fava → you | The ledger, read and edit | Runs only while `tally-remote fava` is open, on a Unix socket in a folder only your account and tally can open; SSH forwards it to your machine. |
 | Sure → tally chat | Your chat messages; replies from the ledger | `tally chat` listens on a Unix socket, reached only through a relay container on Sure's own network with no port on the server, and answers only requests carrying the token Sure was given. Claude's only tools are Sure's lookups that read, passed on by `tally lookups`, which holds Sure's MCP token and refuses every other tool. A reply quoting a dollar amount that neither the ledger, the chat nor a lookup shows is refused. |
@@ -97,34 +95,22 @@ sequenceDiagram
     N->>N: one POST per kind, most urgent first; keys recorded once ntfy accepts
 ```
 
-## By hand: import, report, summary
+## Reports and the summary
 
 ```mermaid
 flowchart TD
-    csv["CSV in data/inbox/"] --> recognize{"importing.py<br/>recognize by first line"}
-    recognize -- "Discover" --> dparse["importers/discover.py"]
-    recognize -- "BofA" --> bparse["importers/bofa.py<br/>checks running balances"]
-    recognize -- "Fidelity positions" --> fparse["importers/fidelity.py<br/>snapshot of holdings"]
-    recognize -- "unknown, or an account SimpleFIN fills" --> stay["left in inbox, error shown"]
-    dparse --> txn["Transaction<br/>account, dates, description, amount"]
-    bparse --> txn
-    txn --> save["store.py<br/>skip rows already stored,<br/>refuse a BofA gap"]
-    save --> db[("tally.db: transactions, imports")]
-    save --> archive["original copied to<br/>data/raw/account/date-hash.csv"]
-
-    txn --> extract["ledger/importers.py<br/>entries, categorized by rules.toml,<br/>balance assertions"]
-    fparse --> positions["ledger/positions.py<br/>holdings at cost, prices, balances"]
-    extract --> ledger[("data/ledger<br/>imported/YEAR.beancount")]
-    positions --> ledger
-
-    ledger -- "categories you set" --> rulesx["rules.py<br/>ledger categories first,<br/>then data/rules.toml"]
-    rulesx --> rep["report.py<br/>a month's spending per category"]
-    rep --> cli_report["tally report YYYY-MM"]
+    ledger[("data/ledger")] -- "categories you set" --> rulesx["rules.py<br/>ledger categories first,<br/>then data/rules.toml"]
+    db[("tally.db: transactions, alerts")] --> rep["report.py<br/>a month's spending per category"]
+    rulesx --> rep
     rep --> weekly["summary.py<br/>week, month vs plan,<br/>look out for, coming up"]
     ledger -- "plan.beancount" --> weekly
     ledger -- "bean-query" --> lreport["ledger/weekly.py<br/>month vs last month, Roth"]
-    weekly --> cli_summary["tally summary"]
-    lreport --> cli_summary
+    ledger --> picture["ledger/picture.py<br/>the facts Claude goes by"]
+    picture --> advice["advice.py<br/>monthly review"]
+    picture --> chat["chat.py<br/>Sure's chat"]
+    weekly --> email["tally summary --email"]
+    lreport --> email
+    advice --> email
 ```
 
 ## Modules
@@ -138,8 +124,7 @@ flowchart TD
 
     subgraph sources["Where transactions come from"]
         simplefin["simplefin.py<br/>the bridge, its rows and pending"]
-        importing["importing.py<br/>CSVs: recognize, store, archive"]
-        importers_pkg["importers/: discover, bofa, fidelity"]
+        importers_pkg["importers/: how BofA and Discover word rows,<br/>Fidelity's holdings"]
         snaptrade["snaptrade.py<br/>Fidelity holdings"]
     end
 
@@ -169,11 +154,10 @@ flowchart TD
     config["config.py<br/>config.toml, secrets"]
     transaction["transaction.py<br/>Transaction, identity"]
 
-    cli --> importing & simplefin & notify & config & store & pending
+    cli --> simplefin & notify & config & store & pending
     cli --> rules & report & plan & summary & advice & ledger_mods
 
     simplefin --> importers_pkg & alerts_pkg & transaction
-    importing --> store & importers_pkg & transaction & ledger_mods
     notify --> config & store
     matching --> alerts_pkg & transaction
     pending --> matching & alerts_pkg & transaction
@@ -200,7 +184,7 @@ erDiagram
     imports {
         int id PK
         text account
-        text file_name "a CSV's, or simplefin"
+        text file_name "simplefin (a CSV's, before)"
         text file_sha256
         text imported_at "for simplefin: when it was asked"
         int rows_in_file
@@ -215,7 +199,7 @@ erDiagram
         text merchant
         int amount_cents "negative = money out"
         text bank_category
-        int balance_cents "BofA running balance"
+        int balance_cents "no longer filled"
         int import_id FK
     }
     alerts {
@@ -238,9 +222,6 @@ Pending transactions are never joined to posted ones in the database. Matching i
 on every run, and pending.beancount is worked out afresh each time, so a late or corrected
 answer fixes the picture without any cleanup. Alerts from the alert emails tally used to read
 are still in the table; SimpleFIN's answers cover them.
-
-Two tables from before the ledger, `sheet_writes` and `sheet_categories`, are still in the
-database but nothing uses them.
 
 ## On the server
 
@@ -267,7 +248,7 @@ flowchart LR
 
     subgraph you["Your account, over SSH"]
         remote["bin/tally-remote<br/>on your machine"]
-        drop["/srv/tally-inbox<br/>2770, group tally"]
+        drop["/srv/tally-inbox<br/>Fava's socket, 2770"]
         run["sudo -u tally tally-run<br/>no password, this one program"]
         deploy["sudo -u tally tally-deploy<br/>password required"]
     end
@@ -280,10 +261,9 @@ flowchart LR
     bin --> secretsdir
     sync_service -. "errors only" .-> journal["journald"]
 
-    remote -- "CSVs" --> drop
+    remote -- "tally-remote fava" --> drop
     remote -- "commands" --> run
     remote -- "git archive HEAD" --> deploy
-    run -- "moves drop files to data/inbox" --> datadir
     deploy -- "test in app.new, swap" --> app
     deploy -- "uv sync --no-editable" --> venv
 ```

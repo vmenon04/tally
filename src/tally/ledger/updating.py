@@ -19,7 +19,7 @@ from typing import Any, TextIO
 
 from beancount.core import data
 
-from tally import categorizing, corrections, matching, pending, rules, simplefin, store
+from tally import categorizing, config, corrections, matching, pending, rules, simplefin, store
 from tally.alerts import Alert
 from tally.importers import ParseError
 from tally.importers.fidelity import Snapshot
@@ -29,7 +29,6 @@ from tally.ledger import (
     categories,
     entries,
     history,
-    importers,
     mirror,
     parity,
     positions,
@@ -49,7 +48,6 @@ class Session:
     data_dir: Path
     ledger: book.Ledger
     rules: rules.Rules
-    added: int = 0
 
 
 def open_session(data_dir: Path, conn: sqlite3.Connection | None = None) -> Session | None:
@@ -70,46 +68,6 @@ def rules_for(data_dir: Path, conn: sqlite3.Connection) -> rules.Rules:
     stored = store.transactions(conn)
     alerts = store.alerts_with_ids(conn)
     return rules.parse(corrections.carry_over(text, pending.posted(alerts, stored), _today()).text)
-
-
-def extract(
-    session: Session, tally_account: str, text: str, file_name: str
-) -> list[data.Directive]:
-    """The entries a file would add to the ledger, without adding them."""
-    if tally_account == "fidelity_positions":
-        positions = importers.FidelityPositions(session.ledger.accounts)
-        extracted = positions.extract_text(text, file_name, session.ledger.entries)
-        return book.new_entries(extracted, session.ledger)
-    importer = importers.for_account(tally_account, session.ledger.accounts, session.rules)
-    return book.new_entries(importer.extract_text(text, file_name), session.ledger)
-
-
-def add(session: Session, new: list[data.Directive]) -> None:
-    book.add(session.ledger, new)
-    session.ledger.entries.extend(new)
-    session.added += len(new)
-
-
-def refresh_pending(session: Session, conn: sqlite3.Connection) -> list[str]:
-    """Keep categories you changed on pending entries, then rewrite pending.beancount.
-
-    A change becomes a one-transaction rule in rules.toml, so it survives the rewrite and
-    carries over to the posted row. Returns the messages for those changes.
-    """
-    messages = _keep_pending_fixes(session, conn)
-    found = matching.match(store.alerts(conn), store.transactions(conn), store.fetched(conn))
-    book.write_pending(session.ledger, found.waiting, session.rules)
-    return messages
-
-
-def refresh_pending_in(data_dir: Path, conn: sqlite3.Connection, err: TextIO) -> None:
-    """refresh_pending for the alerts run, reporting problems instead of stopping it."""
-    try:
-        session = open_session(data_dir, conn)
-        if session is not None:
-            refresh_pending(session, conn)
-    except (book.LedgerError, rules.RulesError, accounts.AccountsError) as e:
-        print(f"ledger: pending alerts not written: {e}", file=err)
 
 
 class NotUpToDate(Exception):
@@ -372,9 +330,7 @@ def _raw(t: Transaction) -> dict[str, str]:
 def _archive(data_dir: Path, today: datetime.date, kept: list[dict[str, str]]) -> None:
     """Keep what SimpleFIN gave in data/raw/simplefin/, as an export is kept in raw/, so the
     database can be rebuilt from it."""
-    from tally.importing import private_dir
-
-    folder = private_dir(data_dir, "raw", "simplefin")
+    folder = config.private_dir(data_dir, "raw", "simplefin")
     content = json.dumps(kept, indent=1) + "\n"
     name = hashlib.sha256(content.encode()).hexdigest()[:16]
     path = folder / f"{today.isoformat()}-{name}.json"
@@ -434,17 +390,6 @@ def check(data_dir: Path, conn: sqlite3.Connection) -> parity.Parity | None:
         session.ledger, book.pending_entries(session.ledger, waiting, session.rules)
     )
     return parity.compare(ledger, [*stored, *(pending.as_transaction(a) for a in waiting)])
-
-
-def _keep_pending_fixes(session: Session, conn: sqlite3.Connection) -> list[str]:
-    fixes = _pending_fixes(session.ledger, store.alerts_with_ids(conn))
-    if not fixes:
-        return []
-    text = _rules_text(session.data_dir)
-    kept = corrections.apply(text, fixes, _today())
-    corrections.save(session.data_dir / RULES, kept.text)
-    session.rules = rules_for(session.data_dir, conn)
-    return kept.messages
 
 
 def _pending_fixes(

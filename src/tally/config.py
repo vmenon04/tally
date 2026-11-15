@@ -15,7 +15,6 @@ class ConfigError(ValueError):
 
 
 # Keys an older tally used, accepted and ignored so an old config.toml still loads.
-_OBSOLETE = {"sheet_id"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,18 +37,14 @@ def load(path: Path) -> Config:
     except tomllib.TOMLDecodeError as e:
         raise ConfigError(f"{path} is not valid TOML: {e}") from e
 
-    unknown = (
-        set(data)
-        - _OBSOLETE
-        - {
-            "gmail_account",
-            "summary_to",
-            "ntfy_server",
-            "roth_limit",
-            "roth_elsewhere",
-            "sure_url",
-        }
-    )
+    unknown = set(data) - {
+        "gmail_account",
+        "summary_to",
+        "ntfy_server",
+        "roth_limit",
+        "roth_elsewhere",
+        "sure_url",
+    }
     if unknown:
         raise ConfigError(f"{path}: unknown keys {sorted(unknown)}")
     gmail_account = _address(data, "gmail_account", path)
@@ -105,3 +100,19 @@ def write_secret(path: Path, text: str) -> None:
         f.write(text)
     temporary.chmod(0o600)
     os.replace(temporary, path)
+
+
+def private_dir(data_dir: Path, *parts: str) -> Path:
+    """data_dir/<parts>, with data_dir and each part created if needed and owner-only (700).
+
+    Folders that already exist are tightened too. mkdir's mode alone isn't enough: it is
+    reduced by the umask and isn't applied to parents created along the way.
+    """
+    data_dir.mkdir(parents=True, exist_ok=True)
+    data_dir.chmod(0o700)
+    path = data_dir
+    for part in parts:
+        path = path / part
+        path.mkdir(exist_ok=True)
+        path.chmod(0o700)
+    return path

@@ -5,15 +5,14 @@ from pathlib import Path
 
 import pytest
 from beancount.core import data, position
-from test_ledger_importers import BOFA
+from sample import POSITIONS, bofa_rows, record, seed, snapshot
 from test_ledger_sync import ACCOUNTS, MAIN, RULES
 
-from tally import store
 from tally.cli import main
+from tally.importers import ParseError
 from tally.importers.fidelity import Account, Holding, Snapshot
-from tally.ledger import book, positions, weekly
+from tally.ledger import accounts, book, positions, weekly
 
-POSITIONS = Path(__file__).parent / "fixtures" / "fidelity_positions.csv"
 FIDELITY_ACCOUNTS = """
 2026-01-01 open Assets:Fidelity:Roth
   fidelity-account: "1111"
@@ -43,8 +42,7 @@ def data_dir(
     (folder / "config.toml").write_text("roth_limit = 7500\n")
     (folder / "rules.toml").write_text(RULES)
     # BofA in March, with 500.00 into the Roth IRA on 03/10.
-    assert main(["import", str(BOFA)]) == 0
-    capsys.readouterr()
+    seed(folder, bofa_rows())
     return folder
 
 
@@ -76,19 +74,19 @@ def snapshot_text(**changes: str) -> str:
 def import_text(
     folder: Path, tmp_path: Path, text: str, capsys: pytest.CaptureFixture[str]
 ) -> tuple[int, str, str]:
-    path = tmp_path / "positions.csv"
-    path.write_text(text, encoding="utf-8", newline="")
-    code = main(["import", str(path)])
-    captured = capsys.readouterr()
-    return code, captured.out, captured.err
+    """Record a snapshot written as a positions export: (0, what was added, "") or (1, "", why
+    not)."""
+    try:
+        added = record(folder, snapshot(text))
+    except (ParseError, accounts.AccountsError) as e:
+        return 1, "", str(e)
+    return 0, f"ledger: {added} new entries", ""
 
 
 def test_first_snapshot_opens_holdings_at_cost(
     data_dir: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert main(["import", str(POSITIONS)]) == 0
-    out = capsys.readouterr().out
-    assert "Fidelity positions as of 03/20  3 accounts" in out
+    assert record(data_dir, snapshot()) > 0
     assert book.check(data_dir / "ledger") == []
     assert held(data_dir, "Assets:Fidelity:Roth", "FXAIX") == (Decimal("10.5"), Decimal("2000.00"))
     assert held(data_dir, "Assets:Fidelity:401k", "FFTGX") == (
@@ -113,31 +111,17 @@ def test_first_snapshot_opens_holdings_at_cost(
     assert sides["Equity:Opening-Balances"] == Decimal("-2012.50")
 
 
-def test_the_database_never_sees_positions(
-    data_dir: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    conn = store.connect(data_dir / "tally.db")
-    before = conn.execute("SELECT count(*) FROM imports").fetchone()
-    conn.close()
-    assert main(["import", str(POSITIONS)]) == 0
-    conn = store.connect(data_dir / "tally.db")
-    assert conn.execute("SELECT count(*) FROM imports").fetchone() == before
-    conn.close()
-
-
 def test_the_same_file_again_adds_nothing(
     data_dir: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert main(["import", str(POSITIONS)]) == 0
-    capsys.readouterr()
-    assert main(["import", str(POSITIONS)]) == 0
-    assert "ledger: 0 new entries" in capsys.readouterr().out
+    assert record(data_dir, snapshot()) > 0
+    assert record(data_dir, snapshot()) == 0
 
 
 def test_a_later_snapshot_moves_holdings_to_fidelity_cost_basis(
     data_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert main(["import", str(POSITIONS)]) == 0
+    assert record(data_dir, snapshot()) > 0
     capsys.readouterr()
     later = snapshot_text(
         **{
@@ -168,7 +152,7 @@ def test_a_later_snapshot_moves_holdings_to_fidelity_cost_basis(
 def test_an_older_snapshot_is_refused(
     data_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert main(["import", str(POSITIONS)]) == 0
+    assert record(data_dir, snapshot()) > 0
     capsys.readouterr()
     code, _, err = import_text(
         data_dir, tmp_path, snapshot_text(**{"Mar-20-2026": "Mar-01-2026"}), capsys
@@ -190,7 +174,7 @@ def test_an_unknown_account_is_refused(
 def test_roth_contributions_ignore_snapshot_cash(
     data_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert main(["import", str(POSITIONS)]) == 0
+    assert record(data_dir, snapshot()) > 0
     later = snapshot_text(**{"Mar-20-2026": "Mar-27-2026", "$12.50": "$20.00"})
     assert import_text(data_dir, tmp_path, later, capsys)[0] == 0
     found = weekly.build(data_dir / "ledger", datetime.date(2026, 3, 31), Decimal(7500), Decimal(0))
@@ -223,7 +207,7 @@ def add_snapshot(folder: Path, snap: Snapshot) -> None:
 def test_without_cost_basis_new_units_cost_todays_price(
     data_dir: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert main(["import", str(POSITIONS)]) == 0  # FFTGX: 100.123 units cost 1500.00
+    assert record(data_dir, snapshot()) > 0  # FFTGX: 100.123 units cost 1500.00
     # A week later SnapTrade, with no cost basis: 10 more units, price now 16.00.
     add_snapshot(data_dir, holdings_snapshot(datetime.date(2026, 3, 27), "110.123", "16.00", None))
     assert held(data_dir, "Assets:Fidelity:401k", "FFTGX") == (
@@ -248,7 +232,7 @@ def test_without_cost_basis_new_units_cost_todays_price(
 def test_only_the_first_snapshot_of_a_day_is_recorded(
     data_dir: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert main(["import", str(POSITIONS)]) == 0
+    assert record(data_dir, snapshot()) > 0
     day = datetime.date(2026, 3, 27)
     add_snapshot(data_dir, holdings_snapshot(day, "110.123", "16.00", None))
     # Later the same day the holdings differ: the next day's snapshot records that.
@@ -273,7 +257,7 @@ def test_sync_records_brokerage_holdings(
 ) -> None:
     from tally import cli
 
-    assert main(["import", str(POSITIONS)]) == 0
+    assert record(data_dir, snapshot()) > 0
     snap = holdings_snapshot(datetime.date(2026, 3, 27), "110.123", "16.00", None)
     monkeypatch.setattr(cli, "_brokerage", lambda: lambda: snap)
     capsys.readouterr()
@@ -332,7 +316,7 @@ def roth_entries(folder: Path) -> list[data.Transaction]:
 def test_dividends_explain_a_cash_increase(
     data_dir: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert main(["import", str(POSITIONS)]) == 0  # Roth cash 12.50 on 03/20
+    assert record(data_dir, snapshot()) > 0  # Roth cash 12.50 on 03/20
     # A week later: a 2.50 dividend paid on 03/25 is all that changed; one from before the
     # last snapshot doesn't count again.
     snap = roth_snapshot(
@@ -354,7 +338,7 @@ def test_dividends_explain_a_cash_increase(
 def test_what_dividends_dont_explain_stays_flagged(
     data_dir: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert main(["import", str(POSITIONS)]) == 0
+    assert record(data_dir, snapshot()) > 0
     # Cash went up 7.50, but only 2.50 of it was a dividend.
     snap = roth_snapshot(
         datetime.date(2026, 3, 27), "20.00", [(datetime.date(2026, 3, 25), "2.50")]
@@ -376,7 +360,7 @@ def test_without_a_dividends_account_everything_stays_unreconciled(
     accounts_file.write_text(
         accounts_file.read_text().replace("2026-01-01 open Income:Fidelity:Dividends\n", "")
     )
-    assert main(["import", str(POSITIONS)]) == 0
+    assert record(data_dir, snapshot()) > 0
     snap = roth_snapshot(
         datetime.date(2026, 3, 27), "15.00", [(datetime.date(2026, 3, 25), "2.50")]
     )
@@ -397,7 +381,7 @@ def test_payroll_contributions_are_income_and_cost_basis(
         )
         + "2026-01-01 open Income:Salary:401k USD\n"
     )
-    assert main(["import", str(POSITIONS)]) == 0  # FFTGX: 100.123 units cost 1500.00 on 03/20
+    assert record(data_dir, snapshot()) > 0  # FFTGX: 100.123 units cost 1500.00 on 03/20
     # A week later: 155.00 from the 03/24 paycheck bought 10 units. The one from 03/10 was
     # before the last snapshot, so it's already in.
     snap = holdings_snapshot(datetime.date(2026, 3, 27), "110.123", "16.00", None)
@@ -427,7 +411,7 @@ def test_payroll_contributions_are_income_and_cost_basis(
 def test_contributions_without_contributions_from_are_unreconciled(
     data_dir: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert main(["import", str(POSITIONS)]) == 0
+    assert record(data_dir, snapshot()) > 0
     snap = holdings_snapshot(datetime.date(2026, 3, 27), "110.123", "16.00", None)
     paid = ((datetime.date(2026, 3, 24), Decimal("155.00")),)
     add_snapshot(data_dir, Snapshot(snap.date, [replace(snap.accounts[0], contributions=paid)]))

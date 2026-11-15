@@ -8,12 +8,9 @@ categories in your ledger. Neither folder is ever committed.
 
 - **Bank and card accounts** through [SimpleFIN Bridge](https://bridge.simplefin.org) (paid):
   any bank it connects to. Rows are read the way Bank of America checking and Discover
-  word them; another bank needs its own small row reader in `src/tally/simplefin.py` (and,
-  for CSVs, `src/tally/importers/`).
-- **CSV exports** from Bank of America checking and Discover, for accounts SimpleFIN doesn't
-  fill.
-- **Fidelity holdings** through [SnapTrade](https://snaptrade.com) (free personal key), or
-  Fidelity's positions CSV.
+  word them; another bank needs its own small row reader in `src/tally/simplefin.py`, with
+  its merchant cleanup in `src/tally/importers/`.
+- **Fidelity holdings** through [SnapTrade](https://snaptrade.com) (free personal key).
 
 ## Settings: `data/config.toml`
 

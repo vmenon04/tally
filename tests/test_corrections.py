@@ -39,7 +39,7 @@ def test_correction_goes_in_a_new_section_above_the_rules() -> None:
         "\n"
         f"{corrections.SECTION_START}\n"
         "\n"
-        "[[rule]]  # corrected on the Sheet 2026-03-20\n"
+        "[[rule]]  # set on a pending purchase 2026-03-20\n"
         'account = "discover"\n'
         "date = 2026-03-07\n"
         "amount = -42.10\n"
@@ -67,13 +67,13 @@ def test_everything_outside_the_section_is_untouched() -> None:
     outside = first.split(corrections.SECTION_START)[0], first.split(corrections.SECTION_END)[1]
     assert second.split(corrections.SECTION_START)[0] == outside[0]
     assert second.split(corrections.SECTION_END)[1] == outside[1]
-    assert second.count("[[rule]]  # corrected") == 2
+    assert second.count("[[rule]]  # set on a pending purchase") == 2
 
 
 def test_correcting_again_replaces_the_rule() -> None:
     text = corrections.apply(RULES, [(tx(), "Home / apartment stuff")], TODAY).text
     text = corrections.apply(text, [(tx(), "Income")], TODAY).text
-    assert text.count("[[rule]]  # corrected") == 1
+    assert text.count("[[rule]]  # set on a pending purchase") == 1
     assert rules.parse(text).categorize(tx()) == "Income"
 
 
@@ -178,9 +178,25 @@ def test_carry_over_when_the_rules_already_agree() -> None:
         "Posted, and the rules already say Home / apartment stuff: "
         "MAPLE MARKET #0412 SPRINGFIELD IL (03/08/2026, -42.10)"
     ]
-    assert "corrected on the Sheet" not in result.text
+    assert "set on a pending purchase" not in result.text
 
 
 def test_carry_over_reports_a_broken_file() -> None:
     with pytest.raises(rules.RulesError, match="not valid TOML"):
         corrections.carry_over("categories = [", [(ALERT, POSTED)], TODAY)
+
+
+def test_the_old_sheet_header_is_read_and_renamed() -> None:
+    old = "# ---- Corrections from the Sheet (tally sync adds these; edit or delete freely) ----"
+    text = f'categories = ["Groceries"]\n\n{old}\n\n# ---- End of corrections ----\n'
+    t = Transaction(
+        account="discover",
+        date=datetime.date(2026, 3, 18),
+        posted=None,
+        description="OAK BAKERY",
+        merchant="OAK BAKERY",
+        amount=Decimal("-9.00"),
+    )
+    result = corrections.apply(text, [(t, "Groceries")], datetime.date(2026, 3, 20))
+    assert old not in result.text
+    assert result.text.count(corrections.SECTION_START) == 1

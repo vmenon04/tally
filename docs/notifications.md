@@ -3,7 +3,7 @@
 ## Pending purchases
 
 Between a purchase and the day it posts, the bank lists it as pending. For each account the
-ledger links to SimpleFIN ([Importing](importing.md#from-simplefin-instead)), every `tally
+ledger links to SimpleFIN ([Where transactions come from](transactions.md)), every `tally
 sync` stores what SimpleFIN lists as pending, and those are the account's pending entries in
 `pending.beancount`, in reports, in the weekly summary and in Sure. One that has posted is
 matched to its posted row (same account, dated a day before to three days after, agreeing

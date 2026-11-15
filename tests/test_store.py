@@ -6,10 +6,10 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
+from sample import bofa_rows, discover_rows
 
 from tally import store
 from tally.alerts import Alert
-from tally.importers import bofa, discover
 from tally.transaction import Transaction
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -49,34 +49,34 @@ def test_new_database_has_schema_version(db: sqlite3.Connection) -> None:
 
 
 def test_round_trip_keeps_every_field(db: sqlite3.Connection) -> None:
-    rows = discover.parse((FIXTURES / "discover_recent.csv").read_text(newline=""))
+    rows = discover_rows()
     result = save(db, rows)
     assert (result.rows_in_file, result.rows_new) == (9, 9)
     assert store.transactions(db) == rows
 
 
 def test_round_trip_keeps_two_decimal_places(db: sqlite3.Connection) -> None:
-    save(db, [coffee("1450.00", balance=Decimal("1450.00"))])
+    save(db, [coffee("1450.00")])
     [stored] = store.transactions(db)
-    assert (str(stored.amount), str(stored.balance)) == ("-1450.00", "1450.00")
+    assert str(stored.amount) == "-1450.00"
 
 
-def test_bofa_round_trip_keeps_balances(db: sqlite3.Connection) -> None:
-    rows = bofa.parse((FIXTURES / "bofa_checking.csv").read_text(newline=""))
+def test_rows_are_listed_by_account(db: sqlite3.Connection) -> None:
+    rows = bofa_rows()
     save(db, rows, account="bofa_checking")
     assert store.transactions(db, account="bofa_checking") == rows
     assert store.transactions(db, account="discover") == []
 
 
 def test_same_file_twice_adds_nothing(db: sqlite3.Connection) -> None:
-    rows = discover.parse((FIXTURES / "discover_recent.csv").read_text(newline=""))
+    rows = discover_rows()
     save(db, rows)
     assert save(db, rows).rows_new == 0
     assert len(store.transactions(db)) == 9
 
 
 def test_overlapping_file_adds_only_new_rows(db: sqlite3.Connection) -> None:
-    rows = discover.parse((FIXTURES / "discover_recent.csv").read_text(newline=""))
+    rows = discover_rows()
     save(db, rows[4:])
     assert save(db, rows).rows_new == 4
     assert sorted(store.transactions(db), key=rows.index) == rows
@@ -121,23 +121,6 @@ def test_missing_posted_date_is_part_of_identity(db: sqlite3.Connection) -> None
     assert save(db, [coffee()]).rows_new == 1
 
 
-def test_overlapping_balances_must_agree(db: sqlite3.Connection) -> None:
-    rows = bofa.parse((FIXTURES / "bofa_checking.csv").read_text(newline=""))
-    save(db, rows, account="bofa_checking")
-    changed = [*rows[:-1], dataclasses.replace(rows[-1], balance=Decimal("1.00"))]
-    expected = "balance 1.00 doesn't match the stored balance 1698.53"
-    with pytest.raises(store.StoreError, match=expected):
-        save(db, changed, account="bofa_checking")
-
-
-def test_failed_import_saves_nothing(db: sqlite3.Connection) -> None:
-    save(db, [coffee(balance=Decimal("10.00"))])
-    with pytest.raises(store.StoreError):
-        save(db, [coffee("9.99"), coffee(balance=Decimal("11.00"))])
-    assert len(store.transactions(db)) == 1
-    assert db.execute("SELECT count(*) FROM imports").fetchone()[0] == 1
-
-
 def test_import_is_recorded(db: sqlite3.Connection) -> None:
     save(db, [coffee()])
     result = save(db, [coffee(), coffee("1.00")])
@@ -174,45 +157,8 @@ def test_unknown_schema_version_is_rejected(tmp_path: Path) -> None:
     conn = sqlite3.connect(path)
     conn.execute("PRAGMA user_version = 99")
     conn.close()
-    with pytest.raises(store.StoreError, match="schema version 99, expected 5"):
+    with pytest.raises(store.StoreError, match="schema version 99, expected 6"):
         store.connect(path)
-
-
-def bofa_rows() -> list[Transaction]:
-    return bofa.parse((FIXTURES / "bofa_checking.csv").read_text(newline=""))
-
-
-def test_bofa_file_continuing_history_without_overlap_is_accepted(db: sqlite3.Connection) -> None:
-    rows = bofa_rows()
-    save(db, rows[:6], account="bofa_checking")
-    assert save(db, rows[6:], account="bofa_checking").rows_new == 7
-
-
-def test_bofa_file_overlapping_history_is_accepted(db: sqlite3.Connection) -> None:
-    rows = bofa_rows()
-    save(db, rows[:6], account="bofa_checking")
-    assert save(db, rows[4:], account="bofa_checking").rows_new == 7
-
-
-def test_bofa_gap_is_rejected(db: sqlite3.Connection) -> None:
-    rows = bofa_rows()
-    save(db, rows[:6], account="bofa_checking")
-    expected = "gap: this file starts at balance 2428.78 on 2026-03-10, but the last stored balance"
-    with pytest.raises(store.StoreError, match=expected):
-        save(db, rows[8:], account="bofa_checking")
-    assert len(store.transactions(db)) == 6
-
-
-def test_older_bofa_file_without_overlap_is_rejected(db: sqlite3.Connection) -> None:
-    rows = bofa_rows()
-    save(db, rows[6:], account="bofa_checking")
-    with pytest.raises(store.StoreError, match="gap"):
-        save(db, rows[:6], account="bofa_checking")
-
-
-def test_discover_has_no_gap_check(db: sqlite3.Connection) -> None:
-    save(db, [coffee(day=2)])
-    assert save(db, [coffee(day=20)]).rows_new == 1
 
 
 def test_copy_has_the_data_but_changes_stay_in_memory(tmp_path: Path) -> None:
@@ -256,6 +202,9 @@ def test_version_1_database_is_migrated(tmp_path: Path) -> None:
     assert conn.execute("PRAGMA user_version").fetchone()[0] == store.SCHEMA_VERSION
     assert store.alerts(conn) == []
     assert store.notifications(conn) == {}
+    # The Google Sheet's tables, made by migrations 1 and 2, are gone again.
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    assert "sheet_writes" not in tables and "sheet_categories" not in tables
     conn.close()
 
 

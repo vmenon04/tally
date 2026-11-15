@@ -16,10 +16,6 @@ def test_load(tmp_path: Path) -> None:
     assert config.load(write(tmp_path, "")) == config.Config()
 
 
-def test_an_old_sheet_id_is_ignored(tmp_path: Path) -> None:
-    assert config.load(write(tmp_path, "")) == config.Config()
-
-
 @pytest.mark.parametrize(
     ("text", "error"),
     [

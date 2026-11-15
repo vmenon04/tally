@@ -139,7 +139,7 @@ def test_correcting_claudes_choice_changes_its_rule() -> None:
     assert result.messages == [
         "Changed Claude's rule for CAFE to Eating out / dates: CAFE (03/07/2026, -12.00)"
     ]
-    assert "# corrected on the Sheet" not in result.text
+    assert "# set on a pending purchase" not in result.text
     assert rules.parse(result.text).categorize(tx("CAFE", day=19)) == "Eating out / dates"
 
 

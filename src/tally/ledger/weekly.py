@@ -111,7 +111,7 @@ def build(
 
 
 def _order(found: accounts.Accounts, account: str) -> int:
-    """Accounts in the order accounts.beancount opens them, like the Budget tab's lines."""
+    """Accounts in the order accounts.beancount opens them, as you'd list them."""
     names = list(dict.fromkeys(c.account for cs in found.categories.values() for c in cs))
     return names.index(account) if account in names else len(names)
 

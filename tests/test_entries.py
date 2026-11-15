@@ -7,14 +7,10 @@ import pytest
 from beancount import loader
 from beancount.core import data
 from beancount.parser import printer
+from sample import BOFA, DISCOVER, bofa_rows, discover_rows
 
 from tally import rules
-from tally.importers import ParseError
-from tally.ledger import accounts, entries, importers
-
-FIXTURES = Path(__file__).parent / "fixtures"
-BOFA = FIXTURES / "bofa_checking.csv"
-DISCOVER = FIXTURES / "discover_recent.csv"
+from tally.ledger import accounts, entries
 
 # Made-up accounts in the shape of the real ledger's accounts.beancount.
 OPENS = """
@@ -96,14 +92,12 @@ def setup() -> tuple[accounts.Accounts, rules.Rules]:
     return found, parsed
 
 
-def importer_for(path: Path) -> importers.BofaChecking | importers.Discover:
-    found, parsed = setup()
-    bofa, discover = importers.all_importers(found, parsed)
-    return bofa if path == BOFA else discover
-
-
 def extract(path: Path) -> list[data.Directive]:
-    return list(importer_for(path).extract(str(path), []))
+    """The sample's rows as ledger entries."""
+    found, parsed = setup()
+    rows = bofa_rows() if path == BOFA else discover_rows()
+    meta = data.new_metadata(path.name, 0)
+    return [entries.transaction(t, found, parsed, meta=meta) for t in rows]
 
 
 def check(*extracted: list[data.Directive]) -> list[str]:
@@ -126,56 +120,8 @@ def text(t: data.Transaction) -> str:
     return f"{t.payee or ''} {t.narration}"
 
 
-def test_identify_by_first_line() -> None:
-    found, parsed = setup()
-    bofa, discover = importers.all_importers(found, parsed)
-    assert bofa.identify(str(BOFA)) and not bofa.identify(str(DISCOVER))
-    assert discover.identify(str(DISCOVER)) and not discover.identify(str(BOFA))
-    assert bofa.account(str(BOFA)) == "Assets:BofA:Checking"
-
-
-def test_unknown_account_has_no_importer() -> None:
-    found, parsed = setup()
-    with pytest.raises(ParseError, match="no ledger importer"):
-        importers.for_account("capital_one", found, parsed)
-
-
 def test_bofa_file_passes_bean_check() -> None:
     assert check(extract(BOFA)) == []
-
-
-def test_bofa_asserts_the_start_and_a_settled_end() -> None:
-    # The fixture ends 03/14; three days before that, after the 03/11 row, it held 1873.78.
-    balances = [e for e in extract(BOFA) if isinstance(e, data.Balance)]
-    assert [(b.date, b.amount.number) for b in balances] == [
-        (datetime.date(2026, 3, 1), Decimal("1200.00")),
-        (datetime.date(2026, 3, 12), Decimal("1873.78")),
-    ]
-
-
-def test_rows_posted_late_into_the_last_days_pass_the_settled_balance() -> None:
-    # An export as of 03/14 taken before a row dated 03/14 posted, then a later one with it.
-    early = make_bofa_file(['03/02/2026,"SHOP A 03/02 PURCHASE","-10.00","90.00"'], "03/14")
-    late = make_bofa_file(
-        [
-            '03/02/2026,"SHOP A 03/02 PURCHASE","-10.00","90.00"',
-            '03/14/2026,"SHOP B 03/14 PURCHASE","-5.00","85.00"',
-        ],
-        "03/20",
-    )
-    found, parsed = setup()
-    bofa, _ = importers.all_importers(found, parsed)
-    first = list(bofa.extract_text(early, "early.csv"))
-    second = list(bofa.extract_text(late, "late.csv"))
-    bofa.deduplicate(second, first)
-    fresh = [e for e in second if not e.meta.get(entries.DUPLICATE_KEY)]
-    opening = (
-        '2026-02-28 * "Opening"\n  Assets:BofA:Checking  100.00 USD\n  Equity:Opening-Balances\n'
-    )
-    text = OPENS.split("2026-02-28 *")[0] + opening
-    text += "\n".join(printer.format_entry(e) for e in [*first, *fresh])
-    _, errors, _ = loader.load_string(text)
-    assert [e.message for e in errors] == []
 
 
 def test_dated_by_posting_with_purchase_day_kept() -> None:
@@ -227,22 +173,20 @@ def test_mask() -> None:
     assert entries.mask("ACCT 1111 FOR 03/09/26") == "ACCT 1111 FOR 03/09/26"
 
 
-def test_reimporting_a_file_marks_everything_duplicate() -> None:
-    importer = importer_for(BOFA)
-    first = list(importer.extract(str(BOFA), []))
-    again = list(importer.extract(str(BOFA), []))
-    importer.deduplicate(again, first)
+def test_the_same_rows_again_are_all_duplicates() -> None:
+    first = extract(BOFA)
+    again = extract(BOFA)
+    entries.mark_duplicates(again, first)
     assert all(e.meta.get(entries.DUPLICATE_KEY) for e in again)
 
 
 def test_identical_rows_count_like_tally_db() -> None:
     # The fixture has two identical 8.25 NOODLE HOUSE rows. A ledger holding one of them
     # gets exactly one more.
-    importer = importer_for(DISCOVER)
-    new = list(importer.extract(str(DISCOVER), []))
+    new = extract(DISCOVER)
     noodles = [t for t in transactions(new) if number(t.postings[1]) == Decimal("8.25")]
     assert len(noodles) == 2
-    importer.deduplicate(new, [noodles[0]])
+    entries.mark_duplicates(new, [noodles[0]])
     fresh = [e for e in new if not e.meta.get(entries.DUPLICATE_KEY)]
     assert len(fresh) == len(new) - 1
     assert (
@@ -253,19 +197,6 @@ def test_identical_rows_count_like_tally_db() -> None:
         )
         == 1
     )
-
-
-def test_a_row_written_twice_fails_bean_check() -> None:
-    bofa = extract(BOFA)
-    errors = check(bofa, [transactions(bofa)[0]])
-    assert any("Balance failed" in e for e in errors)
-
-
-def test_a_dropped_row_fails_bean_check() -> None:
-    bofa = extract(BOFA)
-    # A row before the settled balance (03/11); later ones are checked by the next export.
-    dropped = [e for e in bofa if not (isinstance(e, data.Transaction) and "MAPLE" in text(e))]
-    assert any("Balance failed" in e for e in check(dropped))
 
 
 def test_category_without_an_account_is_reported() -> None:
@@ -297,23 +228,3 @@ def test_merchant_contains_needs_a_category() -> None:
     )
     with pytest.raises(accounts.AccountsError, match="needs a category"):
         accounts.from_entries(opens)
-
-
-def make_bofa_file(rows: list[str], end: str) -> str:
-    amounts = [Decimal(row.split('","')[1]) for row in rows]
-    ending = Decimal("100.00") + sum(amounts, Decimal(0))
-    debits = sum((a for a in amounts if a < 0), Decimal(0))
-    return "\r\n".join(
-        [
-            "Description,,Summary Amt.",
-            'Beginning balance as of 03/01/2026,,"100.00"',
-            'Total credits,,"0.00"',
-            f'Total debits,,"{debits:.2f}"',
-            f'Ending balance as of {end}/2026,,"{ending:.2f}"',
-            "",
-            "Date,Description,Amount,Running Bal.",
-            '03/01/2026,Beginning balance as of 03/01/2026,,"100.00"',
-            *rows,
-            "",
-        ]
-    )

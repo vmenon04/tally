@@ -18,7 +18,7 @@ git config core.hooksPath .githooks    # enable the pre-commit checks (once per 
 | `deploy/` | Server scripts, sudoers rule, systemd units and Sure's compose file ([Running on a server](server.md)) | yes |
 | `docs/` | These docs | yes |
 | `secrets/` | API keys and tokens (`chmod 700`) | **never** |
-| `data/` | Database, bank CSVs, config | **never** |
+| `data/` | Database, ledger, config, raw SimpleFIN answers | **never** |
 
 ## Checks
 

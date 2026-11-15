@@ -2,7 +2,7 @@
 out for, and what's coming up.
 
 The numbers and advice come from fixed rules here, worked out from the stored transactions, the
-pending alerts and the numbers typed on the Budget tab. Claude only adds a note on the finished
+pending purchases and the plan in the ledger. Claude only adds a note on the finished
 summary (see summary_note):
 
 - A category is *over plan* when the month's spending passes its "Plan / mo".
@@ -63,7 +63,7 @@ class Roth:
 class Summary:
     today: datetime.date
     week: list[Item]  # spending in the 7 days up to today, newest first
-    month: list[CategoryLine]  # this month so far, in Budget tab order
+    month: list[CategoryLine]  # this month so far, in the rules' order
     last_month: str | None  # how last month ended, while this week still reaches into it
     look_out: list[str]
     coming_up: list[str]

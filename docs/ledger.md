@@ -7,25 +7,21 @@ exists, so tally works as before without one.
 
 ## What tally writes
 
-- **`tally import`** adds each export's rows to `imported/YEAR.beancount`, after the database
-  accepts the file. BofA files also add a balance assertion for the start of the period
-  they cover, and for three days before its end: BofA dates some rows by the day they
-  happened even when they post later, so an export's last days can still gain rows. A file the ledger can't take (an account or category with no ledger
-  account) isn't imported anywhere. Afterwards it runs bean-check and reports any problem,
-  commits the ledger and pushes it.
-- **`tally sync`** (every two hours) adds what SimpleFIN posted, and it and `import` rewrite
-  `pending.beancount`: the purchases still pending ([Pending
+- **`tally sync`** (every two hours) adds the rows SimpleFIN posted ([Where transactions
+  come from](transactions.md)) to `imported/YEAR.beancount`, and Fidelity's holdings; then
+  it runs bean-check, commits the ledger and pushes it.
+- It also rewrites `pending.beancount`: the purchases still pending ([Pending
   purchases](notifications.md#pending-purchases)), flagged `!`. Each disappears once its
   posted row arrives. It isn't in git.
 
 Entries are dated by **posting date**, which is what statements and running balances count;
 `purchased:` holds the day it happened when that differs. A pending purchase is dated no earlier
-than its account's latest balance assertion, since it can't have posted inside a period an
-export already covers.
+than its account's latest balance assertion, since it can't have posted inside a period a
+statement already covers.
 
 Each entry carries `tally-id`, a hash of the row's account, dates, description and amount.
-Importing an overlapping file adds only rows the ledger doesn't have, counting identical rows
-the way the database does (two equal coffees on one day are both kept). Runs of five or more
+Rows the ledger has already aren't added again, counting identical rows the way the database
+does (two equal coffees on one day are both kept). Runs of five or more
 digits in descriptions are cut to their last four, so account and reference numbers stay out.
 
 ## Categories
@@ -70,7 +66,8 @@ dated when the change starts. Fava shows budgets on the Income Statement and on 
 
 ```beancount
 2026-09-18 open Assets:BofA:Checking USD
-  tally-account: "bofa_checking"         ; this export's rows post here
+  tally-account: "bofa_checking"         ; its rows post here
+  simplefin-account: "1234"              ; and come from SimpleFIN's account ending 1234
 2026-09-01 open Expenses:Groceries USD
   category: "Groceries"                  ; the other side of rows in this category
 2026-09-01 open Assets:BofA:Savings USD
@@ -81,16 +78,15 @@ dated when the change starts. Fava shows budgets on the Income Statement and on 
 Every category in `rules.toml`, the built-in ones (Income, Card payment, Savings transfer,
 Investing) and Uncategorized need an account without `merchant-contains`.
 
-A transfer between two accounts that both have exports (a Discover payment from BofA) posts
+A transfer between two accounts whose rows tally takes in (a Discover payment from BofA) posts
 both sides to an `Assets:Transfers:...` account, so it isn't counted twice and a missing side
 shows up as a non-zero balance there.
 
-## Fidelity positions
+## Fidelity holdings
 
 With SnapTrade's keys in `secrets/` (`snaptrade-client-id`, `snaptrade-consumer-key`, from a
 free SnapTrade Personal account connected to Fidelity read-only), `tally sync` records every
-Fidelity account's holdings each time it runs, exactly as importing a positions export would,
-so there's nothing to download. `tally snaptrade` shows what SnapTrade sees, without amounts.
+Fidelity account's holdings (once a day), so there's nothing to download. `tally snaptrade` shows what SnapTrade sees, without amounts.
 SnapTrade gives no cost basis for a 401(k): there, new units count as bought at that day's
 price, and units sold take their share of the cost. Accounts not in the ledger are skipped
 while they're empty. If SnapTrade can't be reached, the sync says so and carries on.
@@ -110,12 +106,9 @@ the 401(k). When they bought more of the account's one fund, those units cost wh
 in, so the 401(k)'s cost basis is your contributions and its gain is the market's.
 `tally snaptrade --activities 5678` lists an account's activities, with amounts.
 
-The positions export still works the same way, if you'd rather download it:
-
-Download Accounts → Positions (all accounts) from Fidelity and import it like any export:
-`tally-remote import Portfolio_Positions_*.csv`. It goes to the ledger only. Each account in
-it, matched by `fidelity-account:` (the account number's last four) on an open directive,
-gets one transaction tagged `#fidelity-positions` that brings the ledger to the snapshot:
+Each account, matched by `fidelity-account:` (the account number's last four) on an open
+directive, gets one transaction tagged `#fidelity-positions` that brings the ledger to the
+snapshot:
 
 - each holding whose quantity or cost basis changed is closed and reopened at Fidelity's
   quantity and total cost basis, so the ledger's cost basis is exactly Fidelity's;
@@ -126,22 +119,21 @@ gets one transaction tagged `#fidelity-positions` that brings the ledger to the 
   a snapshot can't tell them apart), flagged `!`.
 
 It also records each holding's price, so Fava shows market value, and asserts every holding
-and cash balance the next day. A snapshot older than one already imported is refused, and
-the same file twice adds nothing. Fidelity's activity export would say exactly what each
-change was; importing it is a possible next step.
+and cash balance the next day. A snapshot older than one already recorded is refused, and
+a second snapshot the same day adds nothing.
 
 ## Catching dropped and duplicated rows
 
-bean-check fails when an account's balance doesn't match an assertion. BofA exports assert
-their own balances; type the others from statements into `statements.beancount`. A row
-imported twice or missing then shows up as a failed balance.
+bean-check fails when an account's balance doesn't match an assertion: type balances from
+statements into `statements.beancount`, and a row doubled or missing shows up as a failed
+balance.
 
 Each sync also asks SimpleFIN what the bank says every linked account holds, and compares
 that with the ledger's posted rows (pending ones left out, as the bank leaves them out of its
 balance). A missed or doubled row, or one the bank back-dated past what SimpleFIN returns,
 shows up there; so does interest on an account whose rows tally doesn't import. Link an
 account for this alone with `simplefin-account:` and no `tally-account:` (see
-[Importing](importing.md#from-simplefin-instead)). It's a check, not an assertion, so a
+[Where transactions come from](transactions.md)). It's a check, not an assertion, so a
 difference never stops bean-check.
 
 ## Showing it in Sure
@@ -243,9 +235,8 @@ To try tally without real data, make a made-up ledger and open it:
    (Settings → Applications, repository read and write). Save it as
    `/srv/tally/secrets/forgejo-token` (owner `tally`, 600).
 2. Push the skeleton to it, then clone it as `tally` into `/srv/tally/data/ledger`.
-3. Fill in `opening.beancount`, commit, and import the archived exports to backfill:
-   `tally-remote import` won't do (it imports the inbox), so run
-   `tally-run import /srv/tally/data/raw/*/*.csv` on the server.
+3. Fill in `opening.beancount` with each account's balance on the day before SimpleFIN's
+   history starts, and commit; the next sync adds the rows since.
 
 
 ## Backing it up to GitHub

@@ -25,11 +25,9 @@ from pathlib import Path
 from tally import categorizing, rules
 from tally.transaction import Transaction
 
-SECTION_START = (
-    # The header names the Sheet, where corrections were made before the ledger; it stays
-    # as it is, since it's how tally finds the section in existing rules files.
-    "# ---- Corrections from the Sheet (tally sync adds these; edit or delete freely) ----"
-)
+SECTION_START = "# ---- Corrections (tally sync adds these; edit or delete freely) ----"
+# What the header said when corrections were made on a Google Sheet; read as SECTION_START.
+_OLD_START = "# ---- Corrections from the Sheet (tally sync adds these; edit or delete freely) ----"
 SECTION_END = "# ---- End of corrections ----"
 
 _RULE_START = re.compile(r"^\[\[rule\]\]", re.MULTILINE)
@@ -43,7 +41,7 @@ class Result:
 
 def apply(text: str, corrections: list[tuple[Transaction, str]], today: datetime.date) -> Result:
     """Add, replace or (for an empty category) remove the correction rule of each transaction."""
-    text = _with_section(text)
+    text = _with_section(text.replace(_OLD_START, SECTION_START))
     messages = []
     for t, category in corrections:
         text, removed = _remove(text, t)
@@ -75,6 +73,7 @@ def carry_over(
     to it. A posted row corrected on its own keeps its own correction.
     """
     rules.parse(text)  # a broken file is reported as such, not as a broken correction
+    text = text.replace(_OLD_START, SECTION_START)
     if SECTION_START not in text:
         return Result(text, [])
     messages = []
@@ -163,7 +162,7 @@ def _insert(text: str, block: str) -> str:
 
 
 def _rule_text(
-    t: Transaction, category: str, today: datetime.date, how: str = "corrected on the Sheet"
+    t: Transaction, category: str, today: datetime.date, how: str = "set on a pending purchase"
 ) -> str:
     return (
         f"[[rule]]  # {how} {today.isoformat()}\n"

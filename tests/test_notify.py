@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 import requests
+from sample import bofa_rows
 
 from tally import notify, store
 from tally.alerts import Alert
@@ -183,7 +184,7 @@ def dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("TALLY_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("TALLY_SECRETS_DIR", str(tmp_path / "secrets"))
     (tmp_path / "data").mkdir()
-    (tmp_path / "data" / "config.toml").write_text(f'sheet_id = "s"\ngmail_account = "{ADDRESS}"\n')
+    (tmp_path / "data" / "config.toml").write_text(f'gmail_account = "{ADDRESS}"\n')
     return tmp_path
 
 
@@ -217,9 +218,7 @@ def test_notify_test(
 
 
 def _import_at(db: sqlite3.Connection, when: datetime.datetime) -> None:
-    from tally.importers import bofa
-
-    rows = bofa.parse((FIXTURES / "bofa_checking.csv").read_text(newline=""))
+    rows = bofa_rows()
     store.save(db, rows, account="bofa_checking", file_name="a.csv", file_sha256="x", now=when)
 
 

@@ -1,15 +1,8 @@
 import datetime
-import shutil
 from decimal import Decimal
-from pathlib import Path
-
-import pytest
 
 from tally import report, rules
-from tally.cli import main
 from tally.transaction import Transaction
-
-FIXTURES = Path(__file__).parent / "fixtures"
 
 RULES = """
 categories = ["Rent + fees", "Groceries", "Eating out / dates"]
@@ -123,77 +116,3 @@ def test_uncategorized_are_listed_by_date() -> None:
     late, early = tx("MYSTERY", "-3.00", day=20), tx("ODD SHOP", "-4.00", day=5)
     r = build([late, early, tx("MAPLE MARKET", "-1.00")])
     assert r.uncategorized == [early, late]
-
-
-def test_format() -> None:
-    r = build(
-        [
-            tx("LANDLORD", "-1500.00"),
-            tx("MAPLE MARKET", "-12.34"),
-            tx("PAYROLL", "3000.00"),
-            tx("BROKERAGE", "-500.00"),
-            tx("MYSTERY", "-3.00", day=20),
-        ]
-    )
-    assert report.format_report(r) == "\n".join(
-        [
-            "March 2026",
-            "",
-            "Spending",
-            "  Rent + fees              $1,500.00",
-            "  Groceries                   $12.34",
-            "  Eating out / dates           $0.00",
-            "  Total                    $1,512.34",
-            "",
-            "Not spending",
-            "  Income                   $3,000.00",
-            "  Investing (Roth IRA)       $500.00   2026 so far: $500.00",
-            "  Savings transfers            $0.00",
-            "",
-            "Uncategorized (1)",
-            "  2026-03-20  bofa_checking       -$3.00  MYSTERY",
-        ]
-    )
-
-
-def test_negative_spending_is_shown_with_a_minus() -> None:
-    r = build([tx("Zelle payment from ROOMMATE", "400.00")])
-    assert "  Rent + fees               -$400.00" in report.format_report(r)
-
-
-@pytest.fixture
-def data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    data = tmp_path / "data"
-    monkeypatch.setenv("TALLY_DATA_DIR", str(data))
-    return data
-
-
-def test_report_command(data: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["import", str(FIXTURES / "bofa_checking.csv")]) == 0
-    (data / "rules.toml").write_text(RULES)
-    capsys.readouterr()
-    assert main(["report", "2026-03"]) == 0
-    out = capsys.readouterr().out
-    assert out.startswith("March 2026\n")
-    assert "Uncategorized (" in out
-
-
-def test_report_without_database(data: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["report", "2026-03"]) == 1
-    assert "Nothing imported yet" in capsys.readouterr().err
-    assert not (data / "tally.db").exists()
-
-
-def test_report_with_bad_rules(data: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["import", str(FIXTURES / "bofa_checking.csv")]) == 0
-    assert main(["report", "2026-03"]) == 1
-    assert "rules.toml: no rules file at" in capsys.readouterr().err
-    shutil.copyfile(FIXTURES / "bofa_checking.csv", data / "rules.toml")
-    assert main(["report", "2026-03"]) == 1
-    assert "rules.toml: not valid TOML" in capsys.readouterr().err
-
-
-@pytest.mark.parametrize("month", ["2026-3", "2026-13", "march", "2026-00"])
-def test_report_rejects_bad_month(month: str) -> None:
-    with pytest.raises(SystemExit):
-        main(["report", month])

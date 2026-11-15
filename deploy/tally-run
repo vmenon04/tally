@@ -2,9 +2,6 @@
 # Runs a tally command as the tally user, with the server's folders. Installed root-owned as
 # /usr/local/bin/tally-run; deploy/sudoers lets the owner's account run it (and nothing else)
 # as tally without a password. It can only do what the tally user can.
-#
-# `tally-run import` with no files first moves the CSVs dropped in /srv/tally-inbox (by
-# bin/tally-remote) into data/inbox, then imports as usual.
 set -eu
 
 if [ "$(id -un)" != tally ]; then
@@ -12,8 +9,6 @@ if [ "$(id -un)" != tally ]; then
     exit 1
 fi
 
-DROP=/srv/tally-inbox
-INBOX=/srv/tally/data/inbox
 TALLY=/srv/tally/venv/bin/tally
 
 export HOME=/srv/tally
@@ -22,32 +17,6 @@ export TALLY_SECRETS_DIR=/srv/tally/secrets
 export TZ=America/New_York
 umask 077
 cd /srv/tally/data
-
-if [ "${1:-}" = import ]; then
-    files=no
-    for arg in "$@"; do
-        case $arg in import | -*) ;; *) files=yes ;; esac
-    done
-    if [ $files = no ]; then
-        for f in "$DROP"/*.csv; do
-            [ -e "$f" ] || continue
-            # Only plain files: a link could point at something tally can read and you can't.
-            if [ -L "$f" ] || [ ! -f "$f" ]; then
-                echo "tally-run: skipping $f: not a plain file" >&2
-                continue
-            fi
-            dest="$INBOX/$(basename "$f")"
-            if [ -e "$dest" ]; then
-                echo "tally-run: $dest already exists; leaving $f" >&2
-                continue
-            fi
-            # Copied, not moved, so the inbox copy belongs to tally and is owner-only.
-            cat "$f" >"$dest.part"
-            mv "$dest.part" "$dest"
-            rm "$f"
-        done
-    fi
-fi
 
 if [ ! -x "$TALLY" ]; then
     echo "tally-run: no tally at $TALLY; deploy it first (bin/tally-remote deploy)" >&2

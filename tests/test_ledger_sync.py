@@ -7,7 +7,7 @@ import pytest
 import requests
 from beancount import loader
 from beancount.core.data import Transaction
-from test_ledger_importers import BOFA
+from sample import bofa_rows, seed
 
 from tally import categorizing, cli, notify, simplefin, store, sure
 from tally.alerts import Alert
@@ -80,11 +80,9 @@ def ledger_ready(data: Path, capsys: pytest.CaptureFixture[str]) -> Path:
     (folder / "accounts.beancount").write_text(ACCOUNTS)
     (folder / "plan.beancount").write_text(PLAN)
     (folder / "imported" / "2026.beancount").write_text("")
-    # An old config.toml still has sheet_id; it's ignored.
-    (data / "config.toml").write_text('sheet_id = "old-sheet"\nroth_limit = 7500\n')
+    (data / "config.toml").write_text("roth_limit = 7500\n")
     (data / "rules.toml").write_text(RULES)
-    assert main(["import", str(BOFA)]) == 0
-    capsys.readouterr()
+    seed(data, bofa_rows())
     return data
 
 
@@ -114,7 +112,9 @@ def test_sync_checks_the_ledger(ledger_ready: Path, capsys: pytest.CaptureFixtur
 def test_sync_needs_a_ledger(data: Path, capsys: pytest.CaptureFixture[str]) -> None:
     data.mkdir()
     (data / "rules.toml").write_text(RULES)
-    assert main(["import", str(BOFA)]) == 0
+    conn = store.connect(data / "tally.db")
+    store.save(conn, bofa_rows(), account="bofa_checking", file_name="a", file_sha256="a")
+    conn.close()
     code, _, err = run(capsys, "sync")
     assert code == 1
     assert "there's no ledger" in err
@@ -152,12 +152,11 @@ def test_a_category_you_set_in_the_ledger_stays(
     code, _, _ = run(capsys, "sync")
     assert code == 0
     assert "  Expenses:Rent  42.10 USD" in imported(ledger_ready)
-    # Reports go by the ledger, not the rule.
-    code, out, _ = run(capsys, "report", "2026-03")
+    # The summary goes by the ledger, not the rule.
+    code, out, _ = run(capsys, "summary", "--as-of", "2026-03-20")
     assert code == 0
     rent = next(line for line in out.splitlines() if "Rent + fees" in line)
-    groceries = next(line for line in out.splitlines() if "Groceries" in line)
-    assert "$42.10" in rent and "$0.00" in groceries
+    assert "$42.10" in rent
 
 
 def test_claude_failing_doesnt_stop_the_sync(
@@ -180,26 +179,24 @@ def alert(n: int, day: int, merchant: str, amount: str) -> Alert:
     )
 
 
-def test_a_category_set_on_a_pending_entry_is_kept(ledger_ready: Path) -> None:
+def test_a_category_set_on_a_pending_entry_is_kept(
+    ledger_ready: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     conn = store.connect(ledger_ready / "tally.db")
     store.see_alert(conn, alert(1, 18, "MAPLE MARKET", "-9.00"))
-    session = updating.open_session(ledger_ready, conn)
-    assert session is not None
-    updating.refresh_pending(session, conn)
+    conn.close()
+    run(capsys, "sync")
     pending_file = ledger_ready / "ledger" / "pending.beancount"
     text = pending_file.read_text()
     assert 'tally-category: "Groceries"' in text
     # You change it in Fava...
     pending_file.write_text(text.replace("Expenses:Groceries", "Expenses:Rent"))
-    # ...and the next alerts run keeps it, as a rule for that one purchase.
-    session = updating.open_session(ledger_ready, conn)
-    assert session is not None
-    kept = updating.refresh_pending(session, conn)
-    conn.close()
-    assert kept and "Rent + fees" in kept[0]
+    # ...and the next sync keeps it, as a rule for that one purchase.
+    code, out, _ = run(capsys, "sync")
+    assert code == 0 and "Rent + fees" in out
     after = pending_file.read_text()
     assert "Expenses:Rent" in after and 'tally-category: "Rent + fees"' in after
-    assert "corrected" in (ledger_ready / "rules.toml").read_text()
+    assert "set on a pending purchase" in (ledger_ready / "rules.toml").read_text()
 
 
 def test_summary_takes_the_plan_from_the_ledger(
@@ -433,15 +430,6 @@ def test_sync_adds_the_rows_simplefin_posted_since_the_csvs(
     code, out, _ = run(capsys, "sync")
     assert code == 0
     assert '"PENDING"' not in pending_file.read_text()
-
-
-def test_a_csv_for_an_account_simplefin_fills_is_refused(
-    ledger_ready: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    linked_bank(ledger_ready, monkeypatch)
-    code, _, err = run(capsys, "import", str(BOFA))
-    assert code == 1
-    assert "bofa_checking comes from SimpleFIN now" in err
 
 
 def test_each_sync_checks_the_ledger_against_the_banks_balance(

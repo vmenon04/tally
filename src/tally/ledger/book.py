@@ -185,7 +185,7 @@ def _latest_balances(loaded: Iterable[data.Directive]) -> dict[str, datetime.dat
 
 
 def _format(entry: data.Directive) -> str:
-    # Drop the filename and line number beangulp-style metadata carries.
+    # Drop the filename and line number the metadata carries.
     meta = {k: v for k, v in entry.meta.items() if k not in ("filename", "lineno")}
     text = str(printer.format_entry(entry._replace(meta=meta)))
     # The printer writes a total cost as {# 10.00 USD}, which Beancount 3 doesn't read back.

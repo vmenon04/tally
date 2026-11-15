@@ -24,7 +24,6 @@ def test_layout() -> None:
     assert "March so far" in page and "day 15 of 31" in page
     assert "$12.50 of $300.00 · 4%" in page
     assert "Nothing this week." in page
-    assert "docs.google.com" not in page  # no Sheet to link to
 
 
 def test_bar_colors_follow_the_plan() -> None:

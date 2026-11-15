@@ -21,7 +21,7 @@ uv run tally --help
 ## Docs
 
 - [Setting it up for yourself](docs/setup.md)
-- [Importing bank exports](docs/importing.md)
+- [Where transactions come from](docs/transactions.md)
 - [Pending purchases and notifications](docs/notifications.md)
 - [Weekly summary](docs/summary.md)
 - [The Beancount ledger](docs/ledger.md)

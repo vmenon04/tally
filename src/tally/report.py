@@ -1,11 +1,10 @@
-"""A month's spending per category, the way the Budget tab counts it.
+"""A month's spending per category, the way the weekly summary counts it.
 
 Transactions belong to the month they happened in (their date, not the posting date).
 Spending is shown as a positive number, so a refund or a friend's payback lowers it.
 Card payments are left out entirely: each purchase already counts on the card.
 """
 
-import calendar
 from collections import defaultdict
 from dataclasses import dataclass
 from decimal import Decimal
@@ -18,7 +17,7 @@ from tally.transaction import Transaction
 class MonthReport:
     year: int
     month: int
-    spending: dict[str, Decimal]  # every spending category, in Budget tab order
+    spending: dict[str, Decimal]  # every spending category, in the rules' order
     income: Decimal
     savings: Decimal
     investing: Decimal
@@ -56,33 +55,6 @@ def build(transactions: list[Transaction], rules: Rules, year: int, month: int) 
         investing_year_to_date=investing_year_to_date,
         uncategorized=sorted(uncategorized, key=lambda t: t.date),
     )
-
-
-def format_report(report: MonthReport) -> str:
-    width = max(len(name) for name in [*report.spending, "Investing (Roth IRA)"]) + 2
-    title = f"{calendar.month_name[report.month]} {report.year}"
-
-    def line(label: str, amount: Decimal, note: str = "") -> str:
-        return f"  {label:<{width}}{money(amount):>12}{note}".rstrip()
-
-    lines = [title, "", "Spending"]
-    lines += [line(name, amount) for name, amount in report.spending.items()]
-    lines += [line("Total", report.total_spending), "", "Not spending"]
-    lines.append(line("Income", report.income))
-    lines.append(
-        line(
-            "Investing (Roth IRA)",
-            report.investing,
-            f"   {report.year} so far: {money(report.investing_year_to_date)}",
-        )
-    )
-    lines.append(line("Savings transfers", report.savings))
-    lines += ["", f"Uncategorized ({len(report.uncategorized)})"]
-    if not report.uncategorized:
-        lines.append("  none")
-    for t in report.uncategorized:
-        lines.append(f"  {t.date}  {t.account:<13}  {money(t.amount):>11}  {t.merchant}")
-    return "\n".join(lines)
 
 
 def money(amount: Decimal) -> str:

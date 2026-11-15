@@ -8,7 +8,7 @@ from decimal import Decimal
 
 @dataclass(frozen=True, slots=True)
 class Transaction:
-    """One row from a bank or card export.
+    """One posted row from a bank or card account.
 
     amount is negative for money leaving the account (purchases, transfers out) and
     positive for money coming in (refunds, paychecks, a card payment received by the card).
@@ -21,7 +21,6 @@ class Transaction:
     merchant: str  # description with per-row noise removed
     amount: Decimal
     bank_category: str | None = None
-    balance: Decimal | None = None  # account balance after this row, if the bank gives it
 
 
 def identity(t: Transaction) -> str:

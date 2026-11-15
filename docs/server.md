@@ -10,7 +10,7 @@ The server holds the only copy of the data. Everything runs there as a `tally` s
 | `/srv/tally/data/` | `TALLY_DATA_DIR`: database, `config.toml`, `rules.toml`, the ledger, raw downloads |
 | `/srv/tally/secrets/` | `TALLY_SECRETS_DIR` |
 | `/srv/tally/bin/uv` | uv, pinned |
-| `/srv/tally-inbox/` | Drop folder: you can write, `tally` can read (`2770`, group `tally`) |
+| `/srv/tally-inbox/` | Where Fava's socket is: you and `tally` can open it (`2770`, group `tally`) |
 | `/usr/local/bin/tally-run` | Runs a tally command as `tally` ([`deploy/tally-run`](../deploy/tally-run)) |
 | `/usr/local/bin/tally-deploy` | Installs new code ([`deploy/tally-deploy`](../deploy/tally-deploy)) |
 | `/etc/sudoers.d/tally` | Lets your account run `tally-run`, and nothing else, as `tally` without a password |
@@ -22,16 +22,13 @@ The server holds the only copy of the data. Everything runs there as a `tally` s
 ```sh
 alias tally=~/path/to/tally/bin/tally-remote    # in your shell's rc file
 
-tally import ~/Downloads/*.csv    # send CSVs to the drop folder, then import them on the server
-tally report 2026-10              # any other command runs on the server and prints here
-tally sync --dry-run
+tally sync --dry-run              # any command runs on the server and prints here
+tally simplefin                   # what SimpleFIN sees
 tally deploy                      # install the last commit (asks for your sudo password)
 ```
 
 `TALLY_HOST` names the server, an entry in `~/.ssh/config`. Set it in your environment or in
-the repo's `.env` (copy [`.env.example`](../.env.example); `.env` is never committed). `import`
-moves the dropped files into `data/inbox` first, so the usual inbox rules apply: a file that
-fails stays there, and a dry run leaves them there.
+the repo's `.env` (copy [`.env.example`](../.env.example); `.env` is never committed).
 
 `deploy` first pushes the commit to `origin`, and stops if that fails, so GitHub always has what
 the server runs. It then sends `git archive HEAD` (so only committed code, and it refuses to run with

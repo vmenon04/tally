@@ -15,7 +15,7 @@ from tally.transaction import Transaction, identity
 CURRENCY = "USD"
 ID_KEY = "tally-id"
 PURCHASED_KEY = "purchased"
-DUPLICATE_KEY = "__duplicate__"  # what beangulp marks a duplicate with
+DUPLICATE_KEY = "__duplicate__"  # how mark_duplicates marks an entry the ledger has
 
 _LONG_NUMBER = re.compile(r"\d{5,}")
 
