@@ -9,8 +9,9 @@ open directive names the Sure account it fills:
 
 Every posting tally imported to such an account (posted rows and pending alerts alike) is
 one Sure transaction, on the day of the purchase, named after the merchant and in the
-entry's category. tally marks the ones it makes (source "tally", and an external ID from
-the entry's tally-id), and only ever changes or deletes those.
+entry's category. So is the interest sync brings in for an account with interest-from. tally
+marks the ones it makes (source "tally", and an external ID from the entry's tally-id, or
+"simplefin:" and its simplefin-id), and only ever changes or deletes those.
 
 Each run compares the two and makes Sure match: missing transactions are created, changed
 ones corrected, and ones the ledger no longer has (a pending alert that posted) deleted.
@@ -35,7 +36,7 @@ from typing import Any
 from beancount.core import data, prices
 
 from tally.ledger import book, entries, picture
-from tally.rules import UNCATEGORIZED
+from tally.rules import INCOME, UNCATEGORIZED
 from tally.sure import Client, SureError
 
 SOURCE = "tally"
@@ -101,23 +102,27 @@ def rows(ledger: book.Ledger) -> list[Row]:
     seen: Counter[tuple[str, str]] = Counter()
     found = []
     for entry in ledger.entries:
-        if not isinstance(entry, data.Transaction) or entries.ID_KEY not in entry.meta:
+        if not isinstance(entry, data.Transaction):
+            continue
+        interest = entries.ID_KEY not in entry.meta
+        if not interest:
+            made_id = str(entry.meta[entries.ID_KEY])
+        elif entries.BANK_ID_KEY in entry.meta:
+            made_id = f"simplefin:{entry.meta[entries.BANK_ID_KEY]}"
+        else:
             continue
         date = entry.meta.get(entries.PURCHASED_KEY, entry.date)
         for posting in entry.postings:
             if posting.account not in names or posting.units is None or not posting.units.number:
                 continue
             others = [p.account for p in entry.postings if p is not posting]
+            # Interest is income, whatever category its savings account has.
+            last = INCOME if interest else ledger.accounts.category_of(posting.account)
             category = next(
-                (
-                    c
-                    for c in map(ledger.accounts.category_of, (*others, posting.account))
-                    if c is not None
-                ),
-                None,
+                (c for c in map(ledger.accounts.category_of, others) if c is not None), last
             )
             # Two equal coffees on one day share a tally-id; the second gets "-2".
-            key = (names[posting.account], entry.meta[entries.ID_KEY])
+            key = (names[posting.account], made_id)
             seen[key] += 1
             found.append(
                 Row(

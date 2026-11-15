@@ -174,6 +174,26 @@ def test_rows_are_the_imported_postings_on_accounts_sure_has(folder: Path) -> No
     ]  # and nothing for the entry written by hand
 
 
+def test_interest_sync_brought_in_reaches_sure_as_income(folder: Path) -> None:
+    with (folder / "e.beancount").open("a") as f:
+        f.write(
+            '2026-03-31 * "Bank" "Monthly Interest Paid"\n'
+            '  simplefin-id: "acct:txn"\n'
+            "  Assets:BofA:Savings  0.10 USD\n"
+            "  Income:Salary       -0.10 USD\n"
+            "2026-01-01 open Income:Interest USD\n"
+            '2026-03-31 * "Bank" "Monthly Interest Paid"\n'
+            '  simplefin-id: "acct:txn2"\n'
+            "  Assets:BofA:Savings  0.20 USD\n"
+            "  Income:Interest     -0.20 USD\n"
+        )
+    rows = [r for r in mirror.rows(load(folder)) if r.external_id.startswith("simplefin:")]
+    assert [(r.account, r.external_id, r.amount, r.category) for r in rows] == [
+        ("Savings", "simplefin:acct:txn", Decimal("-0.10"), "Income"),  # its account's category
+        ("Savings", "simplefin:acct:txn2", Decimal("-0.20"), "Income"),  # and with none, Income
+    ]
+
+
 def test_first_push_creates_everything_and_the_second_finds_nothing(folder: Path) -> None:
     fake = FakeSure()
     first = push(folder, fake)

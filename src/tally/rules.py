@@ -29,7 +29,8 @@ from tally.importers import bofa, discover
 from tally.transaction import Transaction, identity
 
 # Kinds of money movement that aren't spending, available to every rules file.
-NOT_SPENDING = ("Income", "Card payment", "Savings transfer", "Investing")
+INCOME = "Income"
+NOT_SPENDING = (INCOME, "Card payment", "Savings transfer", "Investing")
 UNCATEGORIZED = "Uncategorized"
 ACCOUNTS = (bofa.ACCOUNT, discover.ACCOUNT)
 
