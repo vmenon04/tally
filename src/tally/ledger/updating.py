@@ -97,8 +97,8 @@ def refresh_pending(session: Session, conn: sqlite3.Connection) -> list[str]:
     carries over to the posted row. Returns the messages for those changes.
     """
     messages = _keep_pending_fixes(session, conn)
-    waiting = matching.match(store.alerts(conn), store.transactions(conn)).waiting
-    book.write_pending(session.ledger, waiting, session.rules)
+    found = matching.match(store.alerts(conn), store.transactions(conn), store.fetched(conn))
+    book.write_pending(session.ledger, found.waiting, session.rules)
     return messages
 
 
@@ -214,7 +214,7 @@ def sync(
         text, result.kept = kept.text, kept.messages
     carried = corrections.carry_over(text, pending.posted(alerts, stored), today)
     text, result.carried = carried.text, carried.messages
-    waiting = matching.match([a for _, a in alerts], stored).waiting
+    waiting = matching.match([a for _, a in alerts], stored, store.fetched(conn)).waiting
     counted = [*stored, *(pending.as_transaction(a) for a in waiting)]
     try:
         guessed = categorizing.add(text, counted, ask, today)
@@ -277,22 +277,25 @@ def _import_from_bank(
         return
     result.bank_problems += answer.problems
     month_rules = rules.parse(text)
+    # One moment for the whole answer: it's when each account was last asked about, and when
+    # each pending transaction was last listed (see matching).
+    now = datetime.datetime.now(datetime.UTC)
     kept: list[dict[str, str]] = []
     for account, rows in found.items():
         new = _not_stored(store.transactions(conn, account), rows)
         result.banked[account] = new
-        if not new:
-            continue
         kept += [_raw(t) for t in new]
-        # Stored in a dry run too: its database is a copy, and the steps after count them.
+        # Stored in a dry run too, as is each pending one: its database is a copy, and the
+        # steps after count them. Stored with no rows too, to note when it was asked.
         store.save(
             conn,
             new,
             account=account,
-            file_name="simplefin",
-            file_sha256=hashlib.sha256(json.dumps(kept).encode()).hexdigest(),
+            file_name=store.BANK_IMPORT,
+            file_sha256=hashlib.sha256(json.dumps([_raw(t) for t in new]).encode()).hexdigest(),
+            now=now,
         )
-        if dry_run:
+        if dry_run or not new:
             continue
         made = [
             entries.transaction(
@@ -301,6 +304,8 @@ def _import_from_bank(
             for t in new
         ]
         book.add(ledger, book.new_entries(made, ledger))
+    for alert in simplefin.pending(answer, ledger.accounts.simplefin, now):
+        store.see_alert(conn, alert)
     if kept and not dry_run:
         _archive(data_dir, today, kept)
 
@@ -387,7 +392,7 @@ def check(data_dir: Path, conn: sqlite3.Connection) -> parity.Parity | None:
     if session is None:
         return None
     stored = store.transactions(conn)
-    waiting = matching.match(store.alerts(conn), stored).waiting
+    waiting = matching.match(store.alerts(conn), stored, store.fetched(conn)).waiting
     ledger = book.with_pending(
         session.ledger, book.pending_entries(session.ledger, waiting, session.rules)
     )

@@ -143,7 +143,7 @@ def _summary(conn: sqlite3.Connection, counts: Counter[str], out: TextIO) -> mat
         f"{counts['skipped']} skipped, {counts['refused']} refused.",
         file=out,
     )
-    result = matching.match(store.alerts(conn), store.transactions(conn))
+    result = matching.match(store.alerts(conn), store.transactions(conn), store.fetched(conn))
     _print_matching(result, out)
     return result
 
@@ -167,6 +167,12 @@ def _print_matching(result: matching.Result, out: TextIO) -> None:
         )
         for a in result.not_found:
             print(f"  {_alert_line(a)}", file=out)
+    if result.superseded:
+        print(
+            f"\nCovered by SimpleFIN: {len(result.superseded)} alert(s) from before its last "
+            "answer, which lists what's still pending",
+            file=out,
+        )
     print(f"\nWaiting: {len(result.waiting)} alert(s) not in a CSV import yet", file=out)
     for a in result.waiting:
         print(f"  {_alert_line(a)}", file=out)

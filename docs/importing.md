@@ -45,5 +45,12 @@ merchant names as its CSV's, so rules keep working. What came in is kept in
 twice; remove the `simplefin-account:` line to import CSVs again. Problems the bridge reports
 (a bank that needs you to sign in again) are in the sync's output and the weekly summary.
 
+Its pending transactions take over from alert emails for a linked account. Each one is stored
+as an alert (so a category you set on it carries over when it posts), and each sync notes when
+it asked. From then on that account's pending entries are what SimpleFIN listed then, plus any
+alert email that came since; emails from before are covered by the answer (`tally alerts`
+counts them as "covered by SimpleFIN"). So a hold released or a charge refunded before it
+posts drops out at the next sync, and a purchase no email told of shows up.
+
 The bridge allows about 24 requests a day: the nightly sync makes one, and so does each
 `tally simplefin`.

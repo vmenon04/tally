@@ -30,7 +30,8 @@ a tip, any amount for a $1.00 gas station check, less for a round hold of $50 or
 pump's, a hotel's), exactly the same for a deposit or refund, whose window counts from the row's posted
 date because that's the date their alerts give; the full rules are at the top of
 `src/tally/matching.py`) and lists the rest as *waiting* (the CSVs don't reach that date yet)
-or *not found* (they do, but have no such row).
+or *not found* (they do, but have no such row). On an account SimpleFIN fills, emails from before its last answer are
+*covered by SimpleFIN* instead ([Importing](importing.md#from-simplefin-instead)).
 
 An email that arrives before tally supports its kind of alert is kept too, as skipped, and
 isn't fetched again. After deploying a parser for it, read the kept emails again (alerts

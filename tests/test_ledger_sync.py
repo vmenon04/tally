@@ -395,12 +395,13 @@ def linked_bank(
 ) -> None:
     """Link checking to a SimpleFIN account ending 1234 that has these rows."""
     accounts_file = ledger_ready / "ledger" / "accounts.beancount"
-    accounts_file.write_text(
-        accounts_file.read_text().replace(
-            '  tally-account: "bofa_checking"\n',
-            '  tally-account: "bofa_checking"\n  simplefin-account: "1234"\n',
+    if "simplefin-account" not in accounts_file.read_text():
+        accounts_file.write_text(
+            accounts_file.read_text().replace(
+                '  tally-account: "bofa_checking"\n',
+                '  tally-account: "bofa_checking"\n  simplefin-account: "1234"\n',
+            )
         )
-    )
     account = simplefin.Account(
         "a", "Adv SafeBalance (1234)", "Bank", "USD", Decimal(0), NOW.date(), list(rows)
     )
@@ -437,11 +438,24 @@ def test_sync_adds_the_rows_simplefin_posted_since_the_csvs(
     text = imported(ledger_ready)
     assert "MAPLE MARKET 03/15 PURCHASE SPRINGFIELD IL" in text  # its spaces collapsed
     assert "  Expenses:Groceries     12.00 USD" in text  # categorized by the rules
-    assert "Ledger: all 14 imported rows are there once" in out
+    # 13 from the CSV, the one new, and the one still pending.
+    assert "Ledger: all 15 imported rows are there once" in out
     assert len(list((ledger_ready / "raw" / "simplefin").glob("*.json"))) == 1
+    pending_file = ledger_ready / "ledger" / "pending.beancount"
+    assert '"PENDING"' in pending_file.read_text()
 
     code, out, _ = run(capsys, "sync")
     assert code == 0 and "From SimpleFIN, bofa_checking: nothing new." in out
+
+    # It's no longer pending (it posted, or was let go): it's no longer counted.
+    linked_bank(
+        ledger_ready,
+        monkeypatch,
+        bank_row("2026-03-16", "-12.00", "MAPLE MARKET 03/15 PURCHASE    SPRINGFIELD IL"),
+    )
+    code, out, _ = run(capsys, "sync")
+    assert code == 0
+    assert '"PENDING"' not in pending_file.read_text()
 
 
 def test_a_csv_for_an_account_simplefin_fills_is_refused(

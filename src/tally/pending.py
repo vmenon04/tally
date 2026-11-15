@@ -9,6 +9,7 @@ Alerts the CSVs should show but don't (*not found*) aren't counted: they're usua
 or reversed purchases, and `tally alerts` lists them.
 """
 
+import datetime
 from collections.abc import Sequence
 
 from tally import matching
@@ -17,11 +18,13 @@ from tally.transaction import Transaction
 
 
 def transactions(
-    alerts: Sequence[tuple[int, Alert]], rows: Sequence[Transaction]
+    alerts: Sequence[tuple[int, Alert]],
+    rows: Sequence[Transaction],
+    fetched: dict[str, datetime.datetime] | None = None,
 ) -> list[tuple[int, Transaction]]:
     """The waiting alerts as (negative alert ID, Transaction), oldest purchase first."""
     ids = {alert: alert_id for alert_id, alert in alerts}
-    result = matching.match([alert for _, alert in alerts], rows)
+    result = matching.match([alert for _, alert in alerts], rows, fetched)
     return [(-ids[a], as_transaction(a)) for a in result.waiting]
 
 

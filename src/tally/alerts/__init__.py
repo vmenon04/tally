@@ -34,6 +34,11 @@ class Alert:
     received: datetime.datetime  # when the bank sent it
 
 
+# The message_id of a pending transaction SimpleFIN reported, stored as an alert: its
+# received is when SimpleFIN last listed it as pending.
+BANK_PENDING = "simplefin:"
+
+
 class AlertError(ValueError):
     """An email can't be trusted, or isn't in the layout its parser expects."""
 

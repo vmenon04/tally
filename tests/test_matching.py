@@ -216,3 +216,20 @@ def test_coverage_counts_posting_dates_and_only_the_alerts_account() -> None:
     a = alert(12, "-42.10")
     assert match([a], [tx(13, "-5.00", "OAK BAKERY", posted_after=2)]).not_found == [a]
     assert match([a], [tx(20, "-5.00", "OAK BAKERY", account="bofa_checking")]).waiting == [a]
+
+
+def test_on_an_account_simplefin_fills_its_last_answer_decides_whats_pending() -> None:
+    asked = datetime.datetime(2026, 3, 14, 8, tzinfo=datetime.UTC)
+    before, after = asked - datetime.timedelta(hours=1), asked + datetime.timedelta(hours=1)
+    email_before = dataclasses.replace(alert(12, "-10.00"), received=before)
+    email_after = dataclasses.replace(alert(13, "-11.00"), received=after)
+    listed = dataclasses.replace(
+        alert(13, "-12.00", "OAK BAKERY"), message_id="simplefin:a:1", received=asked
+    )
+    dropped = dataclasses.replace(
+        alert(12, "-13.00", "OAK BAKERY"), message_id="simplefin:a:2", received=before
+    )
+    other = dataclasses.replace(alert(12, "-14.00", account="bofa_checking"), received=before)
+    found = match([email_before, email_after, listed, dropped, other], [], {"discover": asked})
+    assert found.waiting == [email_after, listed, other]
+    assert found.superseded == [email_before, dropped]

@@ -22,10 +22,10 @@ still matches when it's the only such row for that alert. Those are reported sep
 import datetime
 import re
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 
-from tally.alerts import Alert
+from tally.alerts import BANK_PENDING, Alert
 from tally.transaction import Transaction
 
 DAYS_BEFORE = 1
@@ -51,12 +51,21 @@ class Result:
     matches: list[Match]
     not_found: list[Alert]  # the CSVs cover the alert's dates, but no row explains it
     waiting: list[Alert]  # the CSVs don't reach the alert's date yet
+    # On an account SimpleFIN fills: an email that came before its last answer, which
+    # covered it, or a pending transaction it no longer lists.
+    superseded: list[Alert] = field(default_factory=list)
 
 
-def match(alerts: Sequence[Alert], transactions: Sequence[Transaction]) -> Result:
+def match(
+    alerts: Sequence[Alert],
+    transactions: Sequence[Transaction],
+    fetched: dict[str, datetime.datetime] | None = None,
+) -> Result:
     """Pair each alert with at most one posted row, and each row with at most one alert.
 
     Pairs are taken best first: agreeing names, then the closest amount, then the closest date.
+    fetched says when SimpleFIN last answered for the accounts it fills: on those, an alert
+    left over only counts if SimpleFIN listed it as pending then, or it's an email since.
     """
     candidates = []
     for i, a in enumerate(alerts):
@@ -92,16 +101,26 @@ def match(alerts: Sequence[Alert], transactions: Sequence[Transaction]) -> Resul
     for t in transactions:
         day = t.posted or t.date
         covered[t.account] = max(covered.get(t.account, day), day)
-    not_found, waiting = [], []
+    not_found, waiting, superseded = [], [], []
     for i, a in enumerate(alerts):
         if i in matches:
+            continue
+        since = (fetched or {}).get(a.account)
+        if since is not None and not _current(a, since):
+            superseded.append(a)
             continue
         reaches = covered.get(a.account)
         if reaches is not None and reaches >= a.date + COVERED_AFTER:
             not_found.append(a)
         else:
             waiting.append(a)
-    return Result([matches[i] for i in sorted(matches)], not_found, waiting)
+    return Result([matches[i] for i in sorted(matches)], not_found, waiting, superseded)
+
+
+def _current(a: Alert, since: datetime.datetime) -> bool:
+    if a.message_id.startswith(BANK_PENDING):
+        return a.received >= since  # listed in SimpleFIN's last answer
+    return a.received > since
 
 
 def names_agree(alert_name: str, posted_name: str) -> bool:

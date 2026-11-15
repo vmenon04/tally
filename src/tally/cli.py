@@ -478,9 +478,9 @@ def _report(year: int, month: int) -> int:
     if not db_path.exists():
         print(f"Nothing imported yet: no database at {db_path}.", file=sys.stderr)
         return 1
-    pairs, alerts = _stored(db_path)
+    pairs, alerts, fetched = _stored(db_path)
     stored = [t for _, t in pairs]
-    waiting = [t for _, t in pending.transactions(alerts, stored)]
+    waiting = [t for _, t in pending.transactions(alerts, stored, fetched)]
     today = datetime.datetime.now().astimezone().date()
     try:
         month_rules, _ = _categories_and_plan(folder, alerts, stored, today)
@@ -507,7 +507,7 @@ def _summary(as_of: datetime.date | None, *, email: bool, sync: bool) -> int:
         print(f"Nothing imported yet: no database at {db_path}.", file=sys.stderr)
         return 1
     sync_problem = _quiet_sync() if sync else None
-    pairs, alerts = _stored(db_path)
+    pairs, alerts, fetched = _stored(db_path)
     posted = [t for _, t in pairs]
     today = as_of or datetime.datetime.now().astimezone().date()
     note = None
@@ -533,8 +533,8 @@ def _summary(as_of: datetime.date | None, *, email: bool, sync: bool) -> int:
         )
         return 1
 
-    waiting = pending.transactions(alerts, posted)
-    not_found = matching.match([a for _, a in alerts], posted).not_found
+    waiting = pending.transactions(alerts, posted, fetched)
+    not_found = matching.match([a for _, a in alerts], posted, fetched).not_found
     result = summary.build(
         today,
         [*pairs, *waiting],
@@ -854,11 +854,14 @@ def _ask_claude(question: str, schema: dict[str, Any]) -> Any:
     return categorizing.ask_claude(question, schema, token)
 
 
-def _stored(db_path: Path) -> tuple[list[tuple[int, Transaction]], list[tuple[int, Alert]]]:
-    """The stored transactions and alerts, with their IDs."""
+def _stored(
+    db_path: Path,
+) -> tuple[list[tuple[int, Transaction]], list[tuple[int, Alert]], dict[str, datetime.datetime]]:
+    """The stored transactions and alerts, with their IDs, and when SimpleFIN was last asked
+    about each account it fills."""
     conn = store.connect(db_path)
     try:
-        return store.transactions_with_ids(conn), store.alerts_with_ids(conn)
+        return store.transactions_with_ids(conn), store.alerts_with_ids(conn), store.fetched(conn)
     finally:
         conn.close()
 

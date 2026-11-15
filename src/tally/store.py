@@ -16,6 +16,9 @@ from pathlib import Path
 from tally.alerts import Alert
 from tally.transaction import Transaction
 
+# The file_name of an import from SimpleFIN; each sync makes one, new rows or not.
+BANK_IMPORT = "simplefin"
+
 SCHEMA_VERSION = 5
 
 # Version 1. Later versions are reached by the migrations below, in order.
@@ -152,7 +155,7 @@ def save(
     """Store one file's transactions, skipping rows already stored. All or nothing."""
     if any(t.account != account for t in transactions):
         raise ValueError(f"every transaction must belong to {account!r}")
-    imported_at = (now or datetime.datetime.now(datetime.UTC)).isoformat(timespec="seconds")
+    imported_at = (now or datetime.datetime.now(datetime.UTC)).isoformat()
 
     with conn:
         return _save(conn, transactions, account, file_name, file_sha256, imported_at)
@@ -286,6 +289,37 @@ def save_alert(
             ),
         )
     return cursor.rowcount == 1
+
+
+def see_alert(conn: sqlite3.Connection, alert: Alert) -> None:
+    """Store a pending transaction SimpleFIN listed, or bring the stored one up to date: its
+    amount can change before it posts, and received says when it was last listed."""
+    with conn:
+        conn.execute(
+            "INSERT INTO alerts"
+            " (message_id, account, date, merchant, amount_cents, received_at, read_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (message_id) DO UPDATE SET"
+            " date = excluded.date, merchant = excluded.merchant,"
+            " amount_cents = excluded.amount_cents, received_at = excluded.received_at",
+            (
+                alert.message_id,
+                alert.account,
+                alert.date.isoformat(),
+                alert.merchant,
+                _cents(alert.amount),
+                alert.received.isoformat(),
+                alert.received.isoformat(),
+            ),
+        )
+
+
+def fetched(conn: sqlite3.Connection) -> dict[str, datetime.datetime]:
+    """When SimpleFIN was last asked about each account it fills."""
+    rows = conn.execute(
+        "SELECT account, MAX(imported_at) FROM imports WHERE file_name = ? GROUP BY account",
+        (BANK_IMPORT,),
+    ).fetchall()
+    return {account: datetime.datetime.fromisoformat(at) for account, at in rows}
 
 
 def alerts(conn: sqlite3.Connection) -> list[Alert]:

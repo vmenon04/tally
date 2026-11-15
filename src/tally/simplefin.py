@@ -26,6 +26,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import requests
 
+from tally.alerts import BANK_PENDING, Alert
 from tally.importers import bofa, discover
 from tally.transaction import Transaction as Row
 
@@ -223,6 +224,29 @@ def rows(answer: Answer, linked: dict[str, str]) -> dict[str, list[Row]]:
         result[tally_account] = sorted(
             (make(t) for t in posted), key=lambda r: (r.posted or r.date, r.description)
         )
+    return result
+
+
+def pending(answer: Answer, linked: dict[str, str], now: datetime.datetime) -> list[Alert]:
+    """The linked accounts' pending transactions, as alerts listed now (see BANK_PENDING).
+    Accounts the bridge lacks are left out; rows() reports them."""
+    result = []
+    for last4, tally_account in sorted(linked.items()):
+        account = account_ending(answer, last4)
+        if account is None:
+            continue
+        for t in account.transactions:
+            if t.pending:
+                result.append(
+                    Alert(
+                        account=tally_account,
+                        date=t.transacted or now.date(),
+                        merchant=" ".join(t.description.split()),
+                        amount=t.amount,
+                        message_id=f"{BANK_PENDING}{account.id}:{t.id}",
+                        received=now,
+                    )
+                )
     return result
 
 
