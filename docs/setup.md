@@ -10,7 +10,7 @@ categories in your ledger. Neither folder is ever committed.
   any bank it connects to. Rows are read the way Bank of America checking and Discover
   word them; another bank needs its own small row reader in `src/tally/simplefin.py`, with
   its merchant cleanup in `src/tally/importers/`.
-- **Fidelity holdings** through [SnapTrade](https://snaptrade.com) (free personal key).
+- **Fidelity holdings** through SimpleFIN Bridge too, once Fidelity is connected there.
 
 ## Settings: `data/config.toml`
 
@@ -34,7 +34,6 @@ made by a command that checks it works first, so you never edit one by hand:
 | File | Made by | For |
 |---|---|---|
 | `simplefin-access-url` | `tally simplefin-login` | Bank and card accounts |
-| `snaptrade-client-id`, `snaptrade-consumer-key` | You, from SnapTrade's dashboard | Fidelity holdings |
 | `gmail-app-password` | `tally gmail-login` | Sending the weekly summary |
 | `ntfy-topic` | `tally ntfy-setup` | Notifications |
 | `claude-token` | You, from `claude setup-token` | Claude's categories, review and chat |

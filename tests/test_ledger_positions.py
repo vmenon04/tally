@@ -208,7 +208,7 @@ def test_without_cost_basis_new_units_cost_todays_price(
     data_dir: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert record(data_dir, snapshot()) > 0  # FFTGX: 100.123 units cost 1500.00
-    # A week later SnapTrade, with no cost basis: 10 more units, price now 16.00.
+    # A week later, with no cost basis: 10 more units, price now 16.00.
     add_snapshot(data_dir, holdings_snapshot(datetime.date(2026, 3, 27), "110.123", "16.00", None))
     assert held(data_dir, "Assets:Fidelity:401k", "FFTGX") == (
         Decimal("110.123"),

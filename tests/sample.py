@@ -127,9 +127,9 @@ def seed(data_dir: Path, rows: list[Transaction]) -> int:
 
 
 def record(data_dir: Path, holdings: Snapshot) -> int:
-    """Add a holdings snapshot to the ledger, as sync does with SnapTrade's. The entries added."""
+    """Add a holdings snapshot to the ledger, as sync does with SimpleFIN's. The entries added."""
     ledger = book.load(book.folder(data_dir), rules.load(data_dir / "rules.toml"))
-    made = positions.entries(holdings, ledger.entries, ledger.accounts, "snaptrade")
+    made = positions.entries(holdings, ledger.entries, ledger.accounts, "simplefin")
     new = book.new_entries(made, ledger)
     book.add(ledger, new)
     return len(new)

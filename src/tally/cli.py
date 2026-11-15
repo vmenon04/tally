@@ -27,7 +27,6 @@ from tally import (
     plan,
     rules,
     simplefin,
-    snaptrade,
     store,
     summary,
     summary_email,
@@ -35,7 +34,6 @@ from tally import (
     sure,
 )
 from tally.alerts import Alert
-from tally.importers import fidelity
 from tally.ledger import accounts, book, categories, picture, updating, viewing, weekly
 from tally.transaction import Transaction
 
@@ -127,18 +125,6 @@ def main(argv: list[str] | None = None) -> int:
         "beyond its balance and transactions (holdings, say)",
     )
 
-    snaptrade_parser = commands.add_parser(
-        "snaptrade",
-        help="show what SnapTrade has for your brokerage accounts",
-        description="List the accounts SnapTrade can see, and the kinds of positions and "
-        "activities it has for each, without amounts. Read-only.",
-    )
-    snaptrade_parser.add_argument(
-        "--activities",
-        metavar="LAST4",
-        help="instead, list every activity of the account ending in these digits, with amounts",
-    )
-
     fava_parser = commands.add_parser(
         "fava",
         help="browse the ledger in Fava",
@@ -186,17 +172,6 @@ def main(argv: list[str] | None = None) -> int:
         return _simplefin_login()
     if args.command == "simplefin":
         return _simplefin(transactions_of=args.transactions, extra_of=args.extra)
-    if args.command == "snaptrade":
-        try:
-            client = snaptrade.Client.from_secrets(config.secrets_dir())
-            if args.activities:
-                print("\n".join(snaptrade.activities(client.get, args.activities)))
-            else:
-                print("\n".join(snaptrade.overview(client.get)))
-        except snaptrade.SnapTradeError as e:
-            print(f"snaptrade: {e}", file=sys.stderr)
-            return 1
-        return 0
     if args.command == "fava":
         try:
             viewing.serve(data_dir(), socket=args.socket, port=args.port)
@@ -680,19 +655,6 @@ def _sure() -> sure.Client | None:
     if not (folder / sure.API_KEY_FILE).exists():
         return None
     return sure.Client.from_secrets(config.load(data_dir() / "config.toml").sure_url, folder)
-
-
-def _brokerage() -> Callable[[], fidelity.Snapshot] | None:
-    """Today's holdings from SnapTrade, if its keys are in secrets/; else None."""
-    folder = config.secrets_dir()
-    if not (folder / snaptrade.CLIENT_ID_FILE).exists():
-        return None
-
-    def fetch() -> fidelity.Snapshot:
-        client = snaptrade.Client.from_secrets(folder)
-        return snaptrade.snapshot(client.get, datetime.datetime.now().astimezone().date())
-
-    return fetch
 
 
 def _with_claude_note(result: summary.Summary) -> summary.Summary:

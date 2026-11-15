@@ -84,16 +84,20 @@ shows up as a non-zero balance there.
 
 ## Fidelity holdings
 
-With SnapTrade's keys in `secrets/` (`snaptrade-client-id`, `snaptrade-consumer-key`, from a
-free SnapTrade Personal account connected to Fidelity read-only), `tally sync` records every
-Fidelity account's holdings (once a day), so there's nothing to download. `tally snaptrade` shows what SnapTrade sees, without amounts.
-SnapTrade gives no cost basis for a 401(k): there, new units count as bought at that day's
-price, and units sold take their share of the cost. Accounts not in the ledger are skipped
-while they're empty. If SnapTrade can't be reached, the sync says so and carries on.
-SnapTrade also reports dividends: with `Income:Fidelity:Dividends` open in the ledger, each
-snapshot books the dividends paid since the last one there, and only what's left goes to
-`Income:Fidelity:Unreconciled` (flagged `!` when anything is).
-It reports a 401(k)'s payroll contributions too. Mark where they come from on the
+With Fidelity connected at SimpleFIN Bridge, `tally sync` records every Fidelity account's
+holdings (once a day) from the same answer that brings in the bank rows, so there's nothing
+to download. `tally simplefin --extra 5678` shows what the bridge sends for an account.
+Each holding's cost is its shares times the bridge's `purchase_price` (its `cost_basis` is
+always 0), and a holding worth exactly its shares, bought for nothing, is the money market,
+the account's cash. A 401(k)'s fund comes with no purchase price: there, new units count as
+bought at that day's price, and units sold take their share of the cost. Accounts not in
+the ledger are skipped while they're empty. If the holdings can't be read, the sync says so
+and carries on.
+The account's rows described "dividend received" are its dividends: with
+`Income:Fidelity:Dividends` open in the ledger, each snapshot books the dividends paid since
+the last one there, and only what's left goes to `Income:Fidelity:Unreconciled` (flagged
+`!` when anything is).
+Rows described "contribution" are contributions, a 401(k)'s payroll ones say. Mark where they come from on the
 account's open directive, and open that income account:
 
     2026-09-01 open Assets:Fidelity:401k
@@ -104,7 +108,7 @@ account's open directive, and open that income account:
 Each snapshot then books the contributions since the last one there, as pay that went to
 the 401(k). When they bought more of the account's one fund, those units cost what you put
 in, so the 401(k)'s cost basis is your contributions and its gain is the market's.
-`tally snaptrade --activities 5678` lists an account's activities, with amounts.
+`tally simplefin --transactions 5678` lists an account's rows, with amounts.
 
 Each account, matched by `fidelity-account:` (the account number's last four) on an open
 directive, gets one transaction tagged `#fidelity-positions` that brings the ledger to the

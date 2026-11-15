@@ -48,9 +48,9 @@ The bridge allows about 24 requests a day: each sync makes one (12 a day), and s
 Reading another bank's rows takes a small function in `src/tally/simplefin.py` that turns
 them into Transactions, with that bank's merchant cleanup in `src/tally/importers/`.
 
-## Fidelity holdings: SnapTrade
+## Fidelity holdings
 
-Each sync also records what each Fidelity account holds, from SnapTrade: see [Fidelity
+Each sync also records what each Fidelity account holds, from SimpleFIN: see [Fidelity
 holdings](ledger.md#fidelity-holdings).
 
 `TALLY_DATA_DIR` sets the data folder (default: `data` in the current directory).

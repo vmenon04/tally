@@ -9,7 +9,7 @@ transaction (tagged #fidelity-positions) brings the ledger to what the snapshot 
   that day's price instead);
 - the money market balance becomes the account's `:Cash` balance;
 - the rest balances against Equity:Opening-Balances the first time (what the account held
-  before the ledger). After that, what the source reports (SnapTrade does) explains it:
+  before the ledger). After that, what the source reports (SimpleFIN does) explains it:
   dividends go to Income:Fidelity:Dividends, once the ledger opens that account, and
   payroll contributions to the account's `contributions-from:` (a 401(k)'s, say
   Income:Salary:401k). What's left goes to Income:Fidelity:Unreconciled: gains on sales,
@@ -181,7 +181,7 @@ def _bought_with(
 def _without_cost_basis(
     account: str, symbol: str, units: Decimal, cost: Decimal, h: Holding, paid: Decimal | None
 ) -> list[data.Posting]:
-    """Postings for a holding whose brokerage gives no cost basis (a 401(k) through SnapTrade).
+    """Postings for a holding whose brokerage gives no cost basis (a 401(k)'s fund).
 
     New units cost what was paid for them, if that's known, or else today's price; sold
     units take their share of what the holding cost. Either way a change in price alone is

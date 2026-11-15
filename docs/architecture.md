@@ -1,9 +1,9 @@
 # Architecture
 
 tally runs on one home server. What it knows about your bank and card accounts comes from
-SimpleFIN Bridge, which reads them for you: posted transactions, pending ones, and each
-account's balance. Fidelity holdings come from SnapTrade. It keeps a Beancount ledger (pushed to its own repo on
-Forgejo, edited with Fava), fills Sure from it, emails a weekly summary and sends
+SimpleFIN Bridge, which reads them for you: posted transactions, pending ones, each
+account's balance, and Fidelity's holdings. It keeps a Beancount ledger (pushed to its own
+repo on Forgejo, edited with Fava), fills Sure from it, emails a weekly summary and sends
 headline-only push notifications.
 
 ## The whole system
@@ -16,7 +16,6 @@ flowchart LR
     end
 
     simplefin["SimpleFIN Bridge<br/>read-only, 24 requests a day"]
-    snaptrade["SnapTrade<br/>read-only"]
 
     subgraph server["Home server"]
         timer["systemd timer<br/>sync every 2 hours"]
@@ -36,10 +35,9 @@ flowchart LR
     phone["Phone<br/>ntfy app"]
 
     bank --> simplefin
-    fidelity --> snaptrade
+    fidelity --> simplefin
     timer --> tally
     simplefin -- "HTTPS, Basic auth" --> tally
-    snaptrade -- "HTTPS, signed" --> tally
     tally <--> data
     secrets --> tally
     tally -- "commit and push the ledger" --> forgejo
@@ -87,7 +85,7 @@ sequenceDiagram
     end
     U->>U: categories set on pending entries become rules; Claude for new merchants
     U->>L: pending.beancount: what SimpleFIN last listed
-    U->>L: Fidelity holdings from SnapTrade
+    U->>L: Fidelity holdings from SimpleFIN's answer
     U->>U: every row once, bean-check, each balance against the bank's
     U->>U: Sure made to match the ledger
     C->>N: new pending purchases, banks to sign in to again, balances that differ
@@ -123,9 +121,8 @@ flowchart TD
     cli["cli.py<br/>commands"]
 
     subgraph sources["Where transactions come from"]
-        simplefin["simplefin.py<br/>the bridge, its rows and pending"]
+        simplefin["simplefin.py<br/>the bridge, its rows, pending and holdings"]
         importers_pkg["importers/: how BofA and Discover word rows,<br/>Fidelity's holdings"]
-        snaptrade["snaptrade.py<br/>Fidelity holdings"]
     end
 
     subgraph pendingpkg["Pending"]

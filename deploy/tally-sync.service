@@ -1,6 +1,6 @@
 # Brings the ledger up to date every two hours (tally sync): new transactions and pending
-# purchases from SimpleFIN, Claude for new merchants, Fidelity holdings from SnapTrade, Sure
-# made to match, and notifications.
+# purchases from SimpleFIN, Claude for new merchants, Fidelity holdings from SimpleFIN,
+# Sure made to match, and notifications.
 # Started by tally-sync.timer. See docs/server.md and docs/ledger.md.
 
 [Unit]
