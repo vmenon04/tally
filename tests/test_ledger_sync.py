@@ -8,7 +8,7 @@ from beancount import loader
 from beancount.core.data import Transaction
 from test_ledger_importers import BOFA
 
-from tally import categorizing, store, sure
+from tally import categorizing, cli, simplefin, store, sure
 from tally.alerts import Alert
 from tally.cli import main
 from tally.ledger import accounts, book, mirror, updating, weekly
@@ -388,3 +388,66 @@ def test_sync_fills_sure_once_a_key_is_saved(
     assert "  Checking: Sure says 0.01, the ledger " in out
     assert "sync: Sure's balance for Checking differs from the ledger's" in err
     assert "0.01" not in err  # no amounts where the scheduled runs log
+
+
+def linked_bank(
+    ledger_ready: Path, monkeypatch: pytest.MonkeyPatch, *rows: simplefin.Transaction
+) -> None:
+    """Link checking to a SimpleFIN account ending 1234 that has these rows."""
+    accounts_file = ledger_ready / "ledger" / "accounts.beancount"
+    accounts_file.write_text(
+        accounts_file.read_text().replace(
+            '  tally-account: "bofa_checking"\n',
+            '  tally-account: "bofa_checking"\n  simplefin-account: "1234"\n',
+        )
+    )
+    account = simplefin.Account(
+        "a", "Adv SafeBalance (1234)", "Bank", "USD", Decimal(0), NOW.date(), list(rows)
+    )
+    answer = simplefin.Answer([account], ["Capital One needs you to sign in again"])
+    monkeypatch.setattr(cli, "_bank", lambda: lambda: answer)
+
+
+def bank_row(posted: str, amount: str, description: str) -> simplefin.Transaction:
+    day = datetime.date.fromisoformat(posted)
+    return simplefin.Transaction(posted, day, None, Decimal(amount), description, False)
+
+
+def test_sync_adds_the_rows_simplefin_posted_since_the_csvs(
+    ledger_ready: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    linked_bank(
+        ledger_ready,
+        monkeypatch,
+        # In the CSV already, described the bridge's way: the same day and amount.
+        bank_row("2026-03-13", "-75.25", "REMITLY INC      DES:REMITTANCE ID:XXXXXHIJKLMNO"),
+        bank_row("2026-03-16", "-12.00", "MAPLE MARKET 03/15 PURCHASE    SPRINGFIELD IL"),
+        simplefin.Transaction("p", None, None, Decimal("-5.00"), "PENDING", True),
+    )
+    code, out, err = run(capsys, "sync", "--dry-run")
+    assert code == 0
+    assert "From SimpleFIN, bofa_checking (would add 1):" in out
+    assert "  2026-03-15      -12.00  MAPLE MARKET" in out
+    assert "sync: SimpleFIN: Capital One needs you to sign in again" in err
+    assert "MAPLE MARKET 03/15" not in imported(ledger_ready)
+
+    code, out, _ = run(capsys, "sync")
+    assert code == 0
+    assert "From SimpleFIN, bofa_checking (added 1):" in out
+    text = imported(ledger_ready)
+    assert "MAPLE MARKET 03/15 PURCHASE SPRINGFIELD IL" in text  # its spaces collapsed
+    assert "  Expenses:Groceries     12.00 USD" in text  # categorized by the rules
+    assert "Ledger: all 14 imported rows are there once" in out
+    assert len(list((ledger_ready / "raw" / "simplefin").glob("*.json"))) == 1
+
+    code, out, _ = run(capsys, "sync")
+    assert code == 0 and "From SimpleFIN" not in out  # nothing new the second time
+
+
+def test_a_csv_for_an_account_simplefin_fills_is_refused(
+    ledger_ready: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    linked_bank(ledger_ready, monkeypatch)
+    code, _, err = run(capsys, "import", str(BOFA))
+    assert code == 1
+    assert "bofa_checking comes from SimpleFIN now" in err

@@ -621,6 +621,8 @@ def _ledger_problems(db_path: Path) -> list[str]:
 
 # Said when Claude can't be asked; the sync goes on without it, so it's never why one stopped.
 CLAUDE_FAILED = "sync: Claude didn't categorize"
+# Days of SimpleFIN rows each sync asks for: enough to catch up after a missed week.
+BANK_DAYS = 14
 # Seconds for the summary's note: much less than the summary service's time limit.
 NOTE_TIMEOUT = 60
 
@@ -634,7 +636,9 @@ def _quiet_sync() -> str | None:
     if code == 0:
         # It worked, but Sure may not match: that's worth hearing about too.
         sure_lines = [
-            line.removeprefix("sync: ") for line in lines if line.startswith("sync: Sure")
+            line.removeprefix("sync: ")
+            for line in lines
+            if line.startswith(("sync: Sure", "sync: SimpleFIN"))
         ]
         return "; ".join(sure_lines) + "." if sure_lines else None
     reason = next(
@@ -666,6 +670,7 @@ def _sync(dry_run: bool) -> int:
             err=sys.stderr,
             brokerage=_brokerage(),
             sure=_sure(),
+            bank=_bank(),
         )
     except (
         book.LedgerError,
@@ -681,6 +686,12 @@ def _sync(dry_run: bool) -> int:
         return 1
 
     print("Dry run: nothing will be changed." if dry_run else "Bringing the ledger up to date.")
+    for problem in done.bank_problems:
+        print(f"sync: SimpleFIN: {problem}", file=sys.stderr)
+    for account, new in done.banked.items():
+        verb = "would add" if dry_run else "added"
+        print(f"\nFrom SimpleFIN, {account} ({verb} {len(new)}):")
+        print("\n".join(f"  {t.date}  {t.amount:>10}  {t.merchant}" for t in new))
     saved = "not saved, dry run" if dry_run else "saved to rules.toml"
     for title, messages in (
         ("Categories you set on pending purchases", done.kept),
@@ -724,6 +735,15 @@ def _sync(dry_run: bool) -> int:
                 file=sys.stderr,
             )
     return 0
+
+
+def _bank() -> Callable[[], simplefin.Answer] | None:
+    """SimpleFIN, the last BANK_DAYS of it, once its access is saved."""
+    access = categorizing.load_token(config.secrets_dir() / simplefin.ACCESS_FILE)
+    if access is None:
+        return None
+    since = datetime.datetime.now().astimezone().date() - datetime.timedelta(days=BANK_DAYS)
+    return lambda: simplefin.fetch(access, since)
 
 
 def _sure() -> sure.Client | None:

@@ -7,7 +7,10 @@ ones nothing has decided yet. Nothing here runs unless data/ledger/main.beancoun
 """
 
 import datetime
+import hashlib
+import json
 import sqlite3
+from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -16,7 +19,7 @@ from typing import Any, TextIO
 
 from beancount.core import data
 
-from tally import categorizing, corrections, matching, pending, rules, store
+from tally import categorizing, corrections, matching, pending, rules, simplefin, store
 from tally.alerts import Alert, bofa
 from tally.importers import ParseError
 from tally.importers.fidelity import Snapshot
@@ -24,6 +27,7 @@ from tally.ledger import (
     accounts,
     book,
     categories,
+    entries,
     history,
     importers,
     mirror,
@@ -162,6 +166,8 @@ class SyncResult:
     check: parity.Parity | None = None
     sure: mirror.Plan | None = None  # what Sure needed to match the ledger
     sure_failed: str | None = None
+    banked: dict[str, list[Transaction]] = field(default_factory=dict)  # new from SimpleFIN
+    bank_problems: list[str] = field(default_factory=list)  # SimpleFIN couldn't, or said
 
 
 def sync(
@@ -173,9 +179,11 @@ def sync(
     err: TextIO,
     brokerage: Callable[[], Snapshot] | None = None,
     sure: SureClient | None = None,
+    bank: Callable[[], simplefin.Answer] | None = None,
 ) -> SyncResult | None:
     """`tally sync`: bring the ledger's categories up to date, then check it.
 
+    0. with bank (SimpleFIN), rows posted since the last import are stored and added;
     1. categories you set on pending entries become rules (they'd be lost otherwise);
     2. rules made on pending alerts move to the rows that have posted since;
     3. Claude categorizes merchants nothing covers yet;
@@ -195,6 +203,8 @@ def sync(
     today = _today()
     text = _rules_text(data_dir)
     result = SyncResult()
+    if bank is not None:
+        _import_from_bank(data_dir, conn, bank, result, text, dry_run=dry_run, today=today)
 
     stored = store.transactions(conn)
     alerts = store.alerts_with_ids(conn)
@@ -230,13 +240,104 @@ def sync(
     book.write_pending(ledger, waiting, month_rules)
     if brokerage is not None:
         _record_holdings(book.load(ledger.folder, month_rules), brokerage, result, dry_run=False)
-    if result.changes or result.holdings_added:
+    if result.changes or result.holdings_added or result.banked:
         save(ledger.folder, "Bring the ledger up to date", err)
     ledger = book.load(ledger.folder, month_rules)
     result.check = _compare(data_dir, ledger, counted)
     if sure is not None:
         _mirror(ledger, sure, result, dry_run=False)
     return result
+
+
+def _import_from_bank(
+    data_dir: Path,
+    conn: sqlite3.Connection,
+    bank: Callable[[], simplefin.Answer],
+    result: SyncResult,
+    text: str,
+    *,
+    dry_run: bool,
+    today: datetime.date,
+) -> None:
+    """Store and add to the ledger the rows SimpleFIN has posted that tally hasn't got.
+
+    A row is already stored when a stored row of its account has the same posted date and
+    amount (one stored row each): that covers the CSV rows from before SimpleFIN, which the
+    bank describes differently there, and the rows earlier syncs took. A failure is noted,
+    never raised: the next run catches up.
+    """
+    ledger = book.load(book.folder(data_dir), rules.parse(text))
+    if not ledger.accounts.simplefin:
+        return
+    try:
+        answer = bank()
+        found = simplefin.rows(answer, ledger.accounts.simplefin)
+    except simplefin.SimpleFINError as e:
+        result.bank_problems.append(str(e))
+        return
+    result.bank_problems += answer.problems
+    month_rules = rules.parse(text)
+    kept: list[dict[str, str]] = []
+    for account, rows in found.items():
+        new = _not_stored(store.transactions(conn, account), rows)
+        if not new:
+            continue
+        result.banked[account] = new
+        kept += [_raw(t) for t in new]
+        # Stored in a dry run too: its database is a copy, and the steps after count them.
+        store.save(
+            conn,
+            new,
+            account=account,
+            file_name="simplefin",
+            file_sha256=hashlib.sha256(json.dumps(kept).encode()).hexdigest(),
+        )
+        if dry_run:
+            continue
+        made = [
+            entries.transaction(
+                t, ledger.accounts, month_rules, meta=data.new_metadata("simplefin", 0)
+            )
+            for t in new
+        ]
+        book.add(ledger, book.new_entries(made, ledger))
+    if kept and not dry_run:
+        _archive(data_dir, today, kept)
+
+
+def _not_stored(stored: Sequence[Transaction], rows: Sequence[Transaction]) -> list[Transaction]:
+    have = Counter((t.posted or t.date, t.amount) for t in stored)
+    new = []
+    for t in rows:
+        key = (t.posted or t.date, t.amount)
+        if have[key]:
+            have[key] -= 1
+        else:
+            new.append(t)
+    return new
+
+
+def _raw(t: Transaction) -> dict[str, str]:
+    return {
+        "account": t.account,
+        "date": t.date.isoformat(),
+        "posted": t.posted.isoformat() if t.posted else "",
+        "description": t.description,
+        "amount": str(t.amount),
+    }
+
+
+def _archive(data_dir: Path, today: datetime.date, kept: list[dict[str, str]]) -> None:
+    """Keep what SimpleFIN gave in data/raw/simplefin/, as an export is kept in raw/, so the
+    database can be rebuilt from it."""
+    from tally.importing import private_dir
+
+    folder = private_dir(data_dir, "raw", "simplefin")
+    content = json.dumps(kept, indent=1) + "\n"
+    name = hashlib.sha256(content.encode()).hexdigest()[:16]
+    path = folder / f"{today.isoformat()}-{name}.json"
+    path.write_text(content, encoding="utf-8")
+    path.chmod(0o600)
 
 
 def _mirror(ledger: book.Ledger, sure: SureClient, result: SyncResult, *, dry_run: bool) -> None:

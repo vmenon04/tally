@@ -232,6 +232,14 @@ def _import_one(
 ) -> bool:
     if p.account == FIDELITY:
         return _import_positions(p, data_dir, ledger, dry_run, from_inbox, today, out, err)
+    if ledger is not None and p.account in ledger.ledger.accounts.simplefin.values():
+        # The bank describes rows differently in each, so they'd be counted twice.
+        print(
+            f"{p.path.name}: not imported: {p.account} comes from SimpleFIN now (its "
+            "simplefin-account line in the ledger); remove that line to import CSVs again",
+            file=err,
+        )
+        return False
     new_entries: list[data.Directive] = []
     if ledger is not None:
         # First only to find a problem before anything is stored.

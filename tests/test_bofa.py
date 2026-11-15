@@ -116,6 +116,15 @@ def test_identical_payments_are_all_kept() -> None:
             "KEEP THE CHANGE TRANSFER TO ACCT 1111",
         ),
         ("STORE #123  03/07 PURCHASE  IL", "STORE #123 IL"),
+        # The same purchase and withdrawal as SimpleFIN gives them.
+        (
+            "CHECKCARD 0307 MAPLE MARKET SPRINGFIELD IL XXXXX9462XXXXXXXXXX3166",
+            "MAPLE MARKET SPRINGFIELD IL",
+        ),
+        (
+            "BKOFAMERICA ATM 03/08 #XXXXX5678 WITHDRWL SPRINGFIELD MAIN SPRINGFIELD IL",
+            "BKOFAMERICA ATM WITHDRWL SPRINGFIELD MAIN SPRINGFIELD IL",
+        ),
     ],
 )
 def test_clean_merchant(description: str, merchant: str) -> None:
@@ -131,6 +140,8 @@ def test_clean_merchant(description: str, merchant: str) -> None:
         ("VENMO DES:PAYMENT ID:1", datetime.date(2026, 3, 9), datetime.date(2026, 3, 9)),
         ("SHOP 13/45 PURCHASE IL", datetime.date(2026, 3, 9), datetime.date(2026, 3, 9)),
         ("SHOP 02/29 PURCHASE IL", datetime.date(2029, 3, 1), datetime.date(2028, 2, 29)),
+        ("CHECKCARD 0307 SHOP IL XX1X2", datetime.date(2026, 3, 9), datetime.date(2026, 3, 7)),
+        ("ATM 03/08 #XXX01 WITHDRWL IL", datetime.date(2026, 3, 9), datetime.date(2026, 3, 8)),
     ],
 )
 def test_event_date(description: str, posted: datetime.date, expected: datetime.date) -> None:

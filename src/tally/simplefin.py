@@ -7,7 +7,12 @@ fails because it already was, someone else may have it, and you should disable i
 bridge. The access URL is never printed, logged or put in an error message.
 
 Each request asks for the accounts, their balances, and their transactions since a date,
-pending ones included. Amounts are positive for money in.
+pending ones included. Amounts are positive for money in, as in a Transaction.
+
+An account comes into tally when the ledger links it (`simplefin-account:` with its last
+four digits, on an account with a `tally-account:`): its posted rows become Transactions as
+that bank's export would give them (see rows), and are stored and added to the ledger by
+`tally sync` in place of CSV imports.
 """
 
 import base64
@@ -20,6 +25,9 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 import requests
+
+from tally.importers import bofa, discover
+from tally.transaction import Transaction as Row
 
 ACCESS_FILE = "simplefin-access-url"
 TIMEOUT = 60  # seconds; the bridge asks each bank as it answers
@@ -179,16 +187,68 @@ def overview(answer: Answer, today: datetime.date) -> list[str]:
 def transactions(answer: Answer, last4: str) -> list[str] | None:
     """Every transaction of the account whose name ends in last4, newest first, as the
     bridge gives it; None if no account does."""
-    found = [a for a in answer.accounts if a.name.rstrip(")").endswith(last4)]
-    if len(found) != 1:
+    account = account_ending(answer, last4)
+    if account is None:
         return None
-    rows = sorted(
-        found[0].transactions,
+    ordered = sorted(
+        account.transactions,
         key=lambda t: t.posted or t.transacted or datetime.date.max,
         reverse=True,
     )
     return [
         f"{'pending' if t.pending else t.posted}  bought {t.transacted or '?'}  "
         f"{t.amount:>9}  {t.description}"
-        for t in rows
+        for t in ordered
     ]
+
+
+def account_ending(answer: Answer, last4: str) -> Account | None:
+    """The one account whose name ends in last4 (the bridge writes it as "Name (1234)")."""
+    found = [a for a in answer.accounts if a.name.rstrip(") ").endswith(last4)]
+    return found[0] if len(found) == 1 else None
+
+
+def rows(answer: Answer, linked: dict[str, str]) -> dict[str, list[Row]]:
+    """Each linked tally account's posted rows, oldest first. Raises SimpleFINError if the
+    bridge has no account for one, or tally can't read that bank's rows."""
+    result = {}
+    for last4, tally_account in sorted(linked.items()):
+        account = account_ending(answer, last4)
+        if account is None:
+            raise SimpleFINError(f"the bridge has no one account ending in {last4}")
+        make = _ROWS.get(tally_account)
+        if make is None:
+            raise SimpleFINError(f"tally can't read SimpleFIN rows for {tally_account} yet")
+        posted = [t for t in account.transactions if not t.pending and t.posted is not None]
+        result[tally_account] = sorted(
+            (make(t) for t in posted), key=lambda r: (r.posted or r.date, r.description)
+        )
+    return result
+
+
+def _bofa(t: Transaction) -> Row:
+    # The bridge pads the description with spaces; the CSV has them collapsed.
+    description = " ".join(t.description.split())
+    posted = t.posted or t.transacted or datetime.date.min
+    return Row(
+        account=bofa.ACCOUNT,
+        date=bofa.event_date(description, posted),
+        posted=posted,
+        description=description,
+        merchant=bofa.clean_merchant(description),
+        amount=t.amount,
+    )
+
+
+def _discover(t: Transaction) -> Row:
+    return Row(
+        account=discover.ACCOUNT,
+        date=t.transacted or t.posted or datetime.date.min,
+        posted=t.posted,
+        description=t.description,
+        merchant=discover.clean_merchant(t.description),
+        amount=t.amount,
+    )
+
+
+_ROWS: dict[str, Callable[[Transaction], Row]] = {bofa.ACCOUNT: _bofa, discover.ACCOUNT: _discover}

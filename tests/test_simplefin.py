@@ -13,7 +13,7 @@ TOKEN = base64.b64encode(CLAIM.encode()).decode()
 ACCESS = "https://user:secret@bridge.example/simplefin"
 DAY = 1794657600  # noon on 2026-11-14, in UTC
 
-BODY = {
+BODY: dict[str, Any] = {
     "errlist": [{"code": "con.auth", "msg": "Capital One needs you to sign in again"}],
     "connections": [{"conn_id": "c1", "name": "Discover Card", "org_id": "o", "sfin_url": "x"}],
     "accounts": [
@@ -127,3 +127,41 @@ def test_transactions_lists_one_accounts_rows_newest_first() -> None:
         "pending  bought 2026-11-14    -253.77  OAK BAKERY",
         "2026-11-13  bought ?      -5.90  MAPLE",
     ]
+
+
+def test_rows_are_a_linked_accounts_posted_rows_as_its_export_gives_them() -> None:
+    bofa_account = {
+        "id": "a2",
+        "name": "Adv SafeBalance Banking (4321)",
+        "conn_id": "c1",
+        "currency": "USD",
+        "balance": "10.00",
+        "balance-date": DAY,
+        "transactions": [
+            {
+                "id": "b1",
+                "posted": DAY,
+                "amount": "-13.50",
+                "description": "Maple Gas  11/12 #XXXXX2887 WITHDRWL   Maple   SPRINGFIELD  IL",
+            }
+        ],
+    }
+    body = {**BODY, "accounts": [*BODY["accounts"], bofa_account]}
+    found = simplefin.fetch(ACCESS, get=lambda u, p, a: response(200, body))
+    rows = simplefin.rows(found, {"4321": "bofa_checking", " It": "discover"})
+    (checking,) = rows["bofa_checking"]
+    assert checking.description == "Maple Gas 11/12 #XXXXX2887 WITHDRWL Maple SPRINGFIELD IL"
+    assert checking.merchant == "Maple Gas WITHDRWL Maple SPRINGFIELD IL"
+    assert (checking.date, checking.posted) == (
+        datetime.date(2026, 11, 12),
+        datetime.date(2026, 11, 14),
+    )
+    (card,) = rows["discover"]  # the pending one is left to the alerts for now
+    assert (card.date, card.posted, card.amount, card.merchant) == (
+        datetime.date(2026, 11, 13),
+        datetime.date(2026, 11, 13),
+        Decimal("-5.90"),
+        "MAPLE",
+    )
+    with pytest.raises(simplefin.SimpleFINError, match="no one account ending in 9999"):
+        simplefin.rows(found, {"9999": "discover"})
