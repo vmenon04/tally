@@ -9,6 +9,7 @@ names accounts and bean-check sees every account tally writes to:
 
     2026-09-01 open Assets:CapitalOne:Savings USD
       simplefin-account: "5678"             # only its balance is checked against SimpleFIN's
+      interest-from: "Income:Interest"      # and the interest it's paid comes from here
 
     2026-09-01 open Expenses:Groceries
       category: "Groceries"                 # rows in this category post their other side here
@@ -26,6 +27,11 @@ names accounts and bean-check sees every account tally writes to:
 
 A category whose account has `fixed: TRUE` is a bill that comes once a month (rent,
 utilities): the pace by today counts it in full instead of a little each day.
+
+interest-from is for a savings account whose deposits tally already sees from the other side
+(transfers out of checking): of its SimpleFIN rows, sync adds only the interest. It needs
+simplefin-account, and can't go with tally-account, whose rows would bring the interest in
+already.
 
 merchant-contains matches any case, and | separates alternatives. A category can have
 several accounts told apart by merchant-contains, plus at most one without it, which takes
@@ -70,6 +76,7 @@ class Accounts:
     simplefin: dict[str, str] = field(default_factory=dict)  # last four -> tally account
     # last four -> ledger account, for every account linked to SimpleFIN
     bank_accounts: dict[str, str] = field(default_factory=dict)
+    interest_from: dict[str, str] = field(default_factory=dict)  # last four -> income account
 
     def fidelity(self, label: str) -> str:
         try:
@@ -121,6 +128,7 @@ def from_entries(entries: Iterable[data.Directive]) -> Accounts:
     fixed: set[str] = set()
     simplefin: dict[str, str] = {}
     bank_accounts: dict[str, str] = {}
+    interest: dict[str, str] = {}
     for entry in entries:
         if not isinstance(entry, data.Open):
             continue
@@ -144,6 +152,17 @@ def from_entries(entries: Iterable[data.Directive]) -> Accounts:
             bank_accounts[linked] = entry.account
             if tally_account is not None:
                 simplefin[linked] = tally_account
+        income = meta.get("interest-from")
+        if income is not None:
+            _text(entry, "interest-from", income)
+            if linked is None:
+                raise AccountsError(f"{entry.account}: interest-from needs simplefin-account")
+            if tally_account is not None:
+                raise AccountsError(
+                    f"{entry.account}: interest-from can't go with tally-account, whose rows "
+                    "bring the interest in already"
+                )
+            interest[linked] = income
         label = meta.get("fidelity-account")
         if label is not None:
             _text(entry, "fidelity-account", label)
@@ -178,6 +197,7 @@ def from_entries(entries: Iterable[data.Directive]) -> Accounts:
         frozenset(fixed),
         simplefin,
         bank_accounts,
+        interest,
     )
 
 

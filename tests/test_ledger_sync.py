@@ -462,6 +462,110 @@ def test_an_account_can_be_linked_for_its_balance_alone() -> None:
     assert linked.simplefin == {"1234": "bofa_checking"}  # rows come in only with tally-account
 
 
+def test_interest_from_needs_a_simplefin_account_and_no_tally_account() -> None:
+    found, _, _ = loader.load_string(
+        '2026-01-01 open Assets:Savings USD\n  simplefin-account: "5678"\n'
+        '  interest-from: "Income:Interest"\n'
+    )
+    assert accounts.from_entries(found).interest_from == {"5678": "Income:Interest"}
+    for meta in ("", '  tally-account: "bofa_checking"\n  simplefin-account: "5678"\n'):
+        found, _, _ = loader.load_string(
+            f'2026-01-01 open Assets:Savings USD\n{meta}  interest-from: "Income:Interest"\n'
+        )
+        with pytest.raises(accounts.AccountsError, match="interest-from"):
+            accounts.from_entries(found)
+
+
+def savings_paying_interest(
+    ledger_ready: Path, monkeypatch: pytest.MonkeyPatch, *rows: simplefin.Transaction
+) -> None:
+    """Link Capital One savings (ending 6262) for its interest, with these rows and a balance
+    that is the ledger's plus the interest in them."""
+    linked_bank(ledger_ready, monkeypatch)
+    accounts_file = ledger_ready / "ledger" / "accounts.beancount"
+    accounts_file.write_text(
+        accounts_file.read_text().replace(
+            "2026-01-01 open Assets:CapitalOne:Savings USD\n",
+            '2026-01-01 open Assets:CapitalOne:Savings USD\n  simplefin-account: "6262"\n'
+            '  interest-from: "Income:Interest"\n'
+            "2026-01-01 open Income:Interest USD\n",
+        )
+    )
+    found, _, _ = loader.load_file(str(ledger_ready / "ledger" / "main.beancount"))
+    held = sum(
+        (
+            p.units.number
+            for e in found
+            if isinstance(e, Transaction)
+            for p in e.postings
+            if p.account == "Assets:CapitalOne:Savings" and p.units and p.units.number
+        ),
+        Decimal(0),
+    )
+    paid = sum((t.amount for t in simplefin.interest(answer_with(rows), "6262")), Decimal(0))
+    checking = simplefin.Account(
+        "a", "Adv SafeBalance (1234)", "Bank", "USD", Decimal(0), NOW.date(), []
+    )
+    savings = simplefin.Account(
+        "c",
+        "360 Performance Savings (6262)",
+        "Capital One",
+        "USD",
+        held + paid,
+        NOW.date(),
+        list(rows),
+    )
+    answer = simplefin.Answer([checking, savings], [])
+    monkeypatch.setattr(cli, "_bank", lambda: lambda: answer)
+
+
+def answer_with(rows: tuple[simplefin.Transaction, ...]) -> simplefin.Answer:
+    account = simplefin.Account("c", "Savings (6262)", "", "USD", Decimal(0), NOW.date(), [*rows])
+    return simplefin.Answer([account], [])
+
+
+def test_sync_adds_only_the_interest_of_an_account_with_interest_from(
+    ledger_ready: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    savings_paying_interest(
+        ledger_ready,
+        monkeypatch,
+        bank_row("2026-02-28", "0.08", "Monthly Interest Paid"),
+        bank_row("2026-03-31", "0.10", "Monthly Interest Paid"),
+        # Tally has these from checking's side, or they aren't interest.
+        bank_row("2026-03-05", "100.00", "Deposit from BofA Checking"),
+        bank_row("2026-03-06", "-0.10", "Interest adjustment"),
+        simplefin.Transaction("p", None, None, Decimal("0.11"), "Interest Paid", True),
+    )
+    code, out, err = run(capsys, "sync", "--dry-run")
+    assert code == 0
+    assert "Interest from SimpleFIN (would add 2):" in out
+    assert "  2026-03-31        0.10  Assets:CapitalOne:Savings" in out
+    assert "Assets:CapitalOne:Savings: the bank says" not in out  # not until it's added
+    assert "Interest Paid" not in imported(ledger_ready)
+
+    code, out, err = run(capsys, "sync")
+    assert code == 0
+    assert "Interest from SimpleFIN (added 2):" in out
+    assert "Assets:CapitalOne:Savings: the bank says" not in out  # the ledger now matches
+    assert "Deposit from BofA" not in imported(ledger_ready)
+    found, errors, _ = loader.load_file(str(ledger_ready / "ledger" / "main.beancount"))
+    assert not errors
+    paid = [
+        e
+        for e in found
+        if isinstance(e, Transaction) and any(p.account == "Income:Interest" for p in e.postings)
+    ]
+    assert [(e.date, e.payee, e.meta["simplefin-id"]) for e in paid] == [
+        (datetime.date(2026, 2, 28), "Capital One", "c:2026-02-28"),
+        (datetime.date(2026, 3, 31), "Capital One", "c:2026-03-31"),
+    ]
+    assert "Ledger: all" in out  # not counted as rows tally.db is missing
+
+    code, out, _ = run(capsys, "sync")
+    assert code == 0 and "Interest from SimpleFIN" not in out
+
+
 def ntfy_posts(monkeypatch: pytest.MonkeyPatch) -> list[bytes]:
     assert main(["ntfy-setup"]) == 0
     posted: list[bytes] = []

@@ -131,9 +131,9 @@ balance.
 Each sync also asks SimpleFIN what the bank says every linked account holds, and compares
 that with the ledger's posted rows (pending ones left out, as the bank leaves them out of its
 balance). A missed or doubled row, or one the bank back-dated past what SimpleFIN returns,
-shows up there; so does interest on an account whose rows tally doesn't import. Link an
-account for this alone with `simplefin-account:` and no `tally-account:` (see
-[Where transactions come from](transactions.md)). It's a check, not an assertion, so a
+shows up there; so does interest on an account whose rows tally doesn't import, unless it
+has `interest-from:`. Link an account for this alone with `simplefin-account:` and no
+`tally-account:` (see [Where transactions come from](transactions.md)). It's a check, not an assertion, so a
 difference never stops bean-check.
 
 ## Showing it in Sure

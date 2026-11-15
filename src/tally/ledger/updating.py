@@ -130,6 +130,7 @@ class SyncResult:
     pending: list[Alert] = field(default_factory=list)  # what it lists as pending
     # Ledger account, what the bank says it holds, and what the ledger's posted rows add to.
     bank_differ: list[tuple[str, Decimal, Decimal]] = field(default_factory=list)
+    interest: list[data.Transaction] = field(default_factory=list)  # new interest entries
     _bank: simplefin.Answer | None = None
 
 
@@ -204,7 +205,7 @@ def sync(
     book.write_pending(ledger, waiting, month_rules)
     if brokerage is not None:
         _record_holdings(book.load(ledger.folder, month_rules), brokerage, result, dry_run=False)
-    if result.changes or result.holdings_added or any(result.banked.values()):
+    if result.changes or result.holdings_added or any(result.banked.values()) or result.interest:
         save(ledger.folder, "Bring the ledger up to date", err)
     ledger = book.load(ledger.folder, month_rules)
     _check_bank(ledger, result, today, dry_run=False)
@@ -232,7 +233,7 @@ def _import_from_bank(
     never raised: the next run catches up.
     """
     ledger = book.load(book.folder(data_dir), rules.parse(text))
-    if not ledger.accounts.simplefin:
+    if not (ledger.accounts.simplefin or ledger.accounts.interest_from):
         return
     try:
         answer = bank()
@@ -270,6 +271,9 @@ def _import_from_bank(
             for t in new
         ]
         book.add(ledger, book.new_entries(made, ledger))
+    result.interest = _interest(ledger, answer)
+    if result.interest and not dry_run:
+        book.add(ledger, result.interest)
     result.pending = simplefin.pending(answer, ledger.accounts.simplefin, now)
     for alert in result.pending:
         store.see_alert(conn, alert)
@@ -277,17 +281,51 @@ def _import_from_bank(
         _archive(data_dir, today, kept)
 
 
+def _interest(ledger: book.Ledger, answer: simplefin.Answer) -> list[data.Transaction]:
+    """Entries for the interest paid into accounts with interest-from that the ledger doesn't
+    have yet, told apart by SimpleFIN's own id for each payment."""
+    have = {
+        e.meta[entries.BANK_ID_KEY]
+        for e in ledger.entries
+        if isinstance(e, data.Transaction) and entries.BANK_ID_KEY in e.meta
+    }
+    made = []
+    for last4, income in sorted(ledger.accounts.interest_from.items()):
+        account = simplefin.account_ending(answer, last4)
+        if account is None:
+            continue  # the balance check has nothing to compare either
+        for t in simplefin.interest(answer, last4):
+            key = f"{account.id}:{t.id}"
+            if key in have or t.posted is None:
+                continue
+            meta = data.new_metadata("simplefin", 0)
+            meta[entries.BANK_ID_KEY] = key
+            made.append(
+                entries.interest(
+                    meta,
+                    t.posted,
+                    ledger.accounts.bank_accounts[last4],
+                    income,
+                    t.amount,
+                    account.bank,
+                    t.description,
+                )
+            )
+    return made
+
+
 def _check_bank(
     ledger: book.Ledger, result: SyncResult, today: datetime.date, *, dry_run: bool
 ) -> None:
     """Compare each linked account's posted balance in the ledger with the bank's. In a dry
-    run, an account that got new rows is left out: the ledger doesn't have them."""
+    run, an account that got new rows or interest is left out: the ledger doesn't have them."""
     if result._bank is None:
         return
+    paid = {e.postings[0].account for e in result.interest}
     for last4, account in sorted(ledger.accounts.bank_accounts.items()):
         theirs = simplefin.account_ending(result._bank, last4)
         new = result.banked.get(ledger.accounts.simplefin.get(last4, ""))
-        if theirs is None or (dry_run and new):
+        if theirs is None or (dry_run and (new or account in paid)):
             continue
         mine = sum(
             (

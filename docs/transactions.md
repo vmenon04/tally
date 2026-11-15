@@ -31,10 +31,16 @@ purchases](notifications.md#pending-purchases).
 
 Every account linked with `simplefin-account:` also has its balance checked on each sync
 against the bank's; an account can be linked for that alone, without `tally-account:`
-(Capital One savings, say, whose interest tally doesn't import):
+(a savings account whose deposits tally already sees as transfers out of checking).
+
+Such an account still earns interest the ledger wouldn't otherwise have. Add
+`interest-from:` and each sync brings in that account's interest alone: its posted money in
+described with "interest", from the income account named, each payment once (by SimpleFIN's
+id for it, kept as `simplefin-id`). Its other rows stay out, since checking's side has them:
 
     2026-09-01 open Assets:CapitalOne:Savings USD
       simplefin-account: "5678"
+      interest-from: "Income:Interest"
 
 The bridge allows about 24 requests a day: each sync makes one (12 a day), and so does each
 `tally simplefin`.

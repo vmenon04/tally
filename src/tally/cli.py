@@ -593,6 +593,13 @@ def _sync(dry_run: bool) -> int:
         verb = "would add" if dry_run else "added"
         print(f"\nFrom SimpleFIN, {account} ({verb} {len(new)}):")
         print("\n".join(f"  {t.date}  {t.amount:>10}  {t.merchant}" for t in new))
+    if done.interest:
+        verb = "would add" if dry_run else "added"
+        print(f"\nInterest from SimpleFIN ({verb} {len(done.interest)}):")
+        for entry in done.interest:
+            posting = entry.postings[0]
+            assert posting.units is not None
+            print(f"  {entry.date}  {posting.units.number:>10}  {posting.account}")
     saved = "not saved, dry run" if dry_run else "saved to rules.toml"
     for title, messages in (
         ("Categories you set on pending purchases", done.kept),

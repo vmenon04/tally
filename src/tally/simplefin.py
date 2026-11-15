@@ -12,7 +12,8 @@ pending ones included. Amounts are positive for money in, as in a Transaction.
 An account comes into tally when the ledger links it (`simplefin-account:` with its last
 four digits, on an account with a `tally-account:`): its posted rows become Transactions as
 that bank's export would give them (see rows), and are stored and added to the ledger by
-`tally sync` in place of CSV imports.
+`tally sync` in place of CSV imports. An account with `interest-from:` and no tally-account
+brings in only its interest (see interest).
 """
 
 import base64
@@ -225,6 +226,23 @@ def rows(answer: Answer, linked: dict[str, str]) -> dict[str, list[Row]]:
             (make(t) for t in posted), key=lambda r: (r.posted or r.date, r.description)
         )
     return result
+
+
+def interest(answer: Answer, last4: str) -> list[Transaction]:
+    """The interest the account ending last4 was paid: its posted money in described with
+    "interest", oldest first. Empty if the bridge has no one account ending last4."""
+    account = account_ending(answer, last4)
+    if account is None:
+        return []
+    paid = [
+        t
+        for t in account.transactions
+        if not t.pending
+        and t.posted is not None
+        and t.amount > 0
+        and "interest" in t.description.casefold()
+    ]
+    return sorted(paid, key=lambda t: (t.posted, t.id))
 
 
 def pending(answer: Answer, linked: dict[str, str], now: datetime.datetime) -> list[Alert]:

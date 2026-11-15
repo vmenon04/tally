@@ -14,6 +14,7 @@ from tally.transaction import Transaction, identity
 
 CURRENCY = "USD"
 ID_KEY = "tally-id"
+BANK_ID_KEY = "simplefin-id"  # on interest entries, which tally.db doesn't hold
 PURCHASED_KEY = "purchased"
 DUPLICATE_KEY = "__duplicate__"  # how mark_duplicates marks an entry the ledger has
 
@@ -52,6 +53,32 @@ def transaction(
         postings=[
             data.Posting(accounts.source(t.account), units, None, None, None, None),
             data.Posting(counter, -units, None, None, None, None),
+        ],
+    )
+
+
+def interest(
+    meta: data.Meta,
+    date: datetime.date,
+    account: str,
+    income: str,
+    value: Decimal,
+    payee: str,
+    narration: str,
+) -> data.Transaction:
+    """Interest paid into account, from the income account."""
+    units = amount.Amount(value, CURRENCY)
+    return data.Transaction(
+        meta=meta,
+        date=date,
+        flag="*",
+        payee=mask(payee),
+        narration=mask(narration),
+        tags=frozenset(),
+        links=frozenset(),
+        postings=[
+            data.Posting(account, units, None, None, None, None),
+            data.Posting(income, -units, None, None, None, None),
         ],
     )
 
