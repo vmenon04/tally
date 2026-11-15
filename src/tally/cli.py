@@ -147,11 +147,16 @@ def main(argv: list[str] | None = None) -> int:
         description="Ask for a setup token from bridge.simplefin.org (hidden input), claim it "
         "for an access URL, and save that in secrets/. A token can be claimed only once.",
     )
-    commands.add_parser(
+    simplefin_parser = commands.add_parser(
         "simplefin",
         help="show what SimpleFIN sees for your accounts",
         description="List the accounts SimpleFIN Bridge sees, their balances, and how many "
         "transactions it has from the last 30 days. Read-only.",
+    )
+    simplefin_parser.add_argument(
+        "--transactions",
+        metavar="LAST4",
+        help="instead, list the last 30 days' transactions of the account ending in these digits",
     )
 
     snaptrade_parser = commands.add_parser(
@@ -224,7 +229,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "simplefin-login":
         return _simplefin_login()
     if args.command == "simplefin":
-        return _simplefin()
+        return _simplefin(transactions_of=args.transactions)
     if args.command == "snaptrade":
         try:
             client = snaptrade.Client.from_secrets(config.secrets_dir())
@@ -343,7 +348,7 @@ def _simplefin_login() -> int:
     return _simplefin(balances_only=True)
 
 
-def _simplefin(*, balances_only: bool = False) -> int:
+def _simplefin(*, balances_only: bool = False, transactions_of: str | None = None) -> int:
     path = config.secrets_dir() / simplefin.ACCESS_FILE
     access = categorizing.load_token(path)
     if access is None:
@@ -357,7 +362,14 @@ def _simplefin(*, balances_only: bool = False) -> int:
     except simplefin.SimpleFINError as e:
         print(f"simplefin: {e}", file=sys.stderr)
         return 1
-    print("\n".join(simplefin.overview(found, today)))
+    if transactions_of is None:
+        print("\n".join(simplefin.overview(found, today)))
+        return 0
+    lines = simplefin.transactions(found, transactions_of)
+    if lines is None:
+        print(f"simplefin: no account ending in {transactions_of}", file=sys.stderr)
+        return 1
+    print("\n".join(lines))
     return 0
 
 

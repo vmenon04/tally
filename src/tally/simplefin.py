@@ -174,3 +174,21 @@ def overview(answer: Answer, today: datetime.date) -> list[str]:
         )
     lines += [f"The bridge says: {p}" for p in answer.problems]
     return lines or ["The bridge has no accounts yet: connect your banks at bridge.simplefin.org."]
+
+
+def transactions(answer: Answer, last4: str) -> list[str] | None:
+    """Every transaction of the account whose name ends in last4, newest first, as the
+    bridge gives it; None if no account does."""
+    found = [a for a in answer.accounts if a.name.rstrip(")").endswith(last4)]
+    if len(found) != 1:
+        return None
+    rows = sorted(
+        found[0].transactions,
+        key=lambda t: t.posted or t.transacted or datetime.date.max,
+        reverse=True,
+    )
+    return [
+        f"{'pending' if t.pending else t.posted}  bought {t.transacted or '?'}  "
+        f"{t.amount:>9}  {t.description}"
+        for t in rows
+    ]

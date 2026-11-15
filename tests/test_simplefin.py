@@ -118,3 +118,12 @@ def test_overview_names_each_account_without_the_access() -> None:
         "2026-11-13 to 2026-11-14",
         "The bridge says: Capital One needs you to sign in again",
     ]
+
+
+def test_transactions_lists_one_accounts_rows_newest_first() -> None:
+    found = simplefin.fetch(ACCESS, get=lambda u, p, a: response(200, BODY))
+    assert simplefin.transactions(found, "1234") is None
+    assert simplefin.transactions(found, " It") == [
+        "pending  bought 2026-11-14    -253.77  OAK BAKERY",
+        "2026-11-13  bought ?      -5.90  MAPLE",
+    ]
