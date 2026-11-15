@@ -22,7 +22,6 @@ from beancount.core import data
 from tally import categorizing, config, corrections, matching, pending, rules, simplefin, store
 from tally.alerts import Alert
 from tally.importers import ParseError
-from tally.importers.fidelity import Snapshot
 from tally.ledger import (
     accounts,
     book,
@@ -33,7 +32,6 @@ from tally.ledger import (
     parity,
     positions,
 )
-from tally.snaptrade import SnapTradeError
 from tally.sure import Client as SureClient
 from tally.sure import SureError
 from tally.transaction import Transaction, identity
@@ -141,7 +139,6 @@ def sync(
     *,
     dry_run: bool,
     err: TextIO,
-    brokerage: Callable[[], Snapshot] | None = None,
     sure: SureClient | None = None,
     bank: Callable[[], simplefin.Answer] | None = None,
 ) -> SyncResult | None:
@@ -153,7 +150,7 @@ def sync(
     3. Claude categorizes merchants nothing covers yet;
     4. imported entries still in Uncategorized move to the category the rules now give;
     5. pending.beancount is rewritten;
-    6. with brokerage (SnapTrade), today's holdings are recorded, as a positions export would;
+    6. with bank, today's Fidelity holdings are recorded, as a positions export would;
     7. the ledger is committed and pushed, and checked;
     8. with sure, Sure's transactions are made to match the ledger's.
 
@@ -190,8 +187,7 @@ def sync(
     ledger = book.load(book.folder(data_dir), month_rules)
     result.changes = categories.plan(ledger, counted, month_rules)
     if dry_run:
-        if brokerage is not None:
-            _record_holdings(ledger, brokerage, result, dry_run=True)
+        _record_holdings(ledger, result, today, dry_run=True)
         _check_bank(ledger, result, today, dry_run=True)
         ledger = book.with_pending(ledger, book.pending_entries(ledger, waiting, month_rules))
         result.check = parity.compare(ledger, counted)
@@ -203,8 +199,7 @@ def sync(
         corrections.save(data_dir / RULES, text)
     categories.apply(result.changes)
     book.write_pending(ledger, waiting, month_rules)
-    if brokerage is not None:
-        _record_holdings(book.load(ledger.folder, month_rules), brokerage, result, dry_run=False)
+    _record_holdings(book.load(ledger.folder, month_rules), result, today, dry_run=False)
     if result.changes or result.holdings_added or any(result.banked.values()) or result.interest:
         save(ledger.folder, "Bring the ledger up to date", err)
     ledger = book.load(ledger.folder, month_rules)
@@ -233,7 +228,8 @@ def _import_from_bank(
     never raised: the next run catches up.
     """
     ledger = book.load(book.folder(data_dir), rules.parse(text))
-    if not (ledger.accounts.simplefin or ledger.accounts.interest_from):
+    linked = ledger.accounts
+    if not (linked.simplefin or linked.interest_from or linked.fidelity_accounts):
         return
     try:
         answer = bank()
@@ -390,13 +386,16 @@ def _mirror(ledger: book.Ledger, sure: SureClient, result: SyncResult, *, dry_ru
 
 
 def _record_holdings(
-    ledger: book.Ledger, brokerage: Callable[[], Snapshot], result: SyncResult, *, dry_run: bool
+    ledger: book.Ledger, result: SyncResult, today: datetime.date, *, dry_run: bool
 ) -> None:
-    """Add today's brokerage holdings to the ledger. A failure is noted, never raised."""
+    """Add today's Fidelity holdings, from SimpleFIN's answer, to the ledger. A failure is
+    noted, never raised."""
+    if result._bank is None or not ledger.accounts.fidelity_accounts:
+        return
     try:
-        snap = brokerage()
-        extracted = positions.entries(snap, ledger.entries, ledger.accounts, "snaptrade")
-    except (SnapTradeError, ParseError, accounts.AccountsError) as e:
+        snap = simplefin.snapshot(result._bank, today)
+        extracted = positions.entries(snap, ledger.entries, ledger.accounts, "simplefin")
+    except (simplefin.SimpleFINError, ParseError, accounts.AccountsError) as e:
         result.holdings_failed = str(e)
         return
     for account in snap.accounts:

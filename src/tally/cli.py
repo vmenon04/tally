@@ -575,7 +575,6 @@ def _sync(dry_run: bool) -> int:
             _ask_claude,
             dry_run=dry_run,
             err=sys.stderr,
-            brokerage=_brokerage(),
             sure=_sure(),
             bank=_bank(),
         )
@@ -634,7 +633,7 @@ def _sync(dry_run: bool) -> int:
         print(f"sync: Fidelity holdings not updated: {done.holdings_failed}", file=sys.stderr)
     elif done.holdings:
         verb = "would add" if dry_run else "added"
-        print(f"\nFidelity holdings from SnapTrade ({verb} {done.holdings_added} ledger entries):")
+        print(f"\nFidelity holdings from SimpleFIN ({verb} {done.holdings_added} ledger entries):")
         print("\n".join(f"  {line}" for line in done.holdings))
     if done.changes:
         verb = "Would move" if dry_run else "Moved"

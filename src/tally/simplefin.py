@@ -19,6 +19,7 @@ brings in only its interest (see interest).
 import base64
 import binascii
 import datetime
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
@@ -28,7 +29,7 @@ from urllib.parse import urlsplit, urlunsplit
 import requests
 
 from tally.alerts import BANK_PENDING, Alert
-from tally.importers import bofa, discover
+from tally.importers import bofa, discover, fidelity
 from tally.transaction import Transaction as Row
 
 ACCESS_FILE = "simplefin-access-url"
@@ -258,6 +259,76 @@ def interest(answer: Answer, last4: str) -> list[Transaction]:
         and "interest" in t.description.casefold()
     ]
     return sorted(paid, key=lambda t: (t.posted, t.id))
+
+
+_LAST4 = re.compile(r"\((\w{4})\)\s*$")
+_CENT = Decimal("0.01")
+_PRICE = Decimal("0.0001")
+
+
+def snapshot(answer: Answer, today: datetime.date) -> fidelity.Snapshot:
+    """What each brokerage account (one the bridge sends holdings for) holds now, in the
+    shape the positions export gives them. Raises SimpleFINError.
+
+    A holding worth exactly its shares, bought for nothing, is the money market: the
+    account's cash. purchase_price is the average price paid per share, so a holding's cost
+    is that times its shares; the bridge's cost_basis is always 0. A holding bought for
+    nothing otherwise (a 401(k)'s fund) has no cost. Its price is its value over its shares.
+
+    Dividends are the rows described "dividend received", and contributions those described
+    "contribution" (a 401(k)'s payroll ones, an IRA's), money in both.
+    """
+    accounts = []
+    for a in answer.accounts:
+        found = a.unread.get("holdings")
+        if not isinstance(found, list):
+            continue
+        label = _LAST4.search(a.name)
+        if label is None:
+            raise SimpleFINError(f"the brokerage account {a.name!r} has no last four in its name")
+        cash: Decimal | None = None
+        holdings = []
+        for h in found:
+            symbol = str(h.get("symbol") or "").strip()
+            shares = _amount(h.get("shares"), "shares", symbol)
+            value = _amount(h.get("market_value"), "market_value", symbol)
+            paid = _amount(h.get("purchase_price"), "purchase_price", symbol)
+            if not paid and value == shares:
+                cash = (cash or Decimal(0)) + value
+                continue
+            if not symbol:
+                raise SimpleFINError(f"a holding in {a.name!r} has no symbol")
+            if not shares:
+                continue
+            cost = (paid * shares).quantize(_CENT) if paid else None
+            holdings.append(
+                fidelity.Holding(symbol, shares, (value / shares).quantize(_PRICE), cost)
+            )
+        paid_in = [t for t in a.transactions if not t.pending and t.posted and t.amount > 0]
+        accounts.append(
+            fidelity.Account(
+                label[1],
+                _LAST4.sub("", a.name).strip(),
+                cash,
+                holdings,
+                _described(paid_in, "dividend received"),
+                _described(paid_in, "contribution"),
+            )
+        )
+    return fidelity.Snapshot(today, accounts)
+
+
+def _described(rows: list[Transaction], text: str) -> tuple[tuple[datetime.date, Decimal], ...]:
+    return tuple(
+        sorted((t.posted, t.amount) for t in rows if t.posted and text in t.description.casefold())
+    )
+
+
+def _amount(value: Any, name: str, symbol: str) -> Decimal:
+    try:
+        return Decimal(str(value))
+    except InvalidOperation:
+        raise SimpleFINError(f"bad {name} {value!r} for holding {symbol!r}") from None
 
 
 def pending(answer: Answer, linked: dict[str, str], now: datetime.datetime) -> list[Alert]:

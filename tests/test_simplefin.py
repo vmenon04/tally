@@ -184,3 +184,47 @@ def test_the_extra_option_shows_what_tally_doesnt_read(
     assert json.loads(capsys.readouterr().out) == {"available-balance": "925.80"}
     assert main(["simplefin", "--extra", "9999"]) == 1
     assert "no account ending in 9999" in capsys.readouterr().err
+
+
+def test_snapshot_reads_holdings_cash_and_what_was_paid_in() -> None:
+    def holding(symbol: str, shares: str, value: str, paid: str) -> dict[str, str]:
+        return {"symbol": symbol, "shares": shares, "market_value": value, "purchase_price": paid}
+
+    def row(day: int, amount: str, description: str) -> simplefin.Transaction:
+        posted = datetime.date(2026, 11, day)
+        return simplefin.Transaction(str(day), posted, posted, Decimal(amount), description, False)
+
+    roth = simplefin.Account(
+        "r",
+        "ROTH IRA (8434)",
+        "Fidelity",
+        "USD",
+        Decimal(0),
+        datetime.date(2026, 11, 15),
+        [
+            row(3, "1.45", "DIVIDEND RECEIVED FIDELITY GOVERNMENT MONEY MARKET (SPAXX) (Cash)"),
+            row(3, "-1.45", "REINVESTMENT FIDELITY GOVERNMENT MONEY MARKET (SPAXX) (Cash)"),
+            row(4, "500.00", "CASH CONTRIBUTION CURRENT YEAR"),
+            row(5, "169.92", "REDEMPTION FROM CORE ACCOUNT"),
+        ],
+        unread={
+            "holdings": [
+                holding("FXAIX", "20.252", "5325.87", "239.6889"),
+                holding("SPAXX", "9.75", "9.75", "0.00"),
+                holding("FFPKX", "272.192", "4619.10", "0.00"),  # a 401(k)'s: no cost
+                holding("GONE", "0", "0", "0"),
+            ]
+        },
+    )
+    checking = simplefin.Account(
+        "c", "Checking (0925)", "BofA", "USD", Decimal(0), roth.balance_date
+    )
+    snap = simplefin.snapshot(simplefin.Answer([checking, roth], []), datetime.date(2026, 11, 15))
+    (account,) = snap.accounts  # the bank account sends no holdings
+    assert (account.label, account.name, account.cash) == ("8434", "ROTH IRA", Decimal("9.75"))
+    assert [(h.symbol, h.quantity, h.price, h.cost) for h in account.holdings] == [
+        ("FXAIX", Decimal("20.252"), Decimal("262.9800"), Decimal("4854.18")),
+        ("FFPKX", Decimal("272.192"), Decimal("16.9700"), None),
+    ]
+    assert account.dividends == ((datetime.date(2026, 11, 3), Decimal("1.45")),)
+    assert account.contributions == ((datetime.date(2026, 11, 4), Decimal("500.00")),)

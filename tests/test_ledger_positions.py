@@ -252,36 +252,51 @@ def test_an_empty_account_you_dont_track_is_skipped(data_dir: Path) -> None:
     assert positions.entries(snap, ledger.entries, ledger.accounts, "test") == []
 
 
-def test_sync_records_brokerage_holdings(
+def holdings_from_bank(monkeypatch: pytest.MonkeyPatch, *holdings: dict[str, str]) -> None:
+    """SimpleFIN sends these holdings for the 401(k) ending 2222, and an empty account."""
+    from tally import cli, simplefin
+
+    def account(name: str, found: list[dict[str, str]]) -> simplefin.Account:
+        return simplefin.Account(
+            name,
+            name,
+            "Fidelity",
+            "USD",
+            Decimal(0),
+            datetime.date(2026, 3, 27),
+            unread={"holdings": found},
+        )
+
+    answer = simplefin.Answer(
+        [account("EXAMPLE RET SAVINGS (2222)", list(holdings)), account("EMPTY (9999)", [])], []
+    )
+    monkeypatch.setattr(cli, "_bank", lambda: lambda: answer)
+
+
+def test_sync_records_the_holdings_simplefin_sends(
     data_dir: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from tally import cli
-
     assert record(data_dir, snapshot()) > 0
-    snap = holdings_snapshot(datetime.date(2026, 3, 27), "110.123", "16.00", None)
-    monkeypatch.setattr(cli, "_brokerage", lambda: lambda: snap)
+    fund = {"symbol": "FFTGX", "shares": "110.123", "market_value": "1761.97"}
+    holdings_from_bank(monkeypatch, {**fund, "purchase_price": "0.00"})
     capsys.readouterr()
     assert main(["sync", "--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert "Fidelity holdings from SnapTrade (would add" in out
+    assert "Fidelity holdings from SimpleFIN (would add" in out
     assert "EXAMPLE RET SAVINGS …2222: cost 0.00 (no cost basis given), market 1,761.97" in out
     assert held(data_dir, "Assets:Fidelity:401k", "FFTGX")[0] == Decimal("100.123")
     assert main(["sync"]) == 0
     assert held(data_dir, "Assets:Fidelity:401k", "FFTGX")[0] == Decimal("110.123")
 
 
-def test_a_brokerage_failure_doesnt_stop_the_sync(
+def test_holdings_simplefin_garbles_dont_stop_the_sync(
     data_dir: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from tally import cli, snaptrade
-
-    def fail() -> Snapshot:
-        raise snaptrade.SnapTradeError("couldn't reach SnapTrade: ConnectionError")
-
-    monkeypatch.setattr(cli, "_brokerage", lambda: fail)
+    fund = {"symbol": "FFTGX", "shares": "lots", "market_value": "1.00", "purchase_price": "0"}
+    holdings_from_bank(monkeypatch, fund)
     capsys.readouterr()
     assert main(["sync"]) == 0
-    assert "Fidelity holdings not updated: couldn't reach SnapTrade" in capsys.readouterr().err
+    assert "Fidelity holdings not updated: bad shares 'lots'" in capsys.readouterr().err
 
 
 def roth_snapshot(
