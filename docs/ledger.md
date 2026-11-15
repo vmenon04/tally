@@ -252,6 +252,8 @@ To try tally without real data, make a made-up ledger and open it:
 
 Forgejo runs on the same server as the ledger, so it's no backup. With a `backup` remote,
 every push tally makes also goes to a private GitHub repo, even when Forgejo is down.
+It must stay private: before each push tally asks GitHub, without signing in, whether it
+shows the repo to anyone, and pushes nothing if it does.
 
 1. On GitHub, make an empty **private** repo (say `ledger-backup`), with no README.
 2. On the server, make a key only tally can read, and print its public half:

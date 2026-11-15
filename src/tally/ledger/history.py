@@ -12,16 +12,21 @@ A failed push is reported and left for the next import to retry; the commit stay
 
 If the clone also has a `backup` remote (a private GitHub repo), every push goes there too,
 over SSH with the deploy key in secrets/github-backup-key. GitHub's host key is pinned
-here, so ssh never asks about it or trusts a different one.
+here, so ssh never asks about it or trusts a different one. Before each push, tally asks
+GitHub, without signing in, whether it shows that repo to anyone: if it does, the repo is
+public, and nothing is pushed.
 """
 
 import base64
 import contextlib
 import os
+import re
 import shlex
 import subprocess
 import tempfile
 from pathlib import Path
+
+import requests
 
 from tally import config
 
@@ -86,9 +91,16 @@ def push(folder: Path) -> None:
 
 
 def push_backup(folder: Path) -> None:
-    """Push the current branch to the backup remote, if the clone has one."""
+    """Push the current branch to the backup remote, if the clone has one. Raises
+    HistoryError, without pushing, if that's a public GitHub repo."""
     if BACKUP not in _git(folder, "remote").split():
         return
+    repo = github_repo(_git(folder, "remote", "get-url", BACKUP).strip())
+    if repo is not None and _public(repo):
+        raise HistoryError(
+            f"the backup repo github.com/{repo} is public, so the ledger wasn't pushed to "
+            "it: make it private on GitHub"
+        )
     with tempfile.TemporaryDirectory() as tmp:
         known_hosts = Path(tmp) / "known_hosts"
         known_hosts.write_text(
@@ -96,6 +108,26 @@ def push_backup(folder: Path) -> None:
             encoding="utf-8",
         )
         _git(folder, "push", "--quiet", BACKUP, "HEAD", env=_ssh_env(known_hosts))
+
+
+def github_repo(url: str) -> str | None:
+    """owner/name for a GitHub remote URL (SSH or HTTPS), else None."""
+    found = re.fullmatch(
+        r"(?:git@github\.com:|ssh://git@(?:ssh\.)?github\.com(?::\d+)?/|https://github\.com/)"
+        r"([\w.-]+/[\w.-]+?)(?:\.git)?/?",
+        url,
+    )
+    return found[1] if found else None
+
+
+def _public(repo: str) -> bool:
+    """Whether GitHub shows the repo to someone not signed in. Unreachable counts as not:
+    the push then fails on its own."""
+    try:
+        answer = requests.get(f"https://api.github.com/repos/{repo}", timeout=15)
+    except requests.RequestException:
+        return False
+    return answer.status_code == 200
 
 
 def _ssh_env(known_hosts: Path) -> dict[str, str]:

@@ -22,3 +22,15 @@ jobs:
           CHAT_TOKEN: check
           MCP_TOKEN: check
           MCP_USER_EMAIL: check@example.com
+
+  secrets:
+    # Every commit, not just the newest: a secret removed later is still in the history.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: No secrets in the history (gitleaks)
+        run: >
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.21.2
+          git /repo --no-banner --redact --verbose

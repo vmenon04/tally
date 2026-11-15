@@ -2,6 +2,7 @@ import base64
 from pathlib import Path
 
 import pytest
+import requests
 
 from tally.ledger import history
 
@@ -81,3 +82,33 @@ def test_backup_still_gets_a_commit_when_forgejo_is_down(
     assert git(remote, "log", "--format=%s", "main").split("\n")[0] == (
         "Bring the ledger up to date"
     )
+
+
+@pytest.mark.parametrize(
+    ("url", "repo"),
+    [
+        ("git@github.com:someone/ledger-backup.git", "someone/ledger-backup"),
+        ("ssh://git@ssh.github.com:443/someone/ledger-backup.git", "someone/ledger-backup"),
+        ("https://github.com/someone/ledger-backup", "someone/ledger-backup"),
+        ("/srv/elsewhere/backup.git", None),
+        ("git@gitlab.com:someone/ledger.git", None),
+    ],
+)
+def test_github_repo(url: str, repo: str | None) -> None:
+    assert history.github_repo(url) == repo
+
+
+def test_a_public_backup_repo_gets_nothing(clone: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    git(clone, "remote", "add", "backup", "git@github.com:someone/ledger-backup.git")
+    asked: list[str] = []
+
+    def get(url: str, **_: object) -> requests.Response:
+        asked.append(url)
+        response = requests.Response()
+        response.status_code = 200  # anyone can see it
+        return response
+
+    monkeypatch.setattr(requests, "get", get)
+    with pytest.raises(history.HistoryError, match="is public, so the ledger wasn't pushed"):
+        history.push_backup(clone)
+    assert asked == ["https://api.github.com/repos/someone/ledger-backup"]

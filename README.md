@@ -8,9 +8,10 @@ Personal finance tracker. Imports transactions, sorts them into budget categorie
 Beancount ledger up to date. [Sure](https://github.com/we-promise/sure) is the web and phone
 UI, and its chat is answered from the ledger.
 
-This is a personal tool, built for one person's banks, accounts and server, and shared as is.
-It isn't meant for general use: there are no releases, no support, and it changes whenever its
-owner needs it to. You're welcome to read it or borrow from it under the MIT license.
+It was built for one person's banks and server, but your own settings, secrets and accounts
+all live outside the code, so you can run it for yours: see [Setting it up for
+yourself](docs/setup.md). It's shared as is, under the MIT license: there are no releases, and
+it changes when its owner needs it to.
 
 ```sh
 uv sync
@@ -19,6 +20,7 @@ uv run tally --help
 
 ## Docs
 
+- [Setting it up for yourself](docs/setup.md)
 - [Importing bank exports](docs/importing.md)
 - [Pending purchases and notifications](docs/notifications.md)
 - [Weekly summary](docs/summary.md)
