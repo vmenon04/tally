@@ -7,6 +7,9 @@ names accounts and bean-check sees every account tally writes to:
       tally-account: "bofa_checking"        # rows from this export post here
       simplefin-account: "1234"             # and from SimpleFIN's account ending 1234
 
+    2026-09-01 open Assets:CapitalOne:Savings USD
+      simplefin-account: "5678"             # only its balance is checked against SimpleFIN's
+
     2026-09-01 open Expenses:Groceries
       category: "Groceries"                 # rows in this category post their other side here
 
@@ -65,6 +68,8 @@ class Accounts:
     contributions_from: dict[str, str] = field(default_factory=dict)  # last four -> income
     fixed: frozenset[str] = frozenset()  # categories that are once-a-month bills
     simplefin: dict[str, str] = field(default_factory=dict)  # last four -> tally account
+    # last four -> ledger account, for every account linked to SimpleFIN
+    bank_accounts: dict[str, str] = field(default_factory=dict)
 
     def fidelity(self, label: str) -> str:
         try:
@@ -115,6 +120,7 @@ def from_entries(entries: Iterable[data.Directive]) -> Accounts:
     contributions: dict[str, str] = {}
     fixed: set[str] = set()
     simplefin: dict[str, str] = {}
+    bank_accounts: dict[str, str] = {}
     for entry in entries:
         if not isinstance(entry, data.Open):
             continue
@@ -133,11 +139,11 @@ def from_entries(entries: Iterable[data.Directive]) -> Accounts:
         linked = meta.get("simplefin-account")
         if linked is not None:
             _text(entry, "simplefin-account", linked)
-            if tally_account is None:
-                raise AccountsError(f"{entry.account}: simplefin-account needs tally-account")
-            if linked in simplefin:
+            if linked in bank_accounts:
                 raise AccountsError(f'simplefin-account: "{linked}" is on two accounts')
-            simplefin[linked] = tally_account
+            bank_accounts[linked] = entry.account
+            if tally_account is not None:
+                simplefin[linked] = tally_account
         label = meta.get("fidelity-account")
         if label is not None:
             _text(entry, "fidelity-account", label)
@@ -171,6 +177,7 @@ def from_entries(entries: Iterable[data.Directive]) -> Accounts:
         contributions,
         frozenset(fixed),
         simplefin,
+        bank_accounts,
     )
 
 

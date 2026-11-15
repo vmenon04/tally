@@ -20,7 +20,7 @@ from typing import Any, TextIO
 from beancount.core import data
 
 from tally import categorizing, corrections, matching, pending, rules, simplefin, store
-from tally.alerts import Alert, bofa
+from tally.alerts import Alert
 from tally.importers import ParseError
 from tally.importers.fidelity import Snapshot
 from tally.ledger import (
@@ -168,6 +168,9 @@ class SyncResult:
     sure_failed: str | None = None
     banked: dict[str, list[Transaction]] = field(default_factory=dict)  # new from SimpleFIN
     bank_problems: list[str] = field(default_factory=list)  # SimpleFIN couldn't, or said
+    # Ledger account, what the bank says it holds, and what the ledger's posted rows add to.
+    bank_differ: list[tuple[str, Decimal, Decimal]] = field(default_factory=list)
+    _bank: simplefin.Answer | None = None
 
 
 def sync(
@@ -228,8 +231,9 @@ def sync(
     if dry_run:
         if brokerage is not None:
             _record_holdings(ledger, brokerage, result, dry_run=True)
+        _check_bank(ledger, result, today, dry_run=True)
         ledger = book.with_pending(ledger, book.pending_entries(ledger, waiting, month_rules))
-        result.check = _compare(data_dir, ledger, counted)
+        result.check = parity.compare(ledger, counted)
         if sure is not None:
             _mirror(ledger, sure, result, dry_run=True)
         return result
@@ -243,7 +247,8 @@ def sync(
     if result.changes or result.holdings_added or any(result.banked.values()):
         save(ledger.folder, "Bring the ledger up to date", err)
     ledger = book.load(ledger.folder, month_rules)
-    result.check = _compare(data_dir, ledger, counted)
+    _check_bank(ledger, result, today, dry_run=False)
+    result.check = parity.compare(ledger, counted)
     if sure is not None:
         _mirror(ledger, sure, result, dry_run=False)
     return result
@@ -275,6 +280,7 @@ def _import_from_bank(
     except simplefin.SimpleFINError as e:
         result.bank_problems.append(str(e))
         return
+    result._bank = answer
     result.bank_problems += answer.problems
     month_rules = rules.parse(text)
     # One moment for the whole answer: it's when each account was last asked about, and when
@@ -308,6 +314,34 @@ def _import_from_bank(
         store.see_alert(conn, alert)
     if kept and not dry_run:
         _archive(data_dir, today, kept)
+
+
+def _check_bank(
+    ledger: book.Ledger, result: SyncResult, today: datetime.date, *, dry_run: bool
+) -> None:
+    """Compare each linked account's posted balance in the ledger with the bank's. In a dry
+    run, an account that got new rows is left out: the ledger doesn't have them."""
+    if result._bank is None:
+        return
+    for last4, account in sorted(ledger.accounts.bank_accounts.items()):
+        theirs = simplefin.account_ending(result._bank, last4)
+        new = result.banked.get(ledger.accounts.simplefin.get(last4, ""))
+        if theirs is None or (dry_run and new):
+            continue
+        mine = sum(
+            (
+                p.units.number or Decimal(0)
+                for e in ledger.entries
+                if isinstance(e, data.Transaction)
+                and e.date <= today
+                and not str(e.meta.get("filename", "")).endswith(book.PENDING)
+                for p in e.postings
+                if p.account == account and p.units is not None
+            ),
+            Decimal(0),
+        )
+        if mine != theirs.balance:
+            result.bank_differ.append((account, theirs.balance, mine))
 
 
 def _not_stored(stored: Sequence[Transaction], rows: Sequence[Transaction]) -> list[Transaction]:
@@ -396,13 +430,7 @@ def check(data_dir: Path, conn: sqlite3.Connection) -> parity.Parity | None:
     ledger = book.with_pending(
         session.ledger, book.pending_entries(session.ledger, waiting, session.rules)
     )
-    return _compare(data_dir, ledger, [*stored, *(pending.as_transaction(a) for a in waiting)])
-
-
-def _compare(data_dir: Path, ledger: book.Ledger, counted: list[Transaction]) -> parity.Parity:
-    """parity.compare, with the newest balance email from the alerts mailbox."""
-    emails = sorted((data_dir / "alerts" / "gmail").glob("*.eml"))
-    return parity.compare(ledger, counted, bofa.latest_balance(emails))
+    return parity.compare(ledger, [*stored, *(pending.as_transaction(a) for a in waiting)])
 
 
 def _keep_pending_fixes(session: Session, conn: sqlite3.Connection) -> list[str]:

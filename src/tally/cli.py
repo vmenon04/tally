@@ -688,6 +688,14 @@ def _sync(dry_run: bool) -> int:
     print("Dry run: nothing will be changed." if dry_run else "Bringing the ledger up to date.")
     for problem in done.bank_problems:
         print(f"sync: SimpleFIN: {problem}", file=sys.stderr)
+    for account, theirs, mine in done.bank_differ:
+        print(f"\n{account}: the bank says {theirs:,.2f}, the ledger's posted rows {mine:,.2f}")
+        # Without amounts: the scheduled runs log errors, and nothing that names money.
+        print(
+            f"sync: SimpleFIN: the bank's balance for {account} differs from the ledger's "
+            "(`tally sync --dry-run` says by how much)",
+            file=sys.stderr,
+        )
     for account, new in done.banked.items():
         if not new:
             print(f"\nFrom SimpleFIN, {account}: nothing new.")

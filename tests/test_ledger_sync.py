@@ -272,16 +272,6 @@ def test_check_counts_rows_and_finds_extras(ledger_ready: Path) -> None:
     assert extra is not None and extra.extra == 1
 
 
-BALANCE_EMAIL = Path(__file__).parent / "fixtures" / "bofa_balance_alert.eml"
-
-
-def a_balance_email(data: Path, amount: str) -> None:
-    """Bank of America says checking had amount on Apr 1, 2026."""
-    folder = data / "alerts" / "gmail"
-    folder.mkdir(parents=True, exist_ok=True)
-    (folder / "balance.eml").write_text(BALANCE_EMAIL.read_text().replace("$1,234.56", amount))
-
-
 def checking_before_april(data: Path) -> Decimal:
     found, _, _ = loader.load_file(str(data / "ledger" / "main.beancount"))
     return sum(
@@ -295,23 +285,6 @@ def checking_before_april(data: Path) -> Decimal:
         ),
         Decimal(0),
     )
-
-
-def test_the_ledger_is_checked_against_the_banks_balance(ledger_ready: Path) -> None:
-    held = checking_before_april(ledger_ready)
-    conn = store.connect(ledger_ready / "tally.db")
-    a_balance_email(ledger_ready, f"${held:,.2f}")
-    agrees = updating.check(ledger_ready, conn)
-    a_balance_email(ledger_ready, f"${held + 300:,.2f}")
-    short = updating.check(ledger_ready, conn)
-    conn.close()
-    assert agrees is not None and agrees.ok
-    assert short is not None and not short.ok
-    assert short.problems() == [
-        f"Bank of America said Assets:BofA:Checking had ${held + 300:,.2f} on Apr 01, but the "
-        f"ledger has ${held:,.2f} by then ($300.00 more at the bank): a CSV import should "
-        "explain it."
-    ]
 
 
 def test_merchant_contains_takes_alternatives() -> None:
@@ -391,7 +364,10 @@ def test_sync_fills_sure_once_a_key_is_saved(
 
 
 def linked_bank(
-    ledger_ready: Path, monkeypatch: pytest.MonkeyPatch, *rows: simplefin.Transaction
+    ledger_ready: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *rows: simplefin.Transaction,
+    balance: Decimal = Decimal(0),
 ) -> None:
     """Link checking to a SimpleFIN account ending 1234 that has these rows."""
     accounts_file = ledger_ready / "ledger" / "accounts.beancount"
@@ -403,7 +379,7 @@ def linked_bank(
             )
         )
     account = simplefin.Account(
-        "a", "Adv SafeBalance (1234)", "Bank", "USD", Decimal(0), NOW.date(), list(rows)
+        "a", "Adv SafeBalance (1234)", "Bank", "USD", balance, NOW.date(), list(rows)
     )
     answer = simplefin.Answer([account], ["Capital One needs you to sign in again"])
     monkeypatch.setattr(cli, "_bank", lambda: lambda: answer)
@@ -465,3 +441,33 @@ def test_a_csv_for_an_account_simplefin_fills_is_refused(
     code, _, err = run(capsys, "import", str(BOFA))
     assert code == 1
     assert "bofa_checking comes from SimpleFIN now" in err
+
+
+def test_each_sync_checks_the_ledger_against_the_banks_balance(
+    ledger_ready: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    held = checking_before_april(ledger_ready)
+    linked_bank(ledger_ready, monkeypatch, balance=held)
+    code, out, err = run(capsys, "sync", "--dry-run")
+    assert code == 0 and "the bank says" not in out
+
+    linked_bank(ledger_ready, monkeypatch, balance=held + 300)
+    code, out, err = run(capsys, "sync", "--dry-run")
+    assert code == 0
+    assert (
+        f"Assets:BofA:Checking: the bank says {held + 300:,.2f}, the ledger's posted rows "
+        f"{held:,.2f}" in out
+    )
+    assert "sync: SimpleFIN: the bank's balance for Assets:BofA:Checking differs" in err
+    assert f"{held:,.2f}" not in err  # no amounts where the scheduled runs log
+
+
+def test_an_account_can_be_linked_for_its_balance_alone() -> None:
+    found, _, _ = loader.load_string(
+        '2026-01-01 open Assets:Savings USD\n  simplefin-account: "5678"\n'
+        '2026-01-01 open Assets:Checking USD\n  tally-account: "bofa_checking"\n'
+        '  simplefin-account: "1234"\n'
+    )
+    linked = accounts.from_entries(found)
+    assert linked.bank_accounts == {"5678": "Assets:Savings", "1234": "Assets:Checking"}
+    assert linked.simplefin == {"1234": "bofa_checking"}  # rows come in only with tally-account

@@ -43,7 +43,7 @@ answer. `tally sync` (Sundays, or by hand) does that:
 3. imported entries still in Uncategorized move to the category the rules now give, changing
    only the account name on that line; tally commits and pushes;
 4. it checks the ledger: every imported row and pending alert has exactly one entry,
-   bean-check is clean, and the ledger agrees with the bank's newest balance email.
+   bean-check is clean, and the ledger agrees with what the bank says each account holds.
 
 `tally sync --dry-run` shows all of it and saves nothing. The weekly summary lists any problem
 under "look out for". Entries you wrote yourself (no `tally-id`) and entries you split into
@@ -135,14 +135,13 @@ bean-check fails when an account's balance doesn't match an assertion. BofA expo
 their own balances; type the others from statements into `statements.beancount`. A row
 imported twice or missing then shows up as a failed balance.
 
-Between exports, BofA's daily balance email does the same for checking, for the days the
-ledger has only alerts. Turn it on in BofA's alert settings, for checking only: like the
-alerts, it's taken to be for checking. `tally sync` compares the newest email with the ledger's balance before the day it names
-(each purchase counted on the day it was made, as the bank does) and says when they
-differ. Money that moves without an alert (a transfer, a card payment, Zelle) shows up there
-until the next CSV import brings it in. It's a check, not an assertion: the email's
-"available" balance can differ by a hold or a late-night purchase, so it isn't written to
-the ledger.
+Each sync also asks SimpleFIN what the bank says every linked account holds, and compares
+that with the ledger's posted rows (pending ones left out, as the bank leaves them out of its
+balance). A missed or doubled row, or one the bank back-dated past what SimpleFIN returns,
+shows up there; so does interest on an account whose rows tally doesn't import. Link an
+account for this alone with `simplefin-account:` and no `tally-account:` (see
+[Importing](importing.md#from-simplefin-instead)). It's a check, not an assertion, so a
+difference never stops bean-check.
 
 ## Showing it in Sure
 

@@ -153,7 +153,7 @@ flowchart TD
     sync["tally sync<br/>ledger/updating.py"] --> corr["corrections.py<br/>a category set on a pending entry<br/>becomes a one-purchase rule"]
     sync --> claude["categorizing.py<br/>claude -p, no tools;<br/>answers become merchant rules"]
     sync --> moves["ledger/categories.py<br/>entries still Uncategorized<br/>move to the rules' answer"]
-    sync --> parity["ledger/parity.py<br/>every row once, bean-check,<br/>bank balance emails"]
+    sync --> parity["ledger/parity.py<br/>every row once, bean-check"]
 ```
 
 ## Modules
