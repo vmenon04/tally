@@ -441,7 +441,7 @@ def test_sync_adds_the_rows_simplefin_posted_since_the_csvs(
     assert len(list((ledger_ready / "raw" / "simplefin").glob("*.json"))) == 1
 
     code, out, _ = run(capsys, "sync")
-    assert code == 0 and "From SimpleFIN" not in out  # nothing new the second time
+    assert code == 0 and "From SimpleFIN, bofa_checking: nothing new." in out
 
 
 def test_a_csv_for_an_account_simplefin_fills_is_refused(

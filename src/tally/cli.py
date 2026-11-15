@@ -689,6 +689,9 @@ def _sync(dry_run: bool) -> int:
     for problem in done.bank_problems:
         print(f"sync: SimpleFIN: {problem}", file=sys.stderr)
     for account, new in done.banked.items():
+        if not new:
+            print(f"\nFrom SimpleFIN, {account}: nothing new.")
+            continue
         verb = "would add" if dry_run else "added"
         print(f"\nFrom SimpleFIN, {account} ({verb} {len(new)}):")
         print("\n".join(f"  {t.date}  {t.amount:>10}  {t.merchant}" for t in new))

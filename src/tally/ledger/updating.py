@@ -240,7 +240,7 @@ def sync(
     book.write_pending(ledger, waiting, month_rules)
     if brokerage is not None:
         _record_holdings(book.load(ledger.folder, month_rules), brokerage, result, dry_run=False)
-    if result.changes or result.holdings_added or result.banked:
+    if result.changes or result.holdings_added or any(result.banked.values()):
         save(ledger.folder, "Bring the ledger up to date", err)
     ledger = book.load(ledger.folder, month_rules)
     result.check = _compare(data_dir, ledger, counted)
@@ -280,9 +280,9 @@ def _import_from_bank(
     kept: list[dict[str, str]] = []
     for account, rows in found.items():
         new = _not_stored(store.transactions(conn, account), rows)
+        result.banked[account] = new
         if not new:
             continue
-        result.banked[account] = new
         kept += [_raw(t) for t in new]
         # Stored in a dry run too: its database is a copy, and the steps after count them.
         store.save(
