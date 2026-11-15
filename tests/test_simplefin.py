@@ -1,12 +1,15 @@
 import base64
 import datetime
+import json
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 import pytest
 import requests
 
 from tally import simplefin
+from tally.cli import main
 
 CLAIM = "https://bridge.example/simplefin/claim/abc"
 TOKEN = base64.b64encode(CLAIM.encode()).decode()
@@ -24,6 +27,7 @@ BODY: dict[str, Any] = {
             "currency": "USD",
             "balance": "-74.20",
             "balance-date": DAY,
+            "available-balance": "925.80",
             "transactions": [
                 {"id": "t1", "posted": DAY - 86400, "amount": "-5.90", "description": " MAPLE "},
                 {
@@ -100,6 +104,7 @@ def test_fetch_asks_with_the_credentials_apart_and_reads_the_answer() -> None:
         True,
     )
     assert found.problems == ["Capital One needs you to sign in again"]
+    assert account.unread == {"available-balance": "925.80"}  # kept as the bridge sent it
 
 
 @pytest.mark.parametrize(
@@ -165,3 +170,17 @@ def test_rows_are_a_linked_accounts_posted_rows_as_its_export_gives_them() -> No
     )
     with pytest.raises(simplefin.SimpleFINError, match="no one account ending in 9999"):
         simplefin.rows(found, {"9999": "discover"})
+
+
+def test_the_extra_option_shows_what_tally_doesnt_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("TALLY_SECRETS_DIR", str(tmp_path))
+    (tmp_path / simplefin.ACCESS_FILE).write_text(ACCESS + "\n")
+    monkeypatch.setattr(
+        simplefin, "fetch", lambda *a, **k: simplefin._answer(json.loads(json.dumps(BODY)))
+    )
+    assert main(["simplefin", "--extra", " It"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"available-balance": "925.80"}
+    assert main(["simplefin", "--extra", "9999"]) == 1
+    assert "no account ending in 9999" in capsys.readouterr().err

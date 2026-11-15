@@ -62,6 +62,8 @@ class Account:
     balance: Decimal
     balance_date: datetime.date
     transactions: list[Transaction] = field(default_factory=list)
+    # What else the bridge sent for the account (holdings, say), as it sent it.
+    unread: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,6 +134,18 @@ def fetch(
         raise SimpleFINError(f"unexpected answer from the bridge: {e}") from None
 
 
+_READ = {
+    "id",
+    "name",
+    "conn_id",
+    "conn_name",
+    "currency",
+    "balance",
+    "balance-date",
+    "transactions",
+}
+
+
 def _answer(body: dict[str, Any]) -> Answer:
     banks = {str(c["conn_id"]): str(c["name"]) for c in body.get("connections", [])}
     accounts = [
@@ -143,6 +157,7 @@ def _answer(body: dict[str, Any]) -> Answer:
             balance=Decimal(str(a["balance"])),
             balance_date=_day(a["balance-date"]) or datetime.date.min,
             transactions=[_transaction(t) for t in a.get("transactions", [])],
+            unread={k: v for k, v in a.items() if k not in _READ},
         )
         for a in body["accounts"]
     ]

@@ -5,6 +5,7 @@ import datetime
 import getpass
 import html
 import io
+import json
 import os
 import sys
 import tempfile
@@ -119,6 +120,12 @@ def main(argv: list[str] | None = None) -> int:
         metavar="LAST4",
         help="instead, list the last 30 days' transactions of the account ending in these digits",
     )
+    simplefin_parser.add_argument(
+        "--extra",
+        metavar="LAST4",
+        help="instead, show what else the bridge sends for the account ending in these digits, "
+        "beyond its balance and transactions (holdings, say)",
+    )
 
     snaptrade_parser = commands.add_parser(
         "snaptrade",
@@ -178,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "simplefin-login":
         return _simplefin_login()
     if args.command == "simplefin":
-        return _simplefin(transactions_of=args.transactions)
+        return _simplefin(transactions_of=args.transactions, extra_of=args.extra)
     if args.command == "snaptrade":
         try:
             client = snaptrade.Client.from_secrets(config.secrets_dir())
@@ -289,7 +296,12 @@ def _simplefin_login() -> int:
     return _simplefin(balances_only=True)
 
 
-def _simplefin(*, balances_only: bool = False, transactions_of: str | None = None) -> int:
+def _simplefin(
+    *,
+    balances_only: bool = False,
+    transactions_of: str | None = None,
+    extra_of: str | None = None,
+) -> int:
     path = config.secrets_dir() / simplefin.ACCESS_FILE
     access = categorizing.load_token(path)
     if access is None:
@@ -303,6 +315,13 @@ def _simplefin(*, balances_only: bool = False, transactions_of: str | None = Non
     except simplefin.SimpleFINError as e:
         print(f"simplefin: {e}", file=sys.stderr)
         return 1
+    if extra_of is not None:
+        account = simplefin.account_ending(found, extra_of)
+        if account is None:
+            print(f"simplefin: no account ending in {extra_of}", file=sys.stderr)
+            return 1
+        print(json.dumps(account.unread, indent=1, sort_keys=True) if account.unread else "nothing")
+        return 0
     if transactions_of is None:
         print("\n".join(simplefin.overview(found, today)))
         return 0
