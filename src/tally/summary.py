@@ -11,8 +11,8 @@ summary (see summary_note):
   rent or a yearly fee land in one go, so pace says nothing about them.
 - A purchase is *big* when it's BIG_SHARE or more of its category's monthly plan, and the
   category had other purchases this month (a lone one is a bill, like rent or a remittance).
-- The monthly CSV import is *due* from IMPORT_DUE_DAY of a month until an account's CSVs reach
-  the last day of the month before.
+- An account is *behind* from IMPORT_DUE_DAY of a month until its posted rows reach the last
+  day of the month before: SimpleFIN has stopped for it, or its CSVs are due.
 - The Roth IRA check adds what tally has seen this year, `roth_elsewhere` from config.toml, and
   the amounts typed for the rest of the year, and compares them with `roth_limit`.
 """
@@ -293,8 +293,9 @@ def _imports_due(today: datetime.date, posted: list[Transaction]) -> list[str]:
         day = t.posted or t.date
         covered[t.account] = max(covered.get(t.account, day), day)
     return [
-        f"Time for the monthly import: {ACCOUNT_NAMES.get(account, account)}'s CSVs end "
-        f"{day:%b %-d}. Download {month_end:%B}'s statement CSV and run `tally import`."
+        f"Time to catch up {ACCOUNT_NAMES.get(account, account)}: nothing posted since "
+        f"{day:%b %-d}. Check SimpleFIN, or for an account it doesn't fill, import "
+        f"{month_end:%B}'s statement CSV."
         for account, day in sorted(covered.items())
         if day < month_end
     ]

@@ -271,25 +271,26 @@ def alert(message_id: str = "<a1@example.com>", day: int = 12) -> Alert:
 
 
 def test_alerts_round_trip(db: sqlite3.Connection) -> None:
-    assert store.save_alert(db, alert(), now=NOW) is True
+    assert store.see_alert(db, alert()) is True
     assert store.alerts(db) == [alert()]
 
 
-def test_same_email_is_stored_once(db: sqlite3.Connection) -> None:
-    assert store.save_alert(db, alert(), now=NOW) is True
-    assert store.save_alert(db, alert(), now=NOW) is False
-    assert store.alerts(db) == [alert()]
+def test_seeing_an_alert_again_brings_it_up_to_date(db: sqlite3.Connection) -> None:
+    assert store.see_alert(db, alert()) is True
+    later = dataclasses.replace(alert(), amount=Decimal("-48.00"), received=NOW)
+    assert store.see_alert(db, later) is False
+    assert store.alerts(db) == [later]  # a tip added, and when it was last listed
 
 
 def test_alerts_oldest_purchase_first(db: sqlite3.Connection) -> None:
-    store.save_alert(db, alert("<late@example.com>", day=14), now=NOW)
-    store.save_alert(db, alert("<early@example.com>", day=2), now=NOW)
+    store.see_alert(db, alert("<late@example.com>", day=14))
+    store.see_alert(db, alert("<early@example.com>", day=2))
     assert [a.message_id for a in store.alerts(db)] == ["<early@example.com>", "<late@example.com>"]
 
 
 def test_alerts_with_ids(db: sqlite3.Connection) -> None:
-    store.save_alert(db, alert("<late@example.com>", day=14), now=NOW)
-    store.save_alert(db, alert("<early@example.com>", day=2), now=NOW)
+    store.see_alert(db, alert("<late@example.com>", day=14))
+    store.see_alert(db, alert("<early@example.com>", day=2))
     assert [(i, a.message_id) for i, a in store.alerts_with_ids(db)] == [
         (2, "<early@example.com>"),
         (1, "<late@example.com>"),

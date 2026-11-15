@@ -129,9 +129,8 @@ def test_waiting_alerts_go_to_pending_after_the_last_balance(tmp_path: Path) -> 
     data_dir = make_data_dir(tmp_path)
     run(data_dir, BOFA)  # covers 03/01-03/14; settled balance asserted on 03/12
     conn = store.connect(data_dir / "tally.db")
-    now = datetime.datetime(2026, 3, 20, tzinfo=datetime.UTC)
-    store.save_alert(conn, alert(datetime.date(2026, 3, 11), "SNACK BAR", "-4.00", 1), now=now)
-    store.save_alert(conn, alert(datetime.date(2026, 3, 18), "MAPLE MARKET", "-9.00", 2), now=now)
+    store.see_alert(conn, alert(datetime.date(2026, 3, 11), "SNACK BAR", "-4.00", 1))
+    store.see_alert(conn, alert(datetime.date(2026, 3, 18), "MAPLE MARKET", "-9.00", 2))
     session = updating.open_session(data_dir)
     assert session is not None
     assert updating.refresh_pending(session, conn) == []  # nothing you changed to keep

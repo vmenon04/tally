@@ -13,7 +13,7 @@ It covers the 7 days up to today (or the `--as-of` day; anything later is left o
 - **The month so far:** each category's spending against its plan, and what's left per day.
   In a month's first days, how the month before ended.
 - **Look out for:** categories over plan or ahead of pace, big purchases, uncategorized
-  transactions, alerts missing from a bank export, the monthly import when it's due, and
+  transactions, an account with nothing posted since last month (SimpleFIN stopped), and
   anything wrong with the ledger (a row missing or doubled, a bean-check error, a
   balance that differs from the bank's).
 - **Coming up:** next month's paychecks, planned spending and Roth IRA transfer, and whether the
@@ -51,7 +51,7 @@ roth_elsewhere = 140     # contributed this year where tally can't see it (befor
 
 ## By email
 
-`--email` sends the same text from the alerts mailbox (`gmail_account`) to the address in
+`--email` sends the same text from your Gmail account (`gmail_account`) to the address in
 `summary_to`:
 
 ```toml

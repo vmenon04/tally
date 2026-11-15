@@ -7,7 +7,7 @@ The server holds the only copy of the data. Everything runs there as a `tally` s
 |---|---|
 | `/srv/tally/app/` | The deployed code (`REVISION` names its commit); `app.old/` is the one before |
 | `/srv/tally/venv/` | The environment the runs use, with tally installed as a copy |
-| `/srv/tally/data/` | `TALLY_DATA_DIR`: database, `config.toml`, `rules.toml`, alert emails |
+| `/srv/tally/data/` | `TALLY_DATA_DIR`: database, `config.toml`, `rules.toml`, the ledger, raw downloads |
 | `/srv/tally/secrets/` | `TALLY_SECRETS_DIR` |
 | `/srv/tally/bin/uv` | uv, pinned |
 | `/srv/tally-inbox/` | Drop folder: you can write, `tally` can read (`2770`, group `tally`) |
@@ -43,13 +43,12 @@ password, unlike running tally, because new code can read the secrets.
 
 | Timer | Runs | When |
 |---|---|---|
-| `tally-alerts.timer` | `tally alerts` | every 5 minutes |
 | `tally-summary.timer` | `tally summary --email --sync` | Sundays at 6pm New York time (at boot instead, if the server was off then) |
-| `tally-sync.timer` | `tally sync` | every night at 3:30am New York time, so Claude categorizes new merchants within a day, Fidelity holdings stay current and Sure matches the ledger |
+| `tally-sync.timer` | `tally sync` | every 2 hours: new transactions and pending purchases from SimpleFIN, Claude for new merchants, Fidelity holdings once a day, Sure made to match, notifications |
 
 Each runs through its `.service`, sandboxed so it can write only to `/srv/tally/data`.
-`systemctl list-timers 'tally-*'` shows the next runs; `journalctl -u tally-alerts -u
-tally-summary -u tally-sync` shows errors (the output itself isn't logged, since it names merchants and
+`systemctl list-timers 'tally-*'` shows the next runs; `journalctl -u tally-summary -u
+tally-sync` shows errors (the output itself isn't logged, since it names merchants and
 amounts). Commands run through `tally-run` aren't sandboxed, but run as the same `tally` user.
 
 ## Fava, to edit the ledger
@@ -152,5 +151,5 @@ sudo systemctl daemon-reload
 
 Then `bin/tally-remote deploy` from your machine, copy `data/` and `secrets/` into
 `/srv/tally` (owned by `tally`, 700 folders and 600 files), and
-`sudo systemctl enable --now tally-alerts.timer tally-summary.timer tally-sync.timer`.
+`sudo systemctl enable --now tally-summary.timer tally-sync.timer`.
 Sure and its chat are set up as above.

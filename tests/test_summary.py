@@ -129,10 +129,10 @@ def test_monthly_import_is_due_from_the_third() -> None:
         tx(20, "MARKET", "-1.00", month=2),
         tx(28, "MARKET", "-1.00", month=2, account="bofa_checking"),
     )
-    assert look_out(build(*rows, today=datetime.date(2026, 3, 2)), "Time for") == []
-    assert look_out(build(*rows, today=datetime.date(2026, 3, 3)), "Time for") == [
-        "Time for the monthly import: Discover's CSVs end Feb 20. "
-        "Download February's statement CSV and run `tally import`."
+    assert look_out(build(*rows, today=datetime.date(2026, 3, 2)), "Time to catch up") == []
+    assert look_out(build(*rows, today=datetime.date(2026, 3, 3)), "Time to catch up") == [
+        "Time to catch up Discover: nothing posted since Feb 20. Check SimpleFIN, or for an "
+        "account it doesn't fill, import February's statement CSV."
     ]
 
 
@@ -142,9 +142,9 @@ def test_pending_alerts_never_count_as_imported() -> None:
         today=datetime.date(2026, 4, 5),
         pending=(tx(30, "MARKET", "-1.00"),),
     )
-    assert look_out(s, "Time for") == [
-        "Time for the monthly import: Discover's CSVs end Feb 28. "
-        "Download March's statement CSV and run `tally import`."
+    assert look_out(s, "Time to catch up") == [
+        "Time to catch up Discover: nothing posted since Feb 28. Check SimpleFIN, or for an "
+        "account it doesn't fill, import March's statement CSV."
     ]
 
 

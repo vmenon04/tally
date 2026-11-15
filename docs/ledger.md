@@ -13,11 +13,13 @@ exists, so tally works as before without one.
   happened even when they post later, so an export's last days can still gain rows. A file the ledger can't take (an account or category with no ledger
   account) isn't imported anywhere. Afterwards it runs bean-check and reports any problem,
   commits the ledger and pushes it.
-- **`tally alerts`** (and `import`) rewrites `pending.beancount`: alert emails no export has
-  reached yet, flagged `!`. Each disappears once its posted row arrives. It isn't in git.
+- **`tally sync`** (every two hours) adds what SimpleFIN posted, and it and `import` rewrite
+  `pending.beancount`: the purchases still pending ([Pending
+  purchases](notifications.md#pending-purchases)), flagged `!`. Each disappears once its
+  posted row arrives. It isn't in git.
 
 Entries are dated by **posting date**, which is what statements and running balances count;
-`purchased:` holds the day it happened when that differs. A pending alert is dated no earlier
+`purchased:` holds the day it happened when that differs. A pending purchase is dated no earlier
 than its account's latest balance assertion, since it can't have posted inside a period an
 export already covers.
 
@@ -34,15 +36,14 @@ in Fava (open the entry, then edit it) or in the file: `Expenses:Groceries` inst
 
 `rules.toml` only fills in what nobody has decided: a new entry gets the category the rules
 give when it's imported, and an entry still in Uncategorized moves once the rules have an
-answer. `tally sync` (Sundays, or by hand) does that:
+answer. `tally sync` (every two hours, or by hand) does that:
 
 1. a category you set on a pending purchase (in `pending.beancount`) becomes a rule for that
-   one purchase, so the 5-minute refresh keeps it and the posted row gets it too (the alerts
-   run does this as well);
+   one purchase, so rewriting the file keeps it and the posted row gets it too;
 2. Claude categorizes merchants no rule covers yet, and its answers become merchant rules;
 3. imported entries still in Uncategorized move to the category the rules now give, changing
    only the account name on that line; tally commits and pushes;
-4. it checks the ledger: every imported row and pending alert has exactly one entry,
+4. it checks the ledger: every imported row and pending purchase has exactly one entry,
    bean-check is clean, and the ledger agrees with what the bank says each account holds.
 
 `tally sync --dry-run` shows all of it and saves nothing. The weekly summary lists any problem
@@ -153,7 +154,7 @@ ledger's. An account takes part when its open directive names the Sure account i
       tally-account: "bofa_checking"
       sure-account: "BofA Checking"
 
-Each posting tally imported to such an account, pending alerts included, is one Sure
+Each posting tally imported to such an account, pending purchases included, is one Sure
 transaction: on the day of the purchase, named after the merchant, in the entry's category
 (categories Sure lacks are created). Both sides of a transfer between two such accounts are
 sent, and Sure pairs them up itself.

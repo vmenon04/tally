@@ -4,12 +4,15 @@ ntfy topics have no password: anyone who knows a topic's name can read it, and t
 sees every message. So the topic is a long random name kept in secrets/, and messages never
 carry merchants or amounts, only what kind of thing happened and how many.
 
-tally runs every few minutes, so each event has a key, and an event is announced once (a
-mailbox failure again after REPEAT_FAILURE if it's still failing). An event is only recorded
-as announced once ntfy has accepted it, so one that fails to send is tried on the next run.
+Each `tally sync` (every two hours on the server) announces what's new since the last: new
+pending purchases, a bank that needs signing in to again at SimpleFIN, an account whose
+balance differs from the bank's, and a week with nothing new. Each event has a key and is
+announced once (SimpleFIN failing again after REPEAT_FAILURE if it still is). An event is
+only recorded as announced once ntfy has accepted it, so one that fails to send is tried on
+the next run.
 
-A mailbox failure is only announced once the mailbox has failed for MAILBOX_GRACE in a row:
-a single run timing out now and then is ordinary network noise, and the next run catches up.
+SimpleFIN failing is only announced once it has failed for BANK_GRACE in a row: one run
+timing out now and then is ordinary network noise, and the next run catches up.
 """
 
 import datetime
@@ -25,13 +28,12 @@ import requests
 from tally import config, store
 
 REPEAT_FAILURE = datetime.timedelta(hours=6)
-# Nothing new for this long means something upstream stopped: the alerts filter, the
-# mailbox, or the monthly exports.
+# Nothing new for this long means something upstream stopped: SimpleFIN, or a bank in it.
 STALE_AFTER = datetime.timedelta(days=7)
-MAILBOX_GRACE = datetime.timedelta(minutes=15)
-MAILBOX_FAILURE = "mailbox-failure"
-# When the current run of mailbox failures began, kept alongside the sent notifications.
-FAILING_SINCE = "mailbox-failing-since"
+BANK_GRACE = datetime.timedelta(hours=3)  # longer than one sync to the next
+BANK_FAILURE = "bank-failure"
+# When the current run of SimpleFIN failures began, kept alongside the sent notifications.
+FAILING_SINCE = "bank-failing-since"
 
 _TOPIC = re.compile(r"[A-Za-z0-9_-]{20,64}")
 
@@ -45,21 +47,27 @@ class _Kind:
 
 # In the order they're sent.
 KINDS = {
-    "refused": _Kind(
-        "1 alert email refused, check tally", "{n} alert emails refused, check tally", "high"
+    "bank": _Kind(
+        "can't read your accounts through SimpleFIN",
+        "can't read your accounts through SimpleFIN",
+        "high",
     ),
-    "mailbox": _Kind("can't read the alerts mailbox", "can't read the alerts mailbox", "high"),
-    "not_found": _Kind(
-        "1 purchase missing from the bank export",
-        "{n} purchases missing from the bank export",
+    "signin": _Kind(
+        "a bank needs you to sign in again at SimpleFIN",
+        "{n} banks need you to sign in again at SimpleFIN",
+        "high",
+    ),
+    "balance": _Kind(
+        "1 account's balance differs from the bank's, check tally",
+        "{n} accounts' balances differ from the bank's, check tally",
         "default",
     ),
     "stale": _Kind(
-        "no new transactions for a week, check the alerts and exports",
-        "no new transactions for a week, check the alerts and exports",
+        "no new transactions for a week, check SimpleFIN",
+        "no new transactions for a week, check SimpleFIN",
         "default",
     ),
-    "new": _Kind("1 new card alert", "{n} new card alerts", "low"),
+    "new": _Kind("1 new pending purchase", "{n} new pending purchases", "low"),
 }
 
 
@@ -114,15 +122,15 @@ def save_topic(path: Path, topic: str) -> None:
     config.write_secret(path, topic + "\n")
 
 
-def mailbox_failed(conn: sqlite3.Connection, now: datetime.datetime) -> list[Event]:
-    """Note a failed mailbox read. The failure event, once it has lasted MAILBOX_GRACE."""
+def bank_failed(conn: sqlite3.Connection, now: datetime.datetime) -> list[Event]:
+    """Note that SimpleFIN couldn't be asked. The failure event, once it has lasted BANK_GRACE."""
     since = store.notifications(conn).get(FAILING_SINCE)
     if since is None:
         store.record_notifications(conn, [FAILING_SINCE], now)
         since = now
-    if now - since < MAILBOX_GRACE:
+    if now - since < BANK_GRACE:
         return []
-    return [Event("mailbox", MAILBOX_FAILURE)]
+    return [Event("bank", BANK_FAILURE)]
 
 
 def stale(conn: sqlite3.Connection, now: datetime.datetime) -> list[Event]:
@@ -136,10 +144,10 @@ def stale(conn: sqlite3.Connection, now: datetime.datetime) -> list[Event]:
     return [Event("stale", f"stale:{last.isoformat()}")]
 
 
-def mailbox_read(conn: sqlite3.Connection) -> None:
-    """The mailbox was read: a later failure starts a new grace period and is announced afresh."""
+def bank_read(conn: sqlite3.Connection) -> None:
+    """SimpleFIN answered: a later failure starts a new grace period and is announced afresh."""
     store.forget_notification(conn, FAILING_SINCE)
-    store.forget_notification(conn, MAILBOX_FAILURE)
+    store.forget_notification(conn, BANK_FAILURE)
 
 
 def send_new(
@@ -159,7 +167,7 @@ def send_new(
         last = sent.get(e.key)
         if last is None:
             return True
-        return e.kind == "mailbox" and now - last >= REPEAT_FAILURE
+        return e.kind == "bank" and now - last >= REPEAT_FAILURE
 
     fresh = [e for e in events if due(e)]
     messages = []

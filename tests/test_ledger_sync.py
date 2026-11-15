@@ -4,11 +4,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import requests
 from beancount import loader
 from beancount.core.data import Transaction
 from test_ledger_importers import BOFA
 
-from tally import categorizing, cli, simplefin, store, sure
+from tally import categorizing, cli, notify, simplefin, store, sure
 from tally.alerts import Alert
 from tally.cli import main
 from tally.ledger import accounts, book, mirror, updating, weekly
@@ -181,7 +182,7 @@ def alert(n: int, day: int, merchant: str, amount: str) -> Alert:
 
 def test_a_category_set_on_a_pending_entry_is_kept(ledger_ready: Path) -> None:
     conn = store.connect(ledger_ready / "tally.db")
-    store.save_alert(conn, alert(1, 18, "MAPLE MARKET", "-9.00"), now=NOW)
+    store.see_alert(conn, alert(1, 18, "MAPLE MARKET", "-9.00"))
     session = updating.open_session(ledger_ready, conn)
     assert session is not None
     updating.refresh_pending(session, conn)
@@ -471,3 +472,55 @@ def test_an_account_can_be_linked_for_its_balance_alone() -> None:
     linked = accounts.from_entries(found)
     assert linked.bank_accounts == {"5678": "Assets:Savings", "1234": "Assets:Checking"}
     assert linked.simplefin == {"1234": "bofa_checking"}  # rows come in only with tally-account
+
+
+def ntfy_posts(monkeypatch: pytest.MonkeyPatch) -> list[bytes]:
+    assert main(["ntfy-setup"]) == 0
+    posted: list[bytes] = []
+
+    def post(url: str, **kwargs: Any) -> requests.Response:
+        posted.append(kwargs["data"])
+        response = requests.Response()
+        response.status_code = 200
+        return response
+
+    monkeypatch.setattr(requests, "post", post)
+    return posted
+
+
+def test_a_sync_announces_new_pending_purchases_once(
+    ledger_ready: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pending_row = simplefin.Transaction("p", None, None, Decimal("-5.00"), "OAK BAKERY", True)
+    held = checking_before_april(ledger_ready)
+    linked_bank(ledger_ready, monkeypatch, pending_row, balance=held)
+    posted = ntfy_posts(monkeypatch)
+    capsys.readouterr()
+    run(capsys, "sync", "--dry-run")
+    assert posted == []  # a dry run announces nothing
+
+    code, out, _ = run(capsys, "sync")
+    assert code == 0 and "Notified: 1 new pending purchase" in out
+    run(capsys, "sync")
+    assert posted == [
+        b"a bank needs you to sign in again at SimpleFIN",  # what linked_bank's bridge says
+        b"1 new pending purchase",
+    ]
+
+
+def test_simplefin_failing_is_announced_once_it_lasts(
+    ledger_ready: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    posted = ntfy_posts(monkeypatch)
+
+    def down() -> simplefin.Answer:
+        raise simplefin.SimpleFINError("couldn't reach the bridge: ConnectionError")
+
+    linked_bank(ledger_ready, monkeypatch)
+    monkeypatch.setattr(cli, "_bank", lambda: down)
+    code, _, err = run(capsys, "sync")
+    assert code == 0 and "sync: SimpleFIN: couldn't reach the bridge" in err
+    assert posted == []  # one failure is network noise
+    monkeypatch.setattr(notify, "BANK_GRACE", datetime.timedelta(0))
+    run(capsys, "sync")
+    assert posted == [b"can't read your accounts through SimpleFIN"]

@@ -79,3 +79,24 @@ def test_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
     msg = mailer.message("alerts@example.com", "me@example.com", "s", "b")
     with pytest.raises(mailer.MailError, match="ConnectionRefusedError"):
         mailer.send("alerts@example.com", "abcdefghijklmnop", msg)
+
+
+def test_check_signs_in_and_sends_nothing(smtp: type[FakeSMTP]) -> None:
+    mailer.check("me@example.com", "abcdefghijklmnop")
+    [conn] = smtp.instances
+    assert (conn.logins, conn.sent) == ([("me@example.com", "abcdefghijklmnop")], [])
+    smtp.fail_login = True
+    with pytest.raises(mailer.MailError, match="refused the app password"):
+        mailer.check("me@example.com", "abcdefghijklmnop")
+
+
+def test_app_password_takes_only_an_app_password(tmp_path: Any) -> None:
+    assert mailer.app_password("abcd efgh ijkl mnop\n") == "abcdefghijklmnop"
+    with pytest.raises(mailer.MailError, match="isn't an app password"):
+        mailer.app_password("my-account-password")
+    path = tmp_path / "secrets" / "gmail-app-password"
+    with pytest.raises(mailer.MailError, match="run `tally gmail-login`"):
+        mailer.load_password(path)
+    mailer.save_password(path, "abcdefghijklmnop")
+    assert mailer.load_password(path) == "abcdefghijklmnop"
+    assert path.stat().st_mode & 0o777 == 0o600

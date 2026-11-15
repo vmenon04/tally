@@ -15,12 +15,10 @@ from typing import Any
 
 from tally import (
     advice,
-    alert_reading,
     categorizing,
     chat,
     config,
     corrections,
-    gmail,
     importing,
     lookups,
     mailer,
@@ -59,27 +57,11 @@ def main(argv: list[str] | None = None) -> int:
         "--dry-run", action="store_true", help="show what would be imported without saving"
     )
 
-    alerts_parser = commands.add_parser(
-        "alerts",
-        help="read the alerts mailbox",
-        description="Fetch the Discover and BofA alert emails tally hasn't read yet from the "
-        "alerts mailbox, store each alert once, and list the alerts no imported CSV row "
-        "explains yet.",
-    )
-    alerts_parser.add_argument(
-        "--reread",
-        action="store_true",
-        help="read the emails already fetched from the mailbox again, after a new alert "
-        "type is supported",
-    )
-    alerts_parser.add_argument(
-        "--dry-run", action="store_true", help="show what would be stored without saving"
-    )
-
     commands.add_parser(
         "gmail-login",
-        help="save the alerts mailbox's app password",
-        description="Save the alerts mailbox's app password, after checking Gmail accepts it.",
+        help="save the app password the weekly summary is sent with",
+        description="Save the Gmail app password for gmail_account (config.toml), after "
+        "checking Gmail accepts it. The weekly summary is sent with it.",
     )
 
     ntfy_parser = commands.add_parser(
@@ -123,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
     summary_parser.add_argument(
         "--email",
         action="store_true",
-        help="also email it, from the alerts mailbox to summary_to in config.toml",
+        help="also email it, from gmail_account to summary_to in config.toml",
     )
     summary_parser.add_argument(
         "--sync",
@@ -207,11 +189,6 @@ def main(argv: list[str] | None = None) -> int:
             args.files, data_dir(), dry_run=args.dry_run, out=sys.stdout, err=sys.stderr
         )
         return 0 if ok else 1
-    if args.command == "alerts":
-        if not args.reread:
-            return _alerts_from_gmail(dry_run=args.dry_run)
-        ok = alert_reading.reread(data_dir(), dry_run=args.dry_run, out=sys.stdout, err=sys.stderr)
-        return 0 if ok else 1
     if args.command == "gmail-login":
         return _gmail_login()
     if args.command == "ntfy-setup":
@@ -262,7 +239,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def data_dir() -> Path:
-    """Where the database, inbox, alerts and downloads live: TALLY_DATA_DIR, else ./data."""
+    """Where the database, inbox, ledger and downloads live: TALLY_DATA_DIR, else ./data."""
     return Path(os.environ.get("TALLY_DATA_DIR", "data"))
 
 
@@ -288,26 +265,25 @@ def _gmail_account() -> str:
     account = config.load(data_dir() / "config.toml").gmail_account
     if account is None:
         raise config.ConfigError(
-            "set gmail_account in config.toml to the address the alerts are forwarded to"
+            "set gmail_account in config.toml to the Gmail address the summary is sent from"
         )
     return account
 
 
 def _gmail_login() -> int:
-    """Ask for the alerts mailbox's app password, check Gmail accepts it, and save it."""
+    """Ask for gmail_account's app password, check Gmail accepts it, and save it."""
     try:
         account = _gmail_account()
         typed = getpass.getpass(f"App password for {account} (input is hidden): ")
-        password = gmail.app_password(typed)
-        with gmail.ImapMailbox.connect(account, password):
-            pass
-    except (config.ConfigError, gmail.GmailError) as e:
+        password = mailer.app_password(typed)
+        mailer.check(account, password)
+    except (config.ConfigError, mailer.MailError) as e:
         print(f"gmail-login: {e}", file=sys.stderr)
         return 1
     except (EOFError, KeyboardInterrupt):
         print("\ngmail-login: cancelled, nothing saved.", file=sys.stderr)
         return 1
-    gmail.save_password(gmail_password_file(), password)
+    mailer.save_password(gmail_password_file(), password)
     print(f"Gmail accepted it. Saved to {gmail_password_file()} (readable only by you).")
     return 0
 
@@ -373,32 +349,6 @@ def _simplefin(*, balances_only: bool = False, transactions_of: str | None = Non
     return 0
 
 
-def _alerts_from_gmail(dry_run: bool) -> int:
-    try:
-        account = _gmail_account()
-    except config.ConfigError as e:
-        print(f"alerts: {e}", file=sys.stderr)
-        return 1
-    try:
-        password = gmail.load_password(gmail_password_file())
-        mailbox = gmail.ImapMailbox.connect(account, password)
-    except gmail.GmailError as e:
-        print(f"alerts: {e}", file=sys.stderr)
-        if not dry_run:
-            _notify([], mailbox_ok=False)
-        return 1
-    with mailbox:
-        run = alert_reading.run_gmail(
-            data_dir(), mailbox, account, dry_run=dry_run, out=sys.stdout, err=sys.stderr
-        )
-    if not dry_run:
-        events = [notify.Event("new", f"new:{a.message_id}") for a in run.added]
-        events += [notify.Event("refused", f"refused:{i}") for i in run.refused]
-        events += [notify.Event("not_found", f"not-found:{a.message_id}") for a in run.not_found]
-        _notify(events, mailbox_ok=run.failure is None)
-    return 0 if run.ok else 1
-
-
 def ntfy_topic_file() -> Path:
     return config.secrets_dir() / "ntfy-topic"
 
@@ -409,12 +359,8 @@ def _sender() -> notify.NtfySender:
     return notify.NtfySender(settings.ntfy_server, notify.load_topic(ntfy_topic_file()))
 
 
-def _notify(events: list[notify.Event], *, mailbox_ok: bool) -> None:
-    """Announce the events not announced before. Never fails the command.
-
-    mailbox_ok says whether this run read the mailbox; a failure is announced only once it
-    has lasted a while (see notify.MAILBOX_GRACE).
-    """
+def _notify(done: updating.SyncResult) -> None:
+    """Announce what this sync found that wasn't announced before. Never fails the command."""
     try:
         sender = _sender()
     except notify.NotifyError:
@@ -423,15 +369,20 @@ def _notify(events: list[notify.Event], *, mailbox_ok: bool) -> None:
     except config.ConfigError as e:
         print(f"notify: {e}", file=sys.stderr)
         return
-    importing.private_dir(data_dir())
+    events = [notify.Event("new", f"new:{a.message_id}") for a in done.pending]
+    events += [notify.Event("signin", f"signin:{problem}") for problem in done.bank_problems]
+    events += [
+        notify.Event("balance", f"balance:{account}:{theirs}:{mine}")
+        for account, theirs, mine in done.bank_differ
+    ]
     conn = store.connect(data_dir() / "tally.db")
     try:
         now = datetime.datetime.now(datetime.UTC)
-        if mailbox_ok:
-            notify.mailbox_read(conn)
+        if done.bank_failed is None:
+            notify.bank_read(conn)
         else:
-            events = [*events, *notify.mailbox_failed(conn, now)]
-        events = [*events, *notify.stale(conn, now)]
+            events += notify.bank_failed(conn, now)
+        events += notify.stale(conn, now)
         for message in notify.send_new(conn, sender, events, now, sys.stderr):
             print(f"Notified: {message}")
     finally:
@@ -570,8 +521,8 @@ def _summary(as_of: datetime.date | None, *, email: bool, sync: bool) -> int:
         summary_email.format_html(result, ledger_html),
     )
     try:
-        mailer.send(sender, gmail.load_password(gmail_password_file()), msg)
-    except (gmail.GmailError, mailer.MailError) as e:
+        mailer.send(sender, mailer.load_password(gmail_password_file()), msg)
+    except mailer.MailError as e:
         print(f"summary: not emailed: {e}", file=sys.stderr)
         return 1
     print(f"\nEmailed to {recipient}.")
@@ -686,6 +637,8 @@ def _sync(dry_run: bool) -> int:
         return 1
 
     print("Dry run: nothing will be changed." if dry_run else "Bringing the ledger up to date.")
+    if done.bank_failed:
+        print(f"sync: SimpleFIN: {done.bank_failed}", file=sys.stderr)
     for problem in done.bank_problems:
         print(f"sync: SimpleFIN: {problem}", file=sys.stderr)
     for account, theirs, mine in done.bank_differ:
@@ -745,6 +698,8 @@ def _sync(dry_run: bool) -> int:
                 "(`tally sync --dry-run` says by how much)",
                 file=sys.stderr,
             )
+    if not dry_run:
+        _notify(done)
     return 0
 
 

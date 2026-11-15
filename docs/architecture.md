@@ -1,56 +1,52 @@
 # Architecture
 
-tally runs on one home server. Everything it knows comes from two sources: the CSV exports
-you download from each bank, which are the record of what posted, and the alert emails the
-banks send at purchase time, which are provisional and give early warning. It keeps a
-Beancount ledger (pushed to its own repo on Forgejo, edited with Fava), emails a weekly
-summary and sends headline-only push notifications. There are no bank logins and no
-aggregators.
+tally runs on one home server. What it knows about your bank and card accounts comes from
+SimpleFIN Bridge, which reads them for you: posted transactions, pending ones, and each
+account's balance. Fidelity holdings come from SnapTrade. CSV exports still work, for
+accounts SimpleFIN doesn't fill. It keeps a Beancount ledger (pushed to its own repo on
+Forgejo, edited with Fava), fills Sure from it, emails a weekly summary and sends
+headline-only push notifications.
 
 ## The whole system
 
 ```mermaid
 flowchart LR
     subgraph banks["Banks"]
-        discover_bank["Discover"]
-        bofa_bank["Bank of America"]
+        bank["Discover, Bank of America,<br/>Capital One"]
+        fidelity["Fidelity"]
     end
 
-    subgraph google["Google"]
-        main_gmail["Main Gmail<br/>filter forwards bank alerts"]
-        alerts_gmail["Alerts Gmail<br/>holds only the bank alerts<br/>2-Step Verification + app password"]
+    simplefin["SimpleFIN Bridge<br/>read-only, 24 requests a day"]
+    snaptrade["SnapTrade<br/>read-only"]
+
+    subgraph server["Home server"]
+        timer["systemd timer<br/>sync every 2 hours"]
+        tally["tally<br/>user: tally, sandboxed"]
+        data[("/srv/tally/data<br/>tally.db, rules.toml, config.toml,<br/>raw answers, ledger/ (git clone)")]
+        secrets[("/srv/tally/secrets<br/>SimpleFIN access, app password,<br/>ntfy topic, Claude token, Forgejo token")]
+        forgejo["Forgejo<br/>ledger repo, localhost:3000"]
+        sure["Sure<br/>web and phone UI"]
     end
 
     subgraph mac["Mac"]
-        browser["Browser<br/>download CSV exports"]
         fava_view["Browser<br/>Fava, over an SSH tunnel, to edit"]
     end
 
-    subgraph server["Home server"]
-        timer["systemd timer<br/>every 5 min"]
-        tally["tally<br/>user: tally, sandboxed"]
-        data[("/srv/tally/data<br/>tally.db, rules.toml, config.toml,<br/>emails, CSVs, ledger/ (git clone)")]
-        secrets[("/srv/tally/secrets<br/>app password, ntfy topic,<br/>Claude token, Forgejo token")]
-        forgejo["Forgejo<br/>ledger repo, localhost:3000"]
-    end
-
+    gmail["Gmail<br/>sends the weekly summary"]
     ntfy["ntfy.sh<br/>random 128-bit topic"]
     phone["Phone<br/>ntfy app"]
 
-    discover_bank -- "alert email, DKIM-signed" --> main_gmail
-    bofa_bank -- "alert email, DKIM-signed" --> main_gmail
-    main_gmail -- "forward" --> alerts_gmail
-    discover_bank -. "CSV export" .-> browser
-    bofa_bank -. "CSV export" .-> browser
-    browser -. "tally-remote import, over SSH" .-> data
-
+    bank --> simplefin
+    fidelity --> snaptrade
     timer --> tally
-    alerts_gmail -- "IMAP, read-only" --> tally
+    simplefin -- "HTTPS, Basic auth" --> tally
+    snaptrade -- "HTTPS, signed" --> tally
     tally <--> data
     secrets --> tally
     tally -- "commit and push the ledger" --> forgejo
+    tally -- "API, on this machine" --> sure
     data -. "tally-remote fava: Unix socket, SSH" .-> fava_view
-    tally -- "weekly summary, SMTP" --> main_gmail
+    tally -- "weekly summary, SMTP" --> gmail
     tally -- "headlines only: counts, no merchants or amounts" --> ntfy
     ntfy --> phone
 ```
@@ -61,8 +57,7 @@ Solid lines run on their own; dotted lines are steps you do by hand.
 
 | Boundary | What crosses it | What protects it |
 |---|---|---|
-| Bank → alerts mailbox | Alert emails | An email counts only if Gmail's topmost `Authentication-Results` header shows `dkim=pass` for the bank's domain and the From address is the bank's. A forged email is refused and reported. |
-| Alerts mailbox → tally | Raw emails | An app password for an account that holds nothing but bank alerts. The mailbox is opened with `EXAMINE` and read with `BODY.PEEK`, so tally can't change it. |
+| Banks → SimpleFIN → tally | Transactions and balances | SimpleFIN holds the bank connections; tally holds only an access URL, read-only, in secrets/, never printed or logged. Its rows are checked against what's stored (same posted date and amount) and each account's balance against the ledger's. |
 | CSV → database | Posted transactions | The bank is recognized by file contents. BofA running balances must add up, and a gap in its history stops the import. Rows are deduplicated by identity. |
 | tally → Forgejo | The ledger | A token for the one repo, in secrets/, given to git through its environment (never its command line or config). Forgejo is reached on localhost. |
 | Fava → you | The ledger, read and edit | Runs only while `tally-remote fava` is open, on a Unix socket in a folder only your account and tally can open; SSH forwards it to your machine. |
@@ -70,54 +65,39 @@ Solid lines run on their own; dotted lines are steps you do by hand.
 | tally → ntfy | Headlines | ntfy topics have no password, so the topic is 128 random bits and messages carry only kinds and counts. |
 | Server | Everything | A `tally` user with no login, sudo or docker. `/srv/tally` is 700. The systemd sandbox allows writes to `/srv/tally/data` only. Files are 600 and folders 700. |
 
-## Every 5 minutes: alerts
+## Every two hours: sync
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant T as systemd timer
     participant C as cli.py
-    participant G as gmail.py
-    participant M as Alerts Gmail
-    participant R as alert_reading.py
-    participant P as alerts/discover.py, alerts/bofa.py
+    participant B as simplefin.py
+    participant U as ledger/updating.py
     participant S as store.py: tally.db
-    participant X as matching.py
+    participant L as data/ledger
     participant N as notify.py
-    participant F as ntfy.sh
 
-    T->>C: tally alerts
-    C->>G: ImapMailbox.connect(address, app password)
-    G->>M: LOGIN, LIST, find \All, EXAMINE All Mail
-    alt can't connect or log in
-        C->>N: mailbox failed: announced once it has lasted 15 min, then every 6 h
-    else connected
-        R->>G: message_ids(from:discover.com OR bankofamerica.com)
-        G->>M: UID SEARCH X-GM-RAW, FETCH X-GM-MSGID
-        Note over R: skip IDs already kept in data/alerts/gmail/
-        loop each new email, oldest first
-            R->>G: raw(id)
-            G->>M: UID FETCH BODY.PEEK[]
-            R->>P: choose the parser by sender domain
-            P->>P: DKIM + From check, then read merchant, date, amount
-            alt refused
-                R-->>C: refused, email not kept, reported every run
-            else parsed
-                R->>S: save_alert, unique by Message-ID
-                R->>R: keep the raw email in data/alerts/gmail/id.eml (600)
-            end
-        end
-        R->>S: alerts(), transactions()
-        R->>X: match(alerts, transactions)
-        X-->>R: matched / waiting / not found
+    T->>C: tally sync
+    C->>B: fetch the last 14 days
+    alt can't be asked
+        C->>N: SimpleFIN failed: announced once it has lasted 3 h, then every 6 h
+    else answered
+        U->>S: posted rows not stored yet (same posted date and amount)
+        U->>L: their entries, categorized by the rules
+        U->>S: each pending transaction, as an alert; when it was asked
     end
-    C->>N: events: new, refused, not_found, mailbox
+    U->>U: categories set on pending entries become rules; Claude for new merchants
+    U->>L: pending.beancount: what SimpleFIN last listed
+    U->>L: Fidelity holdings from SnapTrade
+    U->>U: every row once, bean-check, each balance against the bank's
+    U->>U: Sure made to match the ledger
+    C->>N: new pending purchases, banks to sign in to again, balances that differ
     N->>S: which keys were already announced?
-    N->>F: one POST per kind, most urgent first
-    N->>S: record keys only after ntfy accepts
+    N->>N: one POST per kind, most urgent first; keys recorded once ntfy accepts
 ```
 
-## By hand: import, report, sync
+## By hand: import, report, summary
 
 ```mermaid
 flowchart TD
@@ -125,7 +105,7 @@ flowchart TD
     recognize -- "Discover" --> dparse["importers/discover.py"]
     recognize -- "BofA" --> bparse["importers/bofa.py<br/>checks running balances"]
     recognize -- "Fidelity positions" --> fparse["importers/fidelity.py<br/>snapshot of holdings"]
-    recognize -- "unknown" --> stay["left in inbox, error shown"]
+    recognize -- "unknown, or an account SimpleFIN fills" --> stay["left in inbox, error shown"]
     dparse --> txn["Transaction<br/>account, dates, description, amount"]
     bparse --> txn
     txn --> save["store.py<br/>skip rows already stored,<br/>refuse a BofA gap"]
@@ -136,10 +116,6 @@ flowchart TD
     fparse --> positions["ledger/positions.py<br/>holdings at cost, prices, balances"]
     extract --> ledger[("data/ledger<br/>imported/YEAR.beancount")]
     positions --> ledger
-    alerts_db[("tally.db: alerts")] --> waiting["pending.py<br/>alerts no CSV reaches yet"]
-    waiting --> pend["ledger/book.py<br/>pending.beancount, rewritten each run"]
-    pend --> ledger
-    ledger --> history["ledger/history.py<br/>commit, push to Forgejo"]
 
     ledger -- "categories you set" --> rulesx["rules.py<br/>ledger categories first,<br/>then data/rules.toml"]
     rulesx --> rep["report.py<br/>a month's spending per category"]
@@ -149,38 +125,29 @@ flowchart TD
     ledger -- "bean-query" --> lreport["ledger/weekly.py<br/>month vs last month, Roth"]
     weekly --> cli_summary["tally summary"]
     lreport --> cli_summary
-
-    sync["tally sync<br/>ledger/updating.py"] --> corr["corrections.py<br/>a category set on a pending entry<br/>becomes a one-purchase rule"]
-    sync --> claude["categorizing.py<br/>claude -p, no tools;<br/>answers become merchant rules"]
-    sync --> moves["ledger/categories.py<br/>entries still Uncategorized<br/>move to the rules' answer"]
-    sync --> parity["ledger/parity.py<br/>every row once, bean-check"]
 ```
 
 ## Modules
 
 An arrow means "imports". `cli.py` is the only entry point. The parsers know nothing about
-storage, and the ledger package knows nothing about email or notifications.
+storage, and the ledger package knows nothing about notifications.
 
 ```mermaid
 flowchart TD
     cli["cli.py<br/>commands"]
 
-    subgraph email["Alert emails"]
-        alert_reading["alert_reading.py<br/>fetch, store, summarize"]
-        gmail["gmail.py<br/>IMAP mailbox"]
-        alerts_pkg["alerts/__init__.py<br/>Alert, DKIM check, HTML to lines"]
-        alerts_discover["alerts/discover.py"]
-        alerts_bofa["alerts/bofa.py"]
-        matching["matching.py<br/>alert to posted row"]
-        notify["notify.py<br/>ntfy, once per event"]
-        pending["pending.py<br/>waiting alerts as rows"]
+    subgraph sources["Where transactions come from"]
+        simplefin["simplefin.py<br/>the bridge, its rows and pending"]
+        importing["importing.py<br/>CSVs: recognize, store, archive"]
+        importers_pkg["importers/: discover, bofa, fidelity"]
+        snaptrade["snaptrade.py<br/>Fidelity holdings"]
     end
 
-    subgraph csvs["Bank exports"]
-        importing["importing.py<br/>recognize, store, archive"]
-        importers_pkg["importers/__init__.py<br/>shared field parsing"]
-        importers_discover["importers/discover.py"]
-        importers_bofa["importers/bofa.py"]
+    subgraph pendingpkg["Pending"]
+        alerts_pkg["alerts/__init__.py<br/>Alert"]
+        matching["matching.py<br/>pending to posted row"]
+        pending["pending.py<br/>waiting ones as rows"]
+        notify["notify.py<br/>ntfy, once per event"]
     end
 
     subgraph budgeting["Categories and summary"]
@@ -189,8 +156,8 @@ flowchart TD
         plan["plan.py<br/>plan.beancount"]
         corrections["corrections.py<br/>pending fixes to rules"]
         categorizing["categorizing.py<br/>Claude's merchant rules"]
-        summary["summary.py<br/>weekly summary"]
-        advice["advice.py, chat.py<br/>Claude's review and Sure's chat"]
+        summary["summary.py, mailer.py<br/>weekly summary"]
+        advice["advice.py, chat.py, lookups.py<br/>Claude's review and Sure's chat"]
     end
 
     subgraph ledgerpkg["Ledger"]
@@ -202,29 +169,21 @@ flowchart TD
     config["config.py<br/>config.toml, secrets"]
     transaction["transaction.py<br/>Transaction, identity"]
 
-    cli --> alert_reading & importing & notify & gmail & config & store & pending
+    cli --> importing & simplefin & notify & config & store & pending
     cli --> rules & report & plan & summary & advice & ledger_mods
 
-    alert_reading --> gmail & matching & store & alerts_pkg & alerts_discover & alerts_bofa
-    alert_reading --> importing & ledger_mods
-    alerts_discover --> alerts_pkg
-    alerts_bofa --> alerts_pkg
-    gmail --> config
+    simplefin --> importers_pkg & alerts_pkg & transaction
+    importing --> store & importers_pkg & transaction & ledger_mods
     notify --> config & store
     matching --> alerts_pkg & transaction
     pending --> matching & alerts_pkg & transaction
 
-    importing --> store & importers_pkg & importers_discover & importers_bofa & transaction
-    importing --> ledger_mods
-    importers_discover --> importers_pkg & transaction
-    importers_bofa --> importers_pkg & transaction
-
-    rules --> importers_discover & importers_bofa & transaction
+    rules --> importers_pkg & transaction
     report --> rules & transaction
     corrections --> categorizing & rules & transaction
     categorizing --> rules & transaction
     summary --> plan & report & pending & rules
-    ledger_mods --> rules & corrections & categorizing & store & pending & matching
+    ledger_mods --> rules & corrections & categorizing & store & pending & matching & simplefin & sure
 
     store --> alerts_pkg & transaction
 ```
@@ -241,9 +200,9 @@ erDiagram
     imports {
         int id PK
         text account
-        text file_name
+        text file_name "a CSV's, or simplefin"
         text file_sha256
-        text imported_at
+        text imported_at "for simplefin: when it was asked"
         int rows_in_file
         int rows_new
     }
@@ -261,23 +220,24 @@ erDiagram
     }
     alerts {
         int id PK
-        text message_id UK "deduplicates"
+        text message_id UK "simplefin:account:transaction"
         text account
         text date
         text merchant
         int amount_cents
-        text received_at
+        text received_at "when SimpleFIN last listed it"
         text read_at
     }
     notifications {
-        text key PK "new:, refused:, not-found:, mailbox-failure"
+        text key PK "new:, signin:, balance:, stale:, bank-failure"
         text sent_at
     }
 ```
 
-Alerts are never joined to transactions in the database. Matching is recomputed on every
-run, so a late or corrected CSV fixes the picture without any cleanup. The same goes for
-pending alerts in the ledger: pending.beancount is worked out afresh on every run.
+Pending transactions are never joined to posted ones in the database. Matching is recomputed
+on every run, and pending.beancount is worked out afresh each time, so a late or corrected
+answer fixes the picture without any cleanup. Alerts from the alert emails tally used to read
+are still in the table; SimpleFIN's answers cover them.
 
 Two tables from before the ledger, `sheet_writes` and `sheet_categories`, are still in the
 database but nothing uses them.
@@ -287,13 +247,14 @@ database but nothing uses them.
 ```mermaid
 flowchart LR
     subgraph systemd["systemd, root"]
-        timer["tally-alerts.timer<br/>OnBootSec=2min<br/>OnUnitActiveSec=5min"]
-        service["tally-alerts.service<br/>Type=oneshot, User=tally<br/>TZ=America/New_York<br/>stdout discarded"]
-        summary_timer["tally-summary.timer<br/>Sun 18:00 America/New_York<br/>Persistent=true"]
-        summary_service["tally-summary.service<br/>tally summary --email --sync<br/>same sandbox"]
+        sync_timer["tally-sync.timer<br/>every 2 hours<br/>Persistent=true"]
+        sync_service["tally-sync.service<br/>Type=oneshot, User=tally<br/>TZ=America/New_York<br/>stdout discarded"]
+        summary_timer["tally-summary.timer<br/>Sun 18:00 America/New_York"]
+        summary_service["tally-summary.service<br/>tally summary --email --sync"]
+        chat_service["tally-chat.service<br/>always on"]
     end
 
-    subgraph sandbox["Sandbox: exposure 1.3"]
+    subgraph sandbox["Sandbox"]
         bin["/srv/tally/venv/bin/tally<br/>Python 3.13 from uv"]
     end
 
@@ -302,7 +263,6 @@ flowchart LR
         app["app/ + app.old/<br/>deployed code, REVISION"]
         datadir["data/<br/>the only writable path"]
         secretsdir["secrets/<br/>read-only at run time"]
-        uv["bin/uv 0.8.1<br/>used only to install"]
     end
 
     subgraph you["Your account, over SSH"]
@@ -312,23 +272,23 @@ flowchart LR
         deploy["sudo -u tally tally-deploy<br/>password required"]
     end
 
-    timer --> service --> bin
+    sync_timer --> sync_service --> bin
     summary_timer --> summary_service --> bin
+    chat_service --> bin
     bin --> venv
     bin <--> datadir
     bin --> secretsdir
-    service -. "errors only" .-> journal["journald"]
+    sync_service -. "errors only" .-> journal["journald"]
 
     remote -- "CSVs" --> drop
     remote -- "commands" --> run
     remote -- "git archive HEAD" --> deploy
     run -- "moves drop files to data/inbox" --> datadir
-    run --> venv
     deploy -- "test in app.new, swap" --> app
     deploy -- "uv sync --no-editable" --> venv
 ```
 
-Sandbox settings in `deploy/tally-alerts.service`:
+Sandbox settings in `deploy/tally-sync.service`:
 - **Filesystem:** `ProtectSystem=strict` with `ReadWritePaths=/srv/tally/data`, `ProtectHome`, `PrivateTmp`, `PrivateDevices`.
 - **Privileges:** `NoNewPrivileges`, an empty `CapabilityBoundingSet`, `RestrictSUIDSGID`.
 - **Network and system calls:** only internet and local sockets (`RestrictAddressFamilies`), and only the `@system-service` system calls.

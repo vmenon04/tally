@@ -34,10 +34,10 @@ IMPORTED = "imported"
 
 _HEADER = "; Written by tally import. Change categories freely; don't change tally-id.\n"
 _PENDING_HEADER = (
-    "; Rewritten by tally on every run: alert emails no bank export has reached yet.\n"
+    "; Rewritten by tally on every run: purchases the bank lists as pending.\n"
     "; Change a category here (in Fava) and tally keeps it, for the posted row too. Anything\n"
-    "; else you change is replaced on the next run, and each entry by its posted row once the\n"
-    "; export arrives.\n"
+    "; else you change is replaced on the next run, and each entry by its posted row once it\n"
+    "; posts.\n"
 )
 
 

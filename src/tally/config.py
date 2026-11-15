@@ -20,7 +20,7 @@ _OBSOLETE = {"sheet_id"}
 
 @dataclass(frozen=True, slots=True)
 class Config:
-    gmail_account: str | None = None  # the mailbox the bank alerts are forwarded to
+    gmail_account: str | None = None  # the Gmail address the weekly summary is sent from
     summary_to: str | None = None  # where `tally summary --email` sends the weekly summary
     ntfy_server: str = NTFY_SERVER
     # This year's Roth IRA limit, and what went in that tally can't see (made before tally, or

@@ -268,33 +268,17 @@ def transactions_with_ids(
     ]
 
 
-def save_alert(
-    conn: sqlite3.Connection, alert: Alert, now: datetime.datetime | None = None
-) -> bool:
-    """Store an alert unless one with the same Message-ID is stored. True if it was new."""
-    read_at = (now or datetime.datetime.now(datetime.UTC)).isoformat(timespec="seconds")
-    with conn:
-        cursor = conn.execute(
-            "INSERT INTO alerts"
-            " (message_id, account, date, merchant, amount_cents, received_at, read_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (message_id) DO NOTHING",
-            (
-                alert.message_id,
-                alert.account,
-                alert.date.isoformat(),
-                alert.merchant,
-                _cents(alert.amount),
-                alert.received.isoformat(),
-                read_at,
-            ),
-        )
-    return cursor.rowcount == 1
-
-
-def see_alert(conn: sqlite3.Connection, alert: Alert) -> None:
+def see_alert(conn: sqlite3.Connection, alert: Alert) -> bool:
     """Store a pending transaction SimpleFIN listed, or bring the stored one up to date: its
-    amount can change before it posts, and received says when it was last listed."""
+    amount can change before it posts, and received says when it was last listed.
+    True if it's new."""
     with conn:
+        new = (
+            conn.execute(
+                "SELECT 1 FROM alerts WHERE message_id = ?", (alert.message_id,)
+            ).fetchone()
+            is None
+        )
         conn.execute(
             "INSERT INTO alerts"
             " (message_id, account, date, merchant, amount_cents, received_at, read_at)"
@@ -311,6 +295,7 @@ def see_alert(conn: sqlite3.Connection, alert: Alert) -> None:
                 alert.received.isoformat(),
             ),
         )
+    return new
 
 
 def fetched(conn: sqlite3.Connection) -> dict[str, datetime.datetime]:

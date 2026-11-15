@@ -20,7 +20,7 @@ uv run tally --help
 ## Docs
 
 - [Importing bank exports](docs/importing.md)
-- [Alert emails and notifications](docs/alerts.md)
+- [Pending purchases and notifications](docs/notifications.md)
 - [Weekly summary](docs/summary.md)
 - [The Beancount ledger](docs/ledger.md)
 - [Architecture](docs/architecture.md)

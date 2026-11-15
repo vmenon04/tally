@@ -167,7 +167,9 @@ class SyncResult:
     sure: mirror.Plan | None = None  # what Sure needed to match the ledger
     sure_failed: str | None = None
     banked: dict[str, list[Transaction]] = field(default_factory=dict)  # new from SimpleFIN
-    bank_problems: list[str] = field(default_factory=list)  # SimpleFIN couldn't, or said
+    bank_failed: str | None = None  # why SimpleFIN couldn't be asked, if it couldn't
+    bank_problems: list[str] = field(default_factory=list)  # what it said went wrong
+    pending: list[Alert] = field(default_factory=list)  # what it lists as pending
     # Ledger account, what the bank says it holds, and what the ledger's posted rows add to.
     bank_differ: list[tuple[str, Decimal, Decimal]] = field(default_factory=list)
     _bank: simplefin.Answer | None = None
@@ -278,7 +280,7 @@ def _import_from_bank(
         answer = bank()
         found = simplefin.rows(answer, ledger.accounts.simplefin)
     except simplefin.SimpleFINError as e:
-        result.bank_problems.append(str(e))
+        result.bank_failed = str(e)
         return
     result._bank = answer
     result.bank_problems += answer.problems
@@ -310,7 +312,8 @@ def _import_from_bank(
             for t in new
         ]
         book.add(ledger, book.new_entries(made, ledger))
-    for alert in simplefin.pending(answer, ledger.accounts.simplefin, now):
+    result.pending = simplefin.pending(answer, ledger.accounts.simplefin, now)
+    for alert in result.pending:
         store.see_alert(conn, alert)
     if kept and not dry_run:
         _archive(data_dir, today, kept)

@@ -1,12 +1,11 @@
-"""Card alerts the bank exports don't reach yet, counted as provisional transactions.
+"""Pending purchases, counted as provisional transactions until they post.
 
-Between imports, alerts are the only sign of recent purchases, so reports and the ledger
-count the alerts that matching calls *waiting*. Each becomes a Transaction with no posted
-date, under the negative of its alert ID so it can never be taken for a stored transaction.
-Once a CSV reaches an alert, its posted row counts instead.
+Reports and the ledger count the alerts (pending purchases) that matching calls *waiting*.
+Each becomes a Transaction with no posted date, under the negative of its alert ID so it can
+never be taken for a stored transaction. Once its posted row arrives, that counts instead.
 
-Alerts the CSVs should show but don't (*not found*) aren't counted: they're usually declined
-or reversed purchases, and `tally alerts` lists them.
+Ones that should have posted by now but haven't (*not found*), or that SimpleFIN no longer
+lists (*superseded*), aren't counted: they're declined, reversed or released.
 """
 
 import datetime
