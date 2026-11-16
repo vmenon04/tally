@@ -4,6 +4,8 @@
 #
 # The ledger stays the record: everything in Sure's database can be pushed again by tally.
 # Sure listens on 127.0.0.1 only; `tailscale serve` puts it at the server's tailnet address.
+# SURE_PORT, SURE_BRAND, TALLY_CHAT_DIR and RAILS_ASSUME_SSL default to the server's set-up;
+# demo/make_demo.py --sure changes them to run a throwaway copy on your own machine.
 # Its chat is answered by tally (see tally-chat below); its other AI features, bank
 # connections and email are left unconfigured: tally does that work.
 
@@ -23,7 +25,7 @@ x-rails-env: &rails_env
   # Its name in titles, the phone's home screen and emails; brand/ has the logo.
   PRODUCT_NAME: tally
   # tailscale serve terminates HTTPS; tally itself calls plain http://127.0.0.1:3200.
-  RAILS_ASSUME_SSL: "true"
+  RAILS_ASSUME_SSL: "${RAILS_ASSUME_SSL:-true}"
   RAILS_FORCE_SSL: "false"
   DB_HOST: db
   DB_PORT: 5432
@@ -55,11 +57,11 @@ services:
   web:
     <<: *sure
     ports:
-      - "127.0.0.1:3200:3000"
+      - "127.0.0.1:${SURE_PORT:-3200}:3000"
     # brand/apply puts tally's logo in place of Sure's, then starts the server as usual.
     volumes:
       - app-storage:/rails/storage
-      - /srv/sure/brand:/tally-brand:ro
+      - ${SURE_BRAND:-/srv/sure/brand}:/tally-brand:ro
     entrypoint: ["/tally-brand/apply"]
     command: ["./bin/rails", "server"]
 
@@ -73,7 +75,7 @@ services:
     image: nginx:1.28.0-alpine
     restart: unless-stopped
     volumes:
-      - /srv/tally-chat:/run/tally-chat
+      - ${TALLY_CHAT_DIR:-/srv/tally-chat}:/run/tally-chat
     configs:
       - source: tally-chat
         target: /etc/nginx/conf.d/default.conf

@@ -7,10 +7,11 @@ from typing import Any
 import pytest
 import requests
 from beancount import loader
+from beancount.core import data as data_types
 from beancount.core.data import Transaction
 from sample import bofa_rows, seed
 
-from tally import categorizing, cli, notify, simplefin, store, sure
+from tally import categorizing, cli, config, notify, simplefin, store, sure
 from tally.alerts import Alert
 from tally.cli import main
 from tally.ledger import accounts, book, mirror, updating, weekly
@@ -645,3 +646,23 @@ def test_the_demo_makes_made_up_data_that_syncs_cleanly(
     imported = "".join(p.read_text() for p in (data / "ledger" / "imported").iterdir())
     assert "#fidelity-positions" in imported
     assert "ACME CORP PAYROLL" in imported
+
+
+def test_the_demo_names_sure_accounts_for_each_account_it_shows(
+    data: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.syspath_prepend(str(Path(__file__).parent.parent / "demo"))
+    import make_demo
+
+    make_demo.main(data)
+    make_demo._link_sure(data, "http://127.0.0.1:3201", "made-up-key")
+    entries, errors, _ = loader.load_file(str(data / "ledger" / "main.beancount"))
+    assert not errors
+    names = {
+        e.account: e.meta[mirror.ACCOUNT_KEY]
+        for e in entries
+        if isinstance(e, data_types.Open) and mirror.ACCOUNT_KEY in e.meta
+    }
+    assert names == {a: spec[0] for a, spec in make_demo.SURE_ACCOUNTS.items()}
+    assert config.load(data / "config.toml").sure_url == "http://127.0.0.1:3201"
+    assert (data / "secrets" / "sure-api-key").read_text() == "made-up-key\n"

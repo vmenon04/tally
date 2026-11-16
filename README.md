@@ -48,6 +48,16 @@ Fava then serves the ledger at http://localhost:5000 until you stop it with Ctrl
 
 Nothing in it is real, and it never touches your `data/` or `secrets/`.
 
+To see it in Sure as well, add `--sure` (it needs [Docker](https://www.docker.com)):
+
+```sh
+uv run python demo/make_demo.py --sure /tmp/tally-demo-sure
+```
+
+That starts a Sure of its own in Docker at http://127.0.0.1:3201, apart from any real one, and
+fills it through the same sync. Sign in as `demo@example.com` with the password `tally-demo`.
+The script prints the command that removes it afterwards.
+
 ## Docs
 
 - [Getting started](docs/getting-started.md): set it up on your own computer
