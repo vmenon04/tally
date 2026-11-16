@@ -1,0 +1,50 @@
+; Your accounts, and where tally puts things, in each open directive's metadata.
+;   tally-account:     a name you pick; this account's transactions post here
+;   simplefin-account: the last four digits of the account at SimpleFIN
+;                      (`tally simplefin` lists them)
+;   category:          transactions in this category post their other side here
+; Change the dates to the day before your opening balances.
+
+; Where your transactions come from.
+2026-01-01 open Assets:Bank:Checking USD
+  tally-account: "checking"
+  simplefin-account: "1234"
+2026-01-01 open Liabilities:Card USD
+  tally-account: "card"
+  simplefin-account: "5678"
+
+; Money moving between your own accounts. A card payment shows up on both checking and
+; the card, so both sides go here and cancel out.
+2026-01-01 open Assets:Transfers:Card USD
+  category: "Card payment"
+2026-01-01 open Assets:Bank:Savings USD
+  category: "Savings transfer"
+2026-01-01 open Assets:Investments USD
+  category: "Investing"
+
+2026-01-01 open Income:Salary USD
+  category: "Income"
+
+; One account per category in rules.toml, plus Uncategorized.
+; fixed: TRUE marks a bill that comes once a month, so the summary's pace counts it in full.
+2026-01-01 open Expenses:Rent USD
+  category: "Rent"
+  fixed: TRUE
+2026-01-01 open Expenses:Utilities USD
+  category: "Utilities"
+2026-01-01 open Expenses:Groceries USD
+  category: "Groceries"
+2026-01-01 open Expenses:EatingOut USD
+  category: "Eating out"
+2026-01-01 open Expenses:Transport USD
+  category: "Transport"
+2026-01-01 open Expenses:Subscriptions USD
+  category: "Subscriptions"
+2026-01-01 open Expenses:Shopping USD
+  category: "Shopping"
+2026-01-01 open Expenses:Other USD
+  category: "Other"
+2026-01-01 open Expenses:Uncategorized USD
+  category: "Uncategorized"
+
+2026-01-01 open Equity:Opening-Balances

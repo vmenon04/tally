@@ -535,13 +535,11 @@ def _quiet_sync() -> str | None:
 
 def _sync(dry_run: bool) -> int:
     folder = data_dir()
-    db_path = folder / "tally.db"
-    if not db_path.exists():
-        print(f"Nothing imported yet: no database at {db_path}.", file=sys.stderr)
-        return 1
+    db_path = folder / "tally.db"  # the first sync makes it
     if not book.exists(folder):
         print(f"sync: there's no ledger at {book.folder(folder)}.", file=sys.stderr)
         return 1
+    bank = _bank()
     conn = store.connect_copy(db_path) if dry_run else store.connect(db_path)
     try:
         done = updating.sync(
@@ -551,7 +549,7 @@ def _sync(dry_run: bool) -> int:
             dry_run=dry_run,
             err=sys.stderr,
             sure=_sure(),
-            bank=_bank(),
+            bank=bank,
         )
     except (
         book.LedgerError,
@@ -567,6 +565,8 @@ def _sync(dry_run: bool) -> int:
         return 1
 
     print("Dry run: nothing will be changed." if dry_run else "Bringing the ledger up to date.")
+    if bank is None:
+        print("SimpleFIN is off: run `tally simplefin-login` to bring in transactions.")
     if done.bank_failed:
         print(f"sync: SimpleFIN: {done.bank_failed}", file=sys.stderr)
     for problem in done.bank_problems:

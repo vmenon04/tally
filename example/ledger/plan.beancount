@@ -1,0 +1,19 @@
+; What the weekly summary measures you against. A line holds until a later one for the
+; same thing, so change the plan by adding a line dated when the change starts.
+
+2026-01-01 custom "budget" Expenses:Rent "monthly" 1200.00 USD
+2026-01-01 custom "budget" Expenses:Utilities "monthly" 100.00 USD
+2026-01-01 custom "budget" Expenses:Groceries "monthly" 300.00 USD
+2026-01-01 custom "budget" Expenses:EatingOut "monthly" 150.00 USD
+2026-01-01 custom "budget" Expenses:Transport "monthly" 120.00 USD
+2026-01-01 custom "budget" Expenses:Subscriptions "monthly" 30.00 USD
+2026-01-01 custom "budget" Expenses:Shopping "monthly" 100.00 USD
+2026-01-01 custom "budget" Expenses:Other "monthly" 100.00 USD
+
+; Paychecks in a month, so the summary knows what's coming.
+2026-01-01 custom "paychecks" 2
+
+; Optional: savings goals, each its own savings account ("months" of usual spending, or a
+; "target"), and what Claude's monthly review should know about you.
+; 2026-01-01 custom "goal" "Emergency fund" Assets:Bank:Savings "months" 3
+; 2026-01-01 custom "about" "Saving for a trip in the spring"

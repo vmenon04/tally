@@ -1,0 +1,10 @@
+; The ledger tally keeps. Every file but imported/ and pending.beancount is yours to edit.
+option "title" "My money"
+option "operating_currency" "USD"
+
+include "accounts.beancount"      ; your accounts and categories
+include "opening.beancount"       ; what each account held when you started
+include "plan.beancount"          ; budget, paychecks, goals
+include "statements.beancount"    ; balances you copy from statements, to catch mistakes
+include "imported/*.beancount"    ; written by tally sync
+include "pending.beancount"       ; rewritten by tally sync: purchases not posted yet

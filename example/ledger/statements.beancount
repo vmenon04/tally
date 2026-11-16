@@ -1,0 +1,3 @@
+; Balances copied from statements. bean-check fails if the ledger disagrees, which catches
+; a transaction missing or brought in twice. The balance is as of the start of the day.
+; 2026-02-01 balance Assets:Bank:Checking  2345.67 USD

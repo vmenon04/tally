@@ -1,4 +1,5 @@
 import datetime
+import shutil
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -107,6 +108,17 @@ def test_sync_checks_the_ledger(ledger_ready: Path, capsys: pytest.CaptureFixtur
     code, out, _ = run(capsys, "sync")
     assert code == 0
     assert "Ledger: all 13 imported rows are there once; bean-check is clean." in out
+
+
+def test_the_example_folder_syncs_from_a_fresh_start(
+    data: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    shutil.copytree(Path(__file__).parent.parent / "example", data)
+    code, out, _ = run(capsys, "sync")
+    assert code == 0
+    assert "SimpleFIN is off: run `tally simplefin-login`" in out
+    assert "bean-check is clean" in out
+    assert (data / "tally.db").exists()
 
 
 def test_sync_needs_a_ledger(data: Path, capsys: pytest.CaptureFixture[str]) -> None:

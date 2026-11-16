@@ -1,0 +1,8 @@
+# tally's settings. Every key is optional; see docs/reference.md.
+
+# gmail_account = "you@gmail.com"       # the weekly summary is sent from here
+# summary_to = "you@example.com"        # and goes here
+# roth_limit = 7500                     # this year's Roth IRA limit
+# roth_elsewhere = 0                    # put in this year where tally can't see it
+# ntfy_server = "https://ntfy.sh"
+# sure_url = "http://127.0.0.1:3200"

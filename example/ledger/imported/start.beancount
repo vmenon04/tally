@@ -1,0 +1,2 @@
+; tally sync writes what it brings in here, one file per year (2026.beancount, ...).
+; Don't edit those by hand except to change a category; this file only keeps the folder.

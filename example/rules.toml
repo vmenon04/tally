@@ -1,0 +1,44 @@
+# How tally sorts transactions into categories. The first rule that matches wins, so put
+# one-offs above general ones.
+#   match    = text the merchant contains (any case)
+#   merchant = the whole merchant name (any case)
+#   optional: account (a tally-account name), date (2026-09-29), amount (-50.00)
+# Besides the categories below, rules can use: Income, Card payment, Savings transfer,
+# Investing. Merchants no rule covers stay Uncategorized (or Claude sorts them, if set up).
+
+# Your budget categories. Each needs an account with the same category: in
+# ledger/accounts.beancount.
+categories = [
+    "Rent",
+    "Utilities",
+    "Groceries",
+    "Eating out",
+    "Transport",
+    "Subscriptions",
+    "Shopping",
+    "Other",
+]
+
+[[rule]]
+match = "PAYROLL"
+category = "Income"
+
+[[rule]]
+match = "CARD PAYMENT"
+category = "Card payment"
+
+[[rule]]
+match = "TRANSFER TO SAV"
+category = "Savings transfer"
+
+[[rule]]
+match = "MAPLE MARKET"
+category = "Groceries"
+
+[[rule]]
+match = "SHELL"
+category = "Transport"
+
+[[rule]]
+match = "NETFLIX"
+category = "Subscriptions"

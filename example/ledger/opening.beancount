@@ -1,0 +1,7 @@
+; What each account held the day before tally's first sync. tally brings in the last 14
+; days, so date this about two weeks before you start, with the balances from then.
+2026-01-01 * "Opening balances"
+  Assets:Bank:Checking   2500.00 USD
+  Assets:Bank:Savings    1000.00 USD
+  Liabilities:Card       -150.00 USD
+  Equity:Opening-Balances
