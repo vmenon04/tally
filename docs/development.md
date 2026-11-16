@@ -3,9 +3,12 @@
 ## Setup
 
 ```sh
-uv sync                                # install Python and dev tools
-git config core.hooksPath .githooks    # enable the pre-commit checks (once per clone)
+uv sync
+git config core.hooksPath .githooks
 ```
+
+- `uv sync`: Install Python and dev tools.
+- `git config core.hooksPath .githooks`: Enable the pre-commit checks (once per clone)
 
 ## Layout
 

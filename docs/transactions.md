@@ -4,10 +4,14 @@
 read-only, for about $15 a year. Connect your banks there, make a setup token, then:
 
 ```sh
-tally simplefin-login                  # claims the token (hidden input); saves secrets/simplefin-access-url
-tally simplefin                        # each account it sees, its balance, recent transactions
-tally simplefin --transactions 1234    # one account's transactions, as the bridge gives them
+tally simplefin-login
+tally simplefin
+tally simplefin --transactions 1234
 ```
+
+- `tally simplefin-login`: Claims the token (hidden input); saves secrets/simplefin-access-url.
+- `tally simplefin`: Each account it sees, its balance, recent transactions.
+- `tally simplefin --transactions 1234`: One account's transactions, as the bridge gives them.
 
 ## Linking an account
 

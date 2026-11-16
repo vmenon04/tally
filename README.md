@@ -40,9 +40,11 @@ invented accounts and transactions and point tally at it:
 ```sh
 uv run python demo/make_demo.py /tmp/tally-demo
 export TALLY_DATA_DIR=/tmp/tally-demo TALLY_SECRETS_DIR=/tmp/tally-demo/secrets
-uv run tally fava        # http://localhost:5000
 uv run tally summary
+uv run tally fava
 ```
+
+Fava then serves the ledger at http://localhost:5000 until you stop it with Ctrl-C.
 
 Nothing in it is real, and it never touches your `data/` or `secrets/`.
 

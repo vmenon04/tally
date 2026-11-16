@@ -17,9 +17,12 @@ tally can send headlines to your phone through [ntfy](https://ntfy.sh), free and
 account:
 
 ```sh
-tally ntfy-setup           # once: makes a random topic in secrets/ntfy-topic
-tally notify-test          # check your phone gets it
+tally ntfy-setup
+tally notify-test
 ```
+
+- `tally ntfy-setup`: Once: makes a random topic in secrets/ntfy-topic.
+- `tally notify-test`: Check your phone gets it.
 
 Subscribe to the printed topic in the ntfy app. After each `tally sync` (not a dry run), tally
 sends headlines only, never merchants or amounts:

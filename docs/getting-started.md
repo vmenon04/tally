@@ -46,9 +46,12 @@ change it makes, so you can see and undo them.
 costs about $15 a year). Sign up, connect your banks there, and make a **setup token**. Then:
 
 ```sh
-uv run tally simplefin-login     # paste the setup token; it's saved in secrets/
-uv run tally simplefin           # lists every account the bridge sees
+uv run tally simplefin-login
+uv run tally simplefin
 ```
+
+- `uv run tally simplefin-login`: Paste the setup token; it's saved in secrets/.
+- `uv run tally simplefin`: Lists every account the bridge sees.
 
 Each account is listed with the last four digits of its number, like `Everyday Checking
 (1234)`. You'll use those digits next.
@@ -96,9 +99,11 @@ Set a monthly amount per category in `data/ledger/plan.beancount`.
 ## 7. Your first sync
 
 ```sh
-uv run tally sync --dry-run      # shows what would happen, changes nothing
+uv run tally sync --dry-run
 uv run tally sync
 ```
+
+- `uv run tally sync --dry-run`: Shows what would happen, changes nothing.
 
 The sync brings in your posted and pending transactions, sorts them by your rules, and checks
 the ledger. For each account whose balance doesn't match the bank's, it prints both:
@@ -114,9 +119,12 @@ transaction went missing or came in twice. Pending purchases don't count on eith
 ## 8. Look at it
 
 ```sh
-uv run tally fava        # then open http://localhost:5000
-uv run tally summary     # this week, the month against your plan, and what to look out for
+uv run tally summary
+uv run tally fava
 ```
+
+The summary shows this week, the month against your plan, and what to look out for. Fava then
+serves the ledger at http://localhost:5000 until you stop it with Ctrl-C.
 
 ## 9. Fix categories
 

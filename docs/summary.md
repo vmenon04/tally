@@ -1,11 +1,16 @@
 # Weekly summary
 
 ```sh
-tally summary                      # as of today
-tally summary --as-of 2026-10-18   # as it would have been on that day
-tally summary --email              # print it and email it
-tally summary --email --sync       # run `tally sync` first, then email it
+tally summary
+tally summary --as-of 2026-10-18
+tally summary --email
+tally summary --email --sync
 ```
+
+- `tally summary`: As of today.
+- `tally summary --as-of 2026-10-18`: As it would have been on that day.
+- `tally summary --email`: Print it and email it.
+- `tally summary --email --sync`: Run `tally sync` first, then email it.
 
 It covers the 7 days up to today (or the `--as-of` day):
 

@@ -2,8 +2,10 @@
 
     uv run python demo/make_demo.py /tmp/tally-demo
     export TALLY_DATA_DIR=/tmp/tally-demo TALLY_SECRETS_DIR=/tmp/tally-demo/secrets
-    uv run tally fava
     uv run tally summary
+    uv run tally fava
+
+and open http://localhost:5000 while Fava runs.
 
 It starts from example/, makes about four months of invented bank, card and brokerage
 activity ending today, and runs it through tally's own sync, as if SimpleFIN had sent it. So
@@ -116,8 +118,9 @@ def main(out: Path) -> None:
         sys.exit(f"the demo didn't sync cleanly: {result}")
     print(f"Made-up data in {out}. Try:")
     print(f"  export TALLY_DATA_DIR={out} TALLY_SECRETS_DIR={out / 'secrets'}")
-    print("  uv run tally fava        # http://localhost:5000")
     print("  uv run tally summary")
+    print("  uv run tally fava")
+    print("Fava runs at http://localhost:5000 until you stop it (Ctrl-C).")
 
 
 def _set_up(out: Path, start: datetime.date) -> None:

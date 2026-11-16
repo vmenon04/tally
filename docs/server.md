@@ -27,8 +27,8 @@ it can write only to its data folder. You use it from your own machine with `bin
 1. Install [uv](https://docs.astral.sh/uv/) on the server at `/srv/tally/bin/uv`, and clone the
    repo there.
 2. **Pick your time zone.** The units in `deploy/` use `America/New_York`, which decides when a
-   month starts and when the summary goes out. Change it in `tally-*.service` and
-   `tally-*.timer` before installing them.
+   month starts and when the summary goes out. Change it in `tally-*.service`,
+   `tally-*.timer` and `tally-run` before installing them.
 3. From the clone on the server:
 
    ```sh
@@ -54,12 +54,17 @@ it can write only to its data folder. You use it from your own machine with `bin
 ## From your machine
 
 ```sh
-alias tally=~/path/to/tally/bin/tally-remote    # in your shell's rc file
+alias tally=~/path/to/tally/bin/tally-remote
 
-tally sync --dry-run              # any command runs on the server and prints here
-tally fava                        # Fava on the server, at http://localhost:5000 here
-tally deploy                      # install the last commit (asks for your sudo password)
+tally sync --dry-run
+tally fava
+tally deploy
 ```
+
+- `alias tally=~/path/to/tally/bin/tally-remote`: In your shell's rc file.
+- `tally sync --dry-run`: Any command runs on the server and prints here.
+- `tally fava`: Fava on the server, at http://localhost:5000 here.
+- `tally deploy`: Install the last commit (asks for your sudo password)
 
 `deploy` first pushes the commit to `origin` and stops if that fails, so your fork always has
 what the server runs. It sends only committed code (`git archive HEAD`). On the server,
