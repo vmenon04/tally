@@ -37,8 +37,15 @@ bin/check
 
 ## The image
 
-CI also builds a Docker image of tally, with Claude Code, and checks it runs. On `main`, once
-the checks pass, it publishes it as `ghcr.io/vmenon04/tally:<commit>`. The image holds no data
+CI also builds a Docker image of tally, with Claude Code, and checks it runs. To publish one,
+set `version` in `pyproject.toml`, commit, and push a tag for it:
+
+```sh
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+Once the checks pass, CI publishes `ghcr.io/vmenon04/tally:0.2.0`. The image holds no data
 or secrets ([`.dockerignore`](../.dockerignore) lets in only the code); mount them at `/data`
 and `/secrets`:
 
