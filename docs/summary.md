@@ -1,67 +1,68 @@
 # Weekly summary
 
 ```sh
-uv run tally summary                      # as of today
-uv run tally summary --as-of 2026-10-18   # as it would have been on that day
-uv run tally summary --email              # print it and email it
-uv run tally summary --email --sync       # run `tally sync` first, then email it
+tally summary                      # as of today
+tally summary --as-of 2026-10-18   # as it would have been on that day
+tally summary --email              # print it and email it
+tally summary --email --sync       # run `tally sync` first, then email it
 ```
 
-It covers the 7 days up to today (or the `--as-of` day; anything later is left out):
+It covers the 7 days up to today (or the `--as-of` day):
 
-- **This week:** every purchase, pending ones marked, against what the plan allows per week.
+- **This week:** every purchase, pending ones marked, against what your plan allows per week.
 - **The month so far:** each category's spending against its plan, and what's left per day.
   In a month's first days, how the month before ended.
 - **Look out for:** categories over plan or ahead of pace, big purchases, uncategorized
-  transactions, an account with nothing posted since last month (SimpleFIN stopped), and
-  anything wrong with the ledger (a row missing or doubled, a bean-check error, a
-  balance that differs from the bank's).
-- **Coming up:** next month's paychecks, planned spending and Roth IRA transfer, and whether the
-  year's planned Roth IRA contributions fit the limit.
-- **From the ledger:** a bean-query report: spending per category this month so far, the same
-  days last month and all of last month, and the year's Roth IRA contributions.
+  transactions, an account with nothing posted since last month, and anything wrong with the
+  ledger (a row missing or doubled, a bean-check error, a balance that differs from the bank's).
+- **Coming up:** next month's paychecks and planned spending.
+- **From the ledger:** spending per category this month, the same days last month, and all of
+  last month.
 
-Categories are the ledger's, so a category you set in the ledger shows here. The plan comes from the
-ledger's `plan.beancount` ([The Beancount ledger](ledger.md#your-plan)). Spending counts by the
-day a purchase happened and includes pending alerts.
+Categories and the plan come from the ledger ([Your plan](ledger.md#your-plan)). Spending counts
+by the day a purchase happened and includes pending ones. The thresholds for "look out for" are
+at the top of `src/tally/summary.py`.
 
-The advice comes from fixed rules (the thresholds are at the top of `src/tally/summary.py`).
-Without `--as-of`, the finished summary then goes to Claude, which adds a short note of advice
-at the top; it can only comment, a note quoting a dollar amount the summary doesn't show is
-refused, and if there's no note the summary still goes out and says why. If the ledger can't
-be read, the summary says so and uses `rules.toml` alone.
+## Claude's note and monthly review
 
-The first emailed summary after a month ends also has Claude's review of that month: a
-headline, then what went well, what to watch and what to try next month. Claude gets the
-ledger's numbers written out as sentences (each month's pay, spending and savings; this
-month's categories against the plan; the merchants you spend most at; goals, investments,
-Roth IRA room and net worth), plus the `custom "about"` lines in `plan.beancount`. So those
-figures go to Anthropic, as merchant names already do for categorizing. It has no tools
-and does no sums: a review quoting a dollar amount those numbers don't show is asked again,
-then refused, and the summary says so and tries again the next week. Each review is kept
-in `data/advice/`, which is how tally knows it was sent; a summary only printed, not
-emailed, never writes one.
+If [Claude Code](https://claude.com/claude-code) is installed and logged in (or
+`secrets/claude-token` holds a token from `claude setup-token`), Claude adds a short note of
+advice at the top. The first emailed summary after a month ends also has Claude's review of that
+month: what went well, what to watch and what to try next month.
 
-For the Roth IRA check, add to `data/config.toml`:
+Claude gets the summary, or for the review, the ledger's numbers written out as sentences
+(pay, spending, savings, categories against the plan, top merchants, goals, investments, net
+worth), plus your `custom "about"` lines. Those figures go to Anthropic. A note or review quoting
+a dollar amount those numbers don't show is refused, and the summary goes out without it. Each
+review is kept in `data/advice/`.
+
+## Roth IRA check (optional)
+
+If you contribute to a Roth IRA, add to `data/config.toml`:
 
 ```toml
 roth_limit = 7500        # this year's contribution limit
-roth_elsewhere = 140     # contributed this year where tally can't see it (before tally, other accounts)
+roth_elsewhere = 0       # contributed this year where tally can't see it
 ```
+
+and plan transfers in `plan.beancount` (`custom "roth-plan" 600.00 USD`). "Coming up" then says
+whether the year's planned contributions fit the limit.
 
 ## By email
 
-`--email` sends the same text from your Gmail account (`gmail_account`) to the address in
-`summary_to`:
+`--email` sends the same text from a Gmail account to any address:
 
 ```toml
+gmail_account = "you@gmail.com"
 summary_to = "you@example.com"
 ```
 
-It signs in to Gmail's SMTP server with the app password `tally gmail-login` saved, so there's
-nothing else to set up. The summary is printed either way; if sending fails, the command says
-why and exits with an error.
+Then make a Gmail [app password](https://myaccount.google.com/apppasswords) and save it:
 
-On the server, `tally-summary.timer` runs `tally sync` and sends it every Sunday at 6pm New York
-time. If the sync fails, or Sure couldn't be updated or has a balance that differs from the
-ledger's, the summary still goes out, and its first "look out for" item says so. See [Running on a server](server.md).
+```sh
+tally gmail-login
+```
+
+The summary is printed either way; if sending fails, the command says why and exits with an
+error. To send it every week, run `tally summary --email --sync` from cron, or on a
+[server](server.md#on-a-schedule), where a timer does it on Sunday evenings.

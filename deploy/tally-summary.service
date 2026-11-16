@@ -14,7 +14,7 @@ Group=tally
 WorkingDirectory=/srv/tally/data
 Environment=TALLY_DATA_DIR=/srv/tally/data
 Environment=TALLY_SECRETS_DIR=/srv/tally/secrets
-# The budget's months and "today" follow the owner's time zone, not the server's.
+# The budget's months and "today" follow your time zone, not the server's.
 Environment=TZ=America/New_York
 ExecStart=/srv/tally/venv/bin/tally summary --email --sync
 TimeoutStartSec=5min

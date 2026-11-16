@@ -1,9 +1,7 @@
 # Where transactions come from
 
-## Bank and card accounts: SimpleFIN
-
-[SimpleFIN Bridge](https://bridge.simplefin.org) (paid, about $15 a year) reads your accounts
-for you. Connect your banks there, make a setup token, then:
+[SimpleFIN Bridge](https://bridge.simplefin.org) reads your bank and card accounts for you,
+read-only, for about $15 a year. Connect your banks there, make a setup token, then:
 
 ```sh
 tally simplefin-login                  # claims the token (hidden input); saves secrets/simplefin-access-url
@@ -11,46 +9,58 @@ tally simplefin                        # each account it sees, its balance, rece
 tally simplefin --transactions 1234    # one account's transactions, as the bridge gives them
 ```
 
-An account takes its rows from SimpleFIN once the ledger links it, by its last four digits,
-on the account with its `tally-account:`:
+## Linking an account
 
-    2026-08-31 open Assets:BofA:Checking USD
-      tally-account: "bofa_checking"
-      simplefin-account: "1234"
+An account's transactions come in once the ledger links it by its last four digits:
 
-Each `tally sync` (every two hours on the server) asks for the last 14 days and adds the
-rows posted since: a row counts as stored when a stored row of its account has the same
-posted date and amount. Bank of America's rows ("CHECKCARD 1018 SHOP …", masked reference
-numbers) are read into the purchase date and a merchant name that stays the same from row
-to row, so rules keep working. What came in is kept in `data/raw/simplefin/`, so the
-database can be rebuilt from it. Problems the bridge reports (a bank that needs you to sign
-in again) are in the sync's output, the weekly summary and a notification.
+```beancount
+2026-01-01 open Assets:Bank:Checking USD
+  tally-account: "checking"
+  simplefin-account: "1234"
+```
 
-Its pending transactions are the account's pending entries: see [Pending
-purchases](notifications.md#pending-purchases).
+Each `tally sync` asks for the last 14 days and adds the rows posted since. A row counts as
+already stored when a stored row of its account has the same posted date and amount. What came
+in is kept in `data/raw/simplefin/`, so the database can be rebuilt from it. Problems the bridge
+reports (a bank that needs you to sign in again) show up in the sync's output, the weekly
+summary and a notification.
 
-Every account linked with `simplefin-account:` also has its balance checked on each sync
-against the bank's; an account can be linked for that alone, without `tally-account:`
-(a savings account whose deposits tally already sees as transfers out of checking).
+Pending transactions become the account's [pending purchases](notifications.md#pending-purchases).
 
-Such an account still earns interest the ledger wouldn't otherwise have. Add
-`interest-from:` and each sync brings in that account's interest alone: its posted money in
-described with "interest", from the income account named, each payment once (by SimpleFIN's
-id for it, kept as `simplefin-id`). Its other rows stay out, since checking's side has them:
+The bridge allows about 24 requests a day. Each sync makes one, and so does each
+`tally simplefin`, so syncing every two hours leaves room for checking by hand.
 
-    2026-09-01 open Assets:CapitalOne:Savings USD
-      simplefin-account: "5678"
-      interest-from: "Income:Interest"
+## Merchant names
 
-The bridge allows about 24 requests a day: each sync makes one (12 a day), and so does each
-`tally simplefin`.
+Rules match on the merchant name, so it should read the same each time you shop somewhere. For
+most banks it's the description the bank gives, with spaces tidied. Two banks get extra cleanup,
+picked by their `tally-account` name:
 
-Reading another bank's rows takes a small function in `src/tally/simplefin.py` that turns
-them into Transactions, with that bank's merchant cleanup in `src/tally/importers/`.
+- `bofa_checking`: Bank of America checking. Its "CHECKCARD 1018 SHOP ..." rows give the
+  purchase date, and masked reference numbers are removed.
+- `discover`: Discover cards. Apple Pay suffixes and glued-on reference codes are removed.
 
-## Fidelity holdings
+If your bank adds something that changes from row to row, use `match =` rules (the merchant
+contains this text) rather than `merchant =`, or add a cleanup for it: a small function in
+`src/tally/simplefin.py`, listed in `_ROWS`, with the cleanup in `src/tally/importers/`.
 
-Each sync also records what each Fidelity account holds, from SimpleFIN: see [Fidelity
-holdings](ledger.md#fidelity-holdings).
+## Accounts checked, not imported
 
-`TALLY_DATA_DIR` sets the data folder (default: `data` in the current directory).
+Every account linked with `simplefin-account:` has its balance checked against the bank's on
+each sync. An account can be linked for that alone, without `tally-account:`: a savings account
+whose deposits already come in as transfers out of checking, say.
+
+Such an account still earns interest the ledger wouldn't otherwise see. Add `interest-from:` and
+each sync brings in that account's interest alone (its money in described with "interest"):
+
+```beancount
+2026-01-01 open Assets:Bank:Savings USD
+  simplefin-account: "5678"
+  interest-from: "Income:Interest"
+2026-01-01 open Income:Interest USD
+```
+
+## Investments
+
+Each sync can also record what a brokerage account holds: see [Investment
+holdings](ledger.md#investment-holdings).

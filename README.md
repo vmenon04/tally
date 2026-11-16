@@ -34,13 +34,15 @@ sync. It takes about half an hour.
 
 ## Docs
 
-- [Getting started](docs/getting-started.md)
+- [Getting started](docs/getting-started.md): set it up on your own computer
+- [Reference](docs/reference.md): commands, settings, secrets, ledger metadata, rules
 - [Where transactions come from](docs/transactions.md)
-- [The Beancount ledger](docs/ledger.md)
+- [The Beancount ledger](docs/ledger.md): categories, your plan, goals, investments, Sure
 - [Weekly summary](docs/summary.md)
 - [Pending purchases and notifications](docs/notifications.md)
-- [Running on a server](docs/server.md)
-- [Architecture](docs/architecture.md)
-- [Development](docs/development.md)
+- [Running on a server](docs/server.md): scheduled syncs, Sure, backups
+- [Architecture](docs/architecture.md) and [Development](docs/development.md)
 
-tally is shared as is, under the MIT license. There are no releases; `main` is what's current.
+I built tally for my banks and my server, but nothing about them is in the code: your settings,
+secrets and accounts all live in your own `data/` and `secrets/` folders. It's shared as is,
+under the MIT license. There are no releases; `main` is what's current.

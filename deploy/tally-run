@@ -1,6 +1,6 @@
 #!/bin/sh
 # Runs a tally command as the tally user, with the server's folders. Installed root-owned as
-# /usr/local/bin/tally-run; deploy/sudoers lets the owner's account run it (and nothing else)
+# /usr/local/bin/tally-run; deploy/sudoers lets your account run it (and nothing else)
 # as tally without a password. It can only do what the tally user can.
 set -eu
 

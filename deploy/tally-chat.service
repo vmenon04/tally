@@ -14,7 +14,7 @@ Group=tally
 WorkingDirectory=/srv/tally/data
 Environment=TALLY_DATA_DIR=/srv/tally/data
 Environment=TALLY_SECRETS_DIR=/srv/tally/secrets
-# "Today" follows the owner's time zone, not the server's.
+# "Today" follows your time zone, not the server's.
 Environment=TZ=America/New_York
 ExecStart=/srv/tally/venv/bin/tally chat --socket /srv/tally-chat/chat.sock
 Restart=on-failure

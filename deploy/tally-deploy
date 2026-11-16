@@ -2,7 +2,7 @@
 # Installs a new version of the code from a `git archive` tarball, once its tests pass on this
 # machine. Installed root-owned as /usr/local/bin/tally-deploy and run by bin/tally-remote as
 #     sudo -u tally tally-deploy ARCHIVE COMMIT
-# which asks for the owner's password (deploy/sudoers doesn't cover it): new code can read the
+# which asks for your password (deploy/sudoers doesn't cover it): new code can read the
 # secrets, so installing it takes more than running tally does.
 #
 # The code is unpacked and tested in app.new/, then swapped in for app/ (the previous version

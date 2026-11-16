@@ -1,7 +1,7 @@
 #!/bin/sh
 # Installs or upgrades Sure in /srv/sure from the compose.yml next to this script, starts
-# it, and puts it on the tailnet. Needs tally set up first, since Sure's chat goes to
-# tally chat. Run as root on the server; see docs/server.md.
+# it, and puts it on the tailnet if Tailscale is installed. Needs tally set up first, since
+# Sure's chat goes to tally chat. Run as root on the server; see docs/server.md.
 set -eu
 
 if [ "$(id -u)" != 0 ]; then
@@ -45,7 +45,11 @@ fi
 install -d -o tally -g tally -m 755 /srv/tally-chat
 
 docker compose --project-directory /srv/sure up -d --wait
-tailscale serve --bg http://127.0.0.1:3200
+if command -v tailscale >/dev/null; then
+    tailscale serve --bg http://127.0.0.1:3200
+else
+    echo "Sure listens on 127.0.0.1:3200; without Tailscale, reach it some other way (an SSH tunnel)."
+fi
 # tally chat starts once its token and folder are there (see docs/server.md).
 if systemctl is-enabled --quiet tally-chat; then
     systemctl restart tally-chat

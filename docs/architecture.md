@@ -1,9 +1,10 @@
 # Architecture
 
-tally runs on one home server. What it knows about your bank and card accounts comes from
-SimpleFIN Bridge, which reads them for you: posted transactions, pending ones, each
-account's balance, and Fidelity's holdings. It keeps a Beancount ledger (pushed to its own
-repo on Forgejo, edited with Fava), fills Sure from it, emails a weekly summary and sends
+This is how the pieces fit together when tally runs on a home server, the way I run it; on
+your own computer it's the same minus systemd, Sure and the ledger's repo, all optional. What
+tally knows about your accounts comes from SimpleFIN Bridge: posted transactions, pending ones,
+each account's balance, and brokerage holdings. It keeps a Beancount ledger (edited with Fava,
+optionally pushed to its own git repo), fills Sure from it, emails a weekly summary and sends
 headline-only push notifications.
 
 ## The whole system
@@ -11,8 +12,8 @@ headline-only push notifications.
 ```mermaid
 flowchart LR
     subgraph banks["Banks"]
-        bank["Discover, Bank of America,<br/>Capital One"]
-        fidelity["Fidelity"]
+        bank["Your banks and cards"]
+        fidelity["Brokerage"]
     end
 
     simplefin["SimpleFIN Bridge<br/>read-only, 24 requests a day"]
@@ -21,12 +22,12 @@ flowchart LR
         timer["systemd timer<br/>sync every 2 hours"]
         tally["tally<br/>user: tally, sandboxed"]
         data[("/srv/tally/data<br/>tally.db, rules.toml, config.toml,<br/>raw answers, ledger/ (git clone)")]
-        secrets[("/srv/tally/secrets<br/>SimpleFIN access, app password,<br/>ntfy topic, Claude token, Forgejo token")]
-        forgejo["Forgejo<br/>ledger repo, localhost:3000"]
+        secrets[("/srv/tally/secrets<br/>SimpleFIN access, app password,<br/>ntfy topic, Claude token, git token")]
+        forgejo["Git host, e.g. Forgejo<br/>ledger repo"]
         sure["Sure<br/>web and phone UI"]
     end
 
-    subgraph mac["Mac"]
+    subgraph mac["Your computer"]
         fava_view["Browser<br/>Fava, over an SSH tunnel, to edit"]
     end
 
@@ -55,7 +56,7 @@ Solid lines run on their own; dotted lines are steps you do by hand.
 | Boundary | What crosses it | What protects it |
 |---|---|---|
 | Banks → SimpleFIN → tally | Transactions and balances | SimpleFIN holds the bank connections; tally holds only an access URL, read-only, in secrets/, never printed or logged. Its rows are checked against what's stored (same posted date and amount) and each account's balance against the ledger's. |
-| tally → Forgejo | The ledger | A token for the one repo, in secrets/, given to git through its environment (never its command line or config). Forgejo is reached on localhost. |
+| tally → the ledger's repo | The ledger | A token for the one repo, in secrets/, given to git through its environment (never its command line or config). |
 | Fava → you | The ledger, read and edit | Runs only while `tally-remote fava` is open, on a Unix socket in a folder only your account and tally can open; SSH forwards it to your machine. |
 | Sure → tally chat | Your chat messages; replies from the ledger | `tally chat` listens on a Unix socket, reached only through a relay container on Sure's own network with no port on the server, and answers only requests carrying the token Sure was given. Claude's only tools are Sure's lookups that read, passed on by `tally lookups`, which holds Sure's MCP token and refuses every other tool. A reply quoting a dollar amount that neither the ledger, the chat nor a lookup shows is refused. |
 | tally → ntfy | Headlines | ntfy topics have no password, so the topic is 128 random bits and messages carry only kinds and counts. |
@@ -85,7 +86,7 @@ sequenceDiagram
     end
     U->>U: categories set on pending entries become rules; Claude for new merchants
     U->>L: pending.beancount: what SimpleFIN last listed
-    U->>L: Fidelity holdings from SimpleFIN's answer
+    U->>L: brokerage holdings from SimpleFIN's answer
     U->>U: every row once, bean-check, each balance against the bank's
     U->>U: Sure made to match the ledger
     C->>N: new pending purchases, banks to sign in to again, balances that differ
@@ -122,7 +123,7 @@ flowchart TD
 
     subgraph sources["Where transactions come from"]
         simplefin["simplefin.py<br/>the bridge, its rows, pending and holdings"]
-        importers_pkg["importers/: how BofA and Discover word rows,<br/>Fidelity's holdings"]
+        importers_pkg["importers/: merchant cleanup for some banks,<br/>brokerage holdings"]
     end
 
     subgraph pendingpkg["Pending"]
@@ -189,7 +190,7 @@ erDiagram
     }
     transactions {
         int id PK
-        text account "discover, bofa_checking"
+        text account "a tally-account"
         text date
         text posted
         text description
@@ -217,8 +218,7 @@ erDiagram
 
 Pending transactions are never joined to posted ones in the database. Matching is recomputed
 on every run, and pending.beancount is worked out afresh each time, so a late or corrected
-answer fixes the picture without any cleanup. Alerts from the alert emails tally used to read
-are still in the table; SimpleFIN's answers cover them.
+answer fixes the picture without any cleanup.
 
 ## On the server
 
@@ -226,8 +226,8 @@ are still in the table; SimpleFIN's answers cover them.
 flowchart LR
     subgraph systemd["systemd, root"]
         sync_timer["tally-sync.timer<br/>every 2 hours<br/>Persistent=true"]
-        sync_service["tally-sync.service<br/>Type=oneshot, User=tally<br/>TZ=America/New_York<br/>stdout discarded"]
-        summary_timer["tally-summary.timer<br/>Sun 18:00 America/New_York"]
+        sync_service["tally-sync.service<br/>Type=oneshot, User=tally<br/>TZ=your time zone<br/>stdout discarded"]
+        summary_timer["tally-summary.timer<br/>Sundays 18:00"]
         summary_service["tally-summary.service<br/>tally summary --email --sync"]
         chat_service["tally-chat.service<br/>always on"]
     end
