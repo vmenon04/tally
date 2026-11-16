@@ -21,6 +21,7 @@ git config core.hooksPath .githooks
 | `bin/tally-remote` | Runs tally on the server from your machine | yes |
 | `bin/check` | The checks every commit must pass | yes |
 | `deploy/` | Server scripts, sudoers rule, systemd units and Sure's compose file ([Running on a server](server.md)) | yes |
+| `Dockerfile` | The image CI publishes, below | yes |
 | `docs/` | These docs | yes |
 | `secrets/` | API keys and tokens (`chmod 700`) | **never** |
 | `data/` | Database, ledger, config, raw SimpleFIN answers | **never** |
@@ -32,4 +33,16 @@ and the tests.
 
 ```sh
 bin/check
+```
+
+## The image
+
+CI also builds a Docker image of tally, with Claude Code, and checks it runs. On `main`, once
+the checks pass, it publishes it as `ghcr.io/vmenon04/tally:<commit>`. The image holds no data
+or secrets ([`.dockerignore`](../.dockerignore) lets in only the code); mount them at `/data`
+and `/secrets`:
+
+```sh
+docker build --tag tally .
+docker run --rm -v "$PWD/data:/data" -v "$PWD/secrets:/secrets" tally summary
 ```
