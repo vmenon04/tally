@@ -104,7 +104,7 @@ def test_uncategorized_this_month() -> None:
     s = build(tx(4, "MYSTERY SHOP", "-12.00"), tx(4, "OLD MYSTERY", "-1.00", month=2))
     assert look_out(s, "1 uncategorized") == [
         "1 uncategorized this month, not counted in the totals: MYSTERY SHOP (-$12.00). "
-        "Pick a category on the Transactions tab and sync."
+        "Set a category in Fava or Sure, or add a rule."
     ]
 
 

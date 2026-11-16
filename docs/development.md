@@ -13,6 +13,8 @@ git config core.hooksPath .githooks    # enable the pre-commit checks (once per 
 |---|---|---|
 | `src/tally/` | Application code | yes |
 | `tests/` | Tests. Fixtures use made-up data only | yes |
+| `example/` | The starter data folder new users copy to `data/` | yes |
+| `demo/make_demo.py` | Makes a data folder of made-up money, run through tally's own sync | yes |
 | `bin/tally-remote` | Runs tally on the server from your machine | yes |
 | `bin/check` | The checks every commit must pass | yes |
 | `deploy/` | Server scripts, sudoers rule, systemd units and Sure's compose file ([Running on a server](server.md)) | yes |

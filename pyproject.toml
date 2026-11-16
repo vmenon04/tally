@@ -44,7 +44,7 @@ select = [
 
 [tool.mypy]
 strict = true
-files = ["src", "tests"]
+files = ["src", "tests", "demo"]
 
 [[tool.mypy.overrides]]
 module = ["beangulp", "beangulp.*", "beanquery", "beanquery.*"]

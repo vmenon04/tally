@@ -32,6 +32,20 @@ cp -R example data
 Then follow [Getting started](docs/getting-started.md) to link your accounts and run your first
 sync. It takes about half an hour.
 
+## Try it with made-up data
+
+To look around first, or to record a demo without showing your own money, make a folder of
+invented accounts and transactions and point tally at it:
+
+```sh
+uv run python demo/make_demo.py /tmp/tally-demo
+export TALLY_DATA_DIR=/tmp/tally-demo TALLY_SECRETS_DIR=/tmp/tally-demo/secrets
+uv run tally fava        # http://localhost:5000
+uv run tally summary
+```
+
+Nothing in it is real, and it never touches your `data/` or `secrets/`.
+
 ## Docs
 
 - [Getting started](docs/getting-started.md): set it up on your own computer

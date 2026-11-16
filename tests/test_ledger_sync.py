@@ -628,3 +628,20 @@ def test_simplefin_failing_is_announced_once_it_lasts(
     monkeypatch.setattr(notify, "BANK_GRACE", datetime.timedelta(0))
     run(capsys, "sync")
     assert posted == [b"can't read your accounts through SimpleFIN"]
+
+
+def test_the_demo_makes_made_up_data_that_syncs_cleanly(
+    data: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.syspath_prepend(str(Path(__file__).parent.parent / "demo"))
+    import make_demo
+
+    make_demo.main(data)
+    assert "Made-up data in" in capsys.readouterr().out
+    claude_answers(monkeypatch, {})
+    code, out, _ = run(capsys, "sync", "--dry-run")
+    assert code == 0
+    assert "bean-check is clean" in out
+    imported = "".join(p.read_text() for p in (data / "ledger" / "imported").iterdir())
+    assert "#fidelity-positions" in imported
+    assert "ACME CORP PAYROLL" in imported

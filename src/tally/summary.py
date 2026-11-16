@@ -280,7 +280,7 @@ def _uncategorized(today: datetime.date, items: list[Item]) -> list[str]:
     names = ", ".join(f"{t.merchant} ({report.money(t.amount)})" for t in found)
     return [
         f"{len(found)} uncategorized this month, not counted in the totals: {names}. "
-        "Pick a category on the Transactions tab and sync."
+        "Set a category in Fava or Sure, or add a rule."
     ]
 
 
