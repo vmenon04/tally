@@ -75,7 +75,7 @@ class NotUpToDate(Exception):
 def bring_up_to_date(data_dir: Path, err: TextIO) -> None:
     """Before tally changes the ledger: commit edits made here, then pull ones made elsewhere.
 
-    Raises NotUpToDate if pulling conflicts; an unreachable Forgejo is only reported.
+    Raises NotUpToDate if pulling conflicts; an unreachable remote is only reported.
     """
     folder = book.folder(data_dir)
     if not (book.exists(data_dir) and history.is_repo(folder)):
@@ -84,16 +84,16 @@ def bring_up_to_date(data_dir: Path, err: TextIO) -> None:
         history.commit(folder, "Save changes made outside tally")
         history.pull(folder)
     except history.Unreachable as e:
-        print(f"ledger: {e}; going on without the latest from Forgejo", file=err)
+        print(f"ledger: {e}; going on without the latest from its remote", file=err)
     except history.HistoryError as e:
         raise NotUpToDate(str(e)) from e
 
 
 def save(folder: Path, message: str, err: TextIO) -> None:
-    """Commit what tally changed, and push it to Forgejo and the backup.
+    """Commit what tally changed, and push it to the ledger's remote and the backup.
 
     A failure is reported and the next run retries. Each push is tried on its own, so the
-    backup still gets the commit when Forgejo is down.
+    backup still gets the commit when the remote is down.
     """
     if not history.is_repo(folder):
         return

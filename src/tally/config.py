@@ -87,7 +87,7 @@ def _amount(data: dict[str, object], key: str, path: Path) -> Decimal | None:
 
 def secrets_dir() -> Path:
     """Where API keys live: TALLY_SECRETS_DIR, else ./secrets."""
-    return Path(os.environ.get("TALLY_SECRETS_DIR", "secrets"))
+    return Path(os.environ.get("TALLY_SECRETS_DIR", "secrets")).absolute()
 
 
 def write_secret(path: Path, text: str) -> None:

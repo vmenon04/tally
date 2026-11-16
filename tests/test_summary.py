@@ -161,7 +161,7 @@ def test_next_month_from_the_budget_tab() -> None:
     assert build().coming_up[0] == (
         "April: 2 paycheck(s), $1,400.00 of spending planned, $500.00 to the Roth IRA."
     )
-    assert build(targets=None).coming_up == ["Roth IRA 2026: $0.00 in so far."]
+    assert build(targets=None).coming_up == []  # no Roth IRA line without a roth_limit
 
 
 def roth_line(limit: str, elsewhere: str, *transactions: Transaction) -> str:

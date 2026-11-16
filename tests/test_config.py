@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from tally import config
+from tally import cli, config
 
 
 def write(tmp_path: Path, text: str) -> Path:
@@ -62,7 +62,7 @@ def test_missing_config(tmp_path: Path) -> None:
 
 def test_secrets_dir(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TALLY_SECRETS_DIR", raising=False)
-    assert config.secrets_dir() == Path("secrets")
+    assert config.secrets_dir() == Path("secrets").absolute()
     monkeypatch.setenv("TALLY_SECRETS_DIR", "/srv/tally/secrets")
     assert config.secrets_dir() == Path("/srv/tally/secrets")
 
@@ -80,3 +80,11 @@ def test_sure_url(tmp_path: Path) -> None:
     assert loaded.sure_url == "https://sure.example.com"
     with pytest.raises(config.ConfigError, match="sure_url must be"):
         config.load(write(tmp_path, 'sure_url = "sure.example.com"\n'))
+
+
+def test_the_default_folders_are_absolute(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Beancount, and so Fava, refuses a relative ledger path.
+    monkeypatch.delenv("TALLY_DATA_DIR", raising=False)
+    monkeypatch.delenv("TALLY_SECRETS_DIR", raising=False)
+    assert cli.data_dir().is_absolute()
+    assert config.secrets_dir().is_absolute()

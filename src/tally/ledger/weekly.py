@@ -146,7 +146,8 @@ def format_text(r: Report) -> str:
     )
     if r.pending:
         lines.append(f"  Includes {r.pending} pending purchase(s) not yet in a bank export.")
-    lines += ["", f"  {_roth(r)}"]
+    if r.roth_limit is not None:
+        lines += ["", f"  {_roth(r)}"]
     return "\n".join(lines)
 
 
@@ -185,14 +186,17 @@ def format_html(r: Report) -> str:
         + "".join(rows)
         + "</table>"
         + pending
-        + f'<p style="margin:12px 0 0;">{escape(_roth(r))}</p>'
+        + (
+            f'<p style="margin:12px 0 0;">{escape(_roth(r))}</p>'
+            if r.roth_limit is not None
+            else ""
+        )
     )
 
 
 def _roth(r: Report) -> str:
+    assert r.roth_limit is not None
     text = f"Roth IRA {r.today.year}: {_money(r.roth_in)} contributed"
-    if r.roth_limit is None:
-        return text + "."
     left = r.roth_limit - r.roth_in
     if left >= 0:
         return f"{text} of the {_money(r.roth_limit)} limit; {_money(left)} of room left."

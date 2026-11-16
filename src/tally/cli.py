@@ -194,7 +194,8 @@ def main(argv: list[str] | None = None) -> int:
 
 def data_dir() -> Path:
     """Where the database, inbox, ledger and downloads live: TALLY_DATA_DIR, else ./data."""
-    return Path(os.environ.get("TALLY_DATA_DIR", "data"))
+    # Absolute, since Beancount (and so Fava) refuses a relative ledger path.
+    return Path(os.environ.get("TALLY_DATA_DIR", "data")).absolute()
 
 
 def _date(text: str) -> datetime.date:

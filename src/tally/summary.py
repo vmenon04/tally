@@ -13,8 +13,9 @@ summary (see summary_note):
   category had other purchases this month (a lone one is a bill, like rent or a remittance).
 - An account is *behind* from IMPORT_DUE_DAY of a month until its posted rows reach the last
   day of the month before: SimpleFIN has stopped for it, or its CSVs are due.
-- The Roth IRA check adds what tally has seen this year, `roth_elsewhere` from config.toml, and
-  the amounts typed for the rest of the year, and compares them with `roth_limit`.
+- The Roth IRA check, only with `roth_limit` in config.toml, adds what tally has seen this
+  year, `roth_elsewhere` and the amounts planned for the rest of the year, and compares them
+  with `roth_limit`.
 """
 
 import calendar
@@ -349,6 +350,8 @@ def _next_month(today: datetime.date, rules: Rules, targets: Targets | None) -> 
 def _roth(
     today: datetime.date, this_month: report.MonthReport, targets: Targets | None, roth: Roth
 ) -> list[str]:
+    if roth.limit is None:
+        return []  # no Roth IRA to check
     contributed = this_month.investing_year_to_date + roth.elsewhere
     planned = Decimal(0)
     if targets is not None:
@@ -366,8 +369,6 @@ def _roth(
     line = f"Roth IRA {today.year}: {report.money(contributed)} in so far"
     if planned:
         line += f", {report.money(planned)} more planned"
-    if roth.limit is None:
-        return [line + "."]
     room = roth.limit - contributed
     if room < 0:
         return [
