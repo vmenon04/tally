@@ -106,8 +106,8 @@ def test_load_reports_missing_file(tmp_path: Path) -> None:
             "rule 1: unknown keys",
         ),
         (
-            CATEGORIES + '[[rule]]\nmatch = "A"\naccount = "chase"\ncategory = "Groceries"\n',
-            "account 'chase'",
+            CATEGORIES + '[[rule]]\nmatch = "A"\naccount = 5\ncategory = "Groceries"\n',
+            "account must be a tally-account name",
         ),
         (
             CATEGORIES + '[[rule]]\nmatch = "A"\ndate = "2026-03-09"\ncategory = "Groceries"\n',

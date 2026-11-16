@@ -25,14 +25,12 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from tally.importers import bofa, discover
 from tally.transaction import Transaction, identity
 
 # Kinds of money movement that aren't spending, available to every rules file.
 INCOME = "Income"
 NOT_SPENDING = (INCOME, "Card payment", "Savings transfer", "Investing")
 UNCATEGORIZED = "Uncategorized"
-ACCOUNTS = (bofa.ACCOUNT, discover.ACCOUNT)
 
 _RULE_KEYS = {"match", "merchant", "account", "date", "amount", "category"}
 
@@ -132,8 +130,8 @@ def _parse_rule(raw: dict[str, Any], n: int, allowed: tuple[str, ...]) -> Rule:
         raise fail("match and merchant must be non-empty text")
 
     account = raw.get("account")
-    if account is not None and account not in ACCOUNTS:
-        raise fail(f"account {account!r} is not one of {list(ACCOUNTS)}")
+    if account is not None and (not isinstance(account, str) or not account.strip()):
+        raise fail('account must be a tally-account name, like "bofa_checking"')
 
     date = raw.get("date")
     if date is not None and (

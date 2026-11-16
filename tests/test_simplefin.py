@@ -172,6 +172,18 @@ def test_rows_are_a_linked_accounts_posted_rows_as_its_export_gives_them() -> No
         simplefin.rows(found, {"9999": "discover"})
 
 
+def test_another_banks_rows_are_read_plainly_under_its_tally_account() -> None:
+    found = simplefin.fetch(ACCESS, get=lambda u, p, a: response(200, BODY))
+    (row,) = simplefin.rows(found, {" It": "my_card"})["my_card"]
+    assert (row.account, row.date, row.posted, row.amount) == (
+        "my_card",
+        datetime.date(2026, 11, 13),
+        datetime.date(2026, 11, 13),
+        Decimal("-5.90"),
+    )
+    assert row.description == row.merchant == "MAPLE"
+
+
 def test_the_extra_option_shows_what_tally_doesnt_read(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

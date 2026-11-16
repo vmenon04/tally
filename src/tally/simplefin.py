@@ -19,6 +19,7 @@ brings in only its interest (see interest).
 import base64
 import binascii
 import datetime
+import functools
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -228,15 +229,13 @@ def account_ending(answer: Answer, last4: str) -> Account | None:
 
 def rows(answer: Answer, linked: dict[str, str]) -> dict[str, list[Row]]:
     """Each linked tally account's posted rows, oldest first. Raises SimpleFINError if the
-    bridge has no account for one, or tally can't read that bank's rows."""
+    bridge has no account for one. Banks without a reader of their own get _plain."""
     result = {}
     for last4, tally_account in sorted(linked.items()):
         account = account_ending(answer, last4)
         if account is None:
             raise SimpleFINError(f"the bridge has no one account ending in {last4}")
-        make = _ROWS.get(tally_account)
-        if make is None:
-            raise SimpleFINError(f"tally can't read SimpleFIN rows for {tally_account} yet")
+        make = _ROWS.get(tally_account, functools.partial(_plain, tally_account))
         posted = [t for t in account.transactions if not t.pending and t.posted is not None]
         result[tally_account] = sorted(
             (make(t) for t in posted), key=lambda r: (r.posted or r.date, r.description)
@@ -379,4 +378,18 @@ def _discover(t: Transaction) -> Row:
     )
 
 
+def _plain(tally_account: str, t: Transaction) -> Row:
+    """Any other bank's row: its description, spaces collapsed, is the merchant."""
+    description = " ".join(t.description.split())
+    return Row(
+        account=tally_account,
+        date=t.transacted or t.posted or datetime.date.min,
+        posted=t.posted,
+        description=description,
+        merchant=description,
+        amount=t.amount,
+    )
+
+
+# Banks whose rows need reading their own way, by tally-account.
 _ROWS: dict[str, Callable[[Transaction], Row]] = {bofa.ACCOUNT: _bofa, discover.ACCOUNT: _discover}
