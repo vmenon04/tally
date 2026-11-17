@@ -1,4 +1,4 @@
-# Installed as /etc/sudoers.d/tally. Lets your account run tally-run, and nothing else,
-# as the tally user without a password. YOUR_ACCOUNT is replaced with your account name when
-# it's installed (see docs/server.md).
-YOUR_ACCOUNT ALL=(tally) NOPASSWD: /usr/local/bin/tally-run
+# Installed as /etc/sudoers.d/tally. Lets your account run tally-run, and nothing else, as
+# root without a password: it starts tally's container, in which tally runs as the tally user.
+# YOUR_ACCOUNT is replaced with your account name when it's installed (see docs/server.md).
+YOUR_ACCOUNT ALL=(root) NOPASSWD: /usr/local/bin/tally-run
