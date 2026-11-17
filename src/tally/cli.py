@@ -129,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
         "fava",
         help="browse the ledger in Fava",
         description="Serve Fava for the ledger in data/ledger until stopped. It listens only "
-        "on this machine; from your own machine, use `tally-remote fava`.",
+        "on this machine; reach it from yours with an SSH tunnel.",
     )
     fava_parser.add_argument(
         "--socket", type=Path, help="listen on this Unix socket instead of 127.0.0.1"

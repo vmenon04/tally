@@ -1,9 +1,8 @@
 """Serving Fava, Beancount's web UI, for as long as you're looking at it.
 
 Fava has no login, so it never listens on a network address other than this machine's
-loopback. On the server it listens on a Unix socket instead, in a folder only your account
-and tally can open (/srv/tally-inbox), so other accounts on the server can't reach it either;
-`tally-remote fava` forwards a port on your machine to that socket over SSH.
+loopback, or on a Unix socket, so that only the accounts that can open the socket's folder
+reach it. Either way, an SSH tunnel brings it to your own machine.
 """
 
 import signal
@@ -47,8 +46,8 @@ def serve(data_dir: Path, *, socket: Path | None, port: int) -> None:
         pass
     finally:
         server.server_close()
-        # Only if it's still ours: another Fava may have replaced it since (a second
-        # `tally-remote fava`), and removing that would cut it off.
+        # Only if it's still ours: another Fava may have replaced it since, and removing
+        # that would cut it off.
         if socket is not None and _inode(socket) == ours:
             socket.unlink(missing_ok=True)
 

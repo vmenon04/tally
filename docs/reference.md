@@ -18,7 +18,7 @@ or `secrets/`.
 | `tally sure-login` | Saves [Sure](server.md#sure)'s API key |
 | `tally chat`, `tally lookups` | Answer Sure's chat ([Running on a server](server.md#sures-chat)) |
 
-Run them as `uv run tally ...` from the repo, or as `tally-remote ...` against a
+Run them as `uv run tally ...` from the repo, or in the container on a
 [server](server.md).
 
 ## Settings: `data/config.toml`
@@ -39,7 +39,6 @@ Every key is optional.
 |---|---|
 | `TALLY_DATA_DIR` | The data folder (default `data/` in the current directory) |
 | `TALLY_SECRETS_DIR` | The secrets folder (default `secrets/` in the current directory) |
-| `TALLY_HOST` | Your server, an entry in `~/.ssh/config`, for `bin/tally-remote`. Set it in your environment or in `.env` (copy `.env.example`) |
 
 ## Secrets: `secrets/`
 
