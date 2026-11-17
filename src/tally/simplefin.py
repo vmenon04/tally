@@ -34,7 +34,7 @@ from tally.importers import bofa, discover, fidelity
 from tally.transaction import Transaction as Row
 
 ACCESS_FILE = "simplefin-access-url"
-TIMEOUT = 60  # seconds; the bridge asks each bank as it answers
+TIMEOUT = 180  # seconds; the bridge asks each bank while we wait, which can take over a minute
 
 # (url, params, auth) -> the response; a seam for tests.
 Get = Callable[[str, dict[str, str], tuple[str, str]], requests.Response]
