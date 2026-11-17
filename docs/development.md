@@ -19,7 +19,7 @@ git config core.hooksPath .githooks
 | `example/` | The starter data folder new users copy to `data/` | yes |
 | `demo/make_demo.py` | Makes a data folder of made-up money, run through tally's own sync | yes |
 | `bin/check` | The checks every commit must pass | yes |
-| `deploy/` | Server scripts, sudoers rule, systemd units and Sure's compose file ([Running on a server](server.md)) | yes |
+| `deploy/` | The compose files and crontab for a server, tally's and Sure's ([Running on a server](server.md)) | yes |
 | `Dockerfile` | The image CI publishes, below | yes |
 | `docs/` | These docs | yes |
 | `secrets/` | API keys and tokens (`chmod 700`) | **never** |

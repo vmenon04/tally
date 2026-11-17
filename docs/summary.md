@@ -70,4 +70,4 @@ tally gmail-login
 
 The summary is printed either way; if sending fails, the command says why and exits with an
 error. To send it every week, run `tally summary --email --sync` from cron, or on a
-[server](server.md#on-a-schedule), where a timer does it on Sunday evenings.
+[server](server.md#on-a-schedule), where the schedule does it on Sunday evenings.

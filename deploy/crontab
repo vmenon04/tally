@@ -1,0 +1,8 @@
+# tally's scheduled runs, in TALLY_TZ's time (compose.yml). Their output names merchants and
+# amounts, so only errors reach the container's log.
+
+# Bring the ledger up to date every two hours, at half past: 12 of SimpleFIN's 24 requests a day.
+30 */2 * * * tally sync >/dev/null
+
+# Email the weekly summary on Sunday evenings.
+0 18 * * 0 tally summary --email --sync >/dev/null

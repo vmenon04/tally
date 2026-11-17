@@ -1,0 +1,49 @@
+# tally on a server, from the image CI publishes: its scheduled runs (supercronic, with
+# ./crontab) and the answers to Sure's chat. The data and secrets stay in /srv/tally, owned by
+# a tally user, and are mounted at the same paths. Installed in /opt/tally with a .env that
+# sets TALLY_USER; see docs/server.md.
+
+name: tally
+
+x-tally: &tally
+  image: ghcr.io/vmenon04/tally:0.1.2
+  restart: unless-stopped
+  # The tally user's uid:gid on the server (`id -u tally`:`id -g tally`), which owns /srv/tally.
+  user: "${TALLY_USER:?set TALLY_USER to tally's uid:gid in .env}"
+  read_only: true
+  tmpfs: [/tmp]
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
+  # Reaches Sure at 127.0.0.1:3200, and the internet for SimpleFIN, Claude, Gmail, ntfy and
+  # the ledger's remotes.
+  network_mode: host
+  working_dir: /srv/tally/data
+  environment:
+    TALLY_DATA_DIR: /srv/tally/data
+    TALLY_SECRETS_DIR: /srv/tally/secrets
+    # The budget's months, "today" and the crontab's times follow this time zone.
+    TZ: "${TALLY_TZ:-America/New_York}"
+    # Claude Code keeps its own files in the home folder; nothing there needs to last.
+    HOME: /tmp
+
+services:
+  schedule:
+    <<: *tally
+    entrypoint: [supercronic, /etc/tally/crontab]
+    volumes:
+      - /srv/tally/data:/srv/tally/data
+      - /srv/tally/secrets:/srv/tally/secrets:ro
+      - ./crontab:/etc/tally/crontab:ro
+
+  # Sure's chat relay (deploy/sure/compose.yml) passes each conversation to this socket.
+  chat:
+    <<: *tally
+    command: [chat, --socket, /srv/tally-chat/chat.sock]
+    volumes:
+      - /srv/tally/data:/srv/tally/data
+      - /srv/tally/secrets:/srv/tally/secrets:ro
+      - /srv/tally-chat:/srv/tally-chat
+    healthcheck:
+      test: [CMD, test, -S, /srv/tally-chat/chat.sock]
+      interval: 30s
+      start_period: 10s

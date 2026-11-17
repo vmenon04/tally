@@ -2,89 +2,104 @@
 
 You don't need a server: [Getting started](getting-started.md) runs everything on your own
 computer. I built tally for my banks and my home server, though, and this page is how I run it
-there, so it syncs on a schedule and Sure is always up. It assumes a Linux server with systemd
+there, so it syncs on a schedule and Sure is always up. It assumes a Linux server with Docker
 that you reach over SSH.
 
-Everything runs as a `tally` system user (no login, no sudo, no docker), sandboxed by systemd so
-it can write only to its data folder. You use it from your own machine with `bin/tally-remote`.
+tally runs from the image CI publishes, `ghcr.io/vmenon04/tally:<version>`
+([The image](development.md#the-image)), as two containers from
+[`deploy/compose.yml`](../deploy/compose.yml):
+
+| Container | What it does |
+|---|---|
+| `tally-schedule-1` | Runs [`deploy/crontab`](../deploy/crontab) with supercronic: `tally sync` every 2 hours, and the weekly summary on Sunday evenings |
+| `tally-chat-1` | Answers [Sure's chat](#sures-chat) |
+
+Both run as a `tally` system user (no login, no sudo, not in the docker group) that owns the
+data. Each container's own files are read-only, it has no Linux capabilities, and it can write
+only to the data folder (and the chat to its socket's folder). The image holds no data or
+secrets; they stay on the server:
 
 | Path | What |
 |---|---|
-| `/srv/tally/app/` | The deployed code (`REVISION` names its commit); `app.old/` is the one before |
-| `/srv/tally/venv/` | The environment the runs use |
 | `/srv/tally/data/` | `TALLY_DATA_DIR`: your `data/` folder |
-| `/srv/tally/secrets/` | `TALLY_SECRETS_DIR`: your `secrets/` folder |
-| `/srv/tally/bin/uv` | uv |
-| `/srv/tally-inbox/` | Where Fava's socket is, so you and `tally` can both open it |
-| `/usr/local/bin/tally-run` | Runs a tally command as `tally` ([`deploy/tally-run`](../deploy/tally-run)) |
-| `/usr/local/bin/tally-deploy` | Installs new code ([`deploy/tally-deploy`](../deploy/tally-deploy)) |
-| `/etc/sudoers.d/tally` | Lets your account run `tally-run`, and nothing else, as `tally` without a password |
+| `/srv/tally/secrets/` | `TALLY_SECRETS_DIR`: your `secrets/` folder, read-only to the containers |
+| `/srv/tally-chat/` | The chat's socket |
+| `/opt/tally/` | `compose.yml`, `crontab` and a `.env` naming the tally user |
 
-`/srv/tally` and everything in it is owner-only.
+`/srv/tally` and everything in it is owner-only. The image is built for x86-64 servers.
 
 ## Setting it up
 
-1. Install [uv](https://docs.astral.sh/uv/) on the server at `/srv/tally/bin/uv`, and clone the
-   repo there.
-2. **Pick your time zone.** The units in `deploy/` use `America/New_York`, which decides when a
-   month starts and when the summary goes out. Change it in `tally-*.service`,
-   `tally-*.timer` and `tally-run` before installing them.
-3. From the clone on the server:
+1. Make the `tally` user and its folders, then copy your `data/` and `secrets/` folders into
+   `/srv/tally` (owned by `tally`, 700 folders and 600 files):
 
    ```sh
    sudo useradd --system --user-group --home-dir /srv/tally --create-home --shell /usr/sbin/nologin tally
    sudo chmod 700 /srv/tally
-   sudo install -d -o "$USER" -g tally -m 2770 /srv/tally-inbox
-   sudo install -m 755 deploy/tally-run deploy/tally-deploy /usr/local/bin/
-   sed "s/^YOUR_ACCOUNT/$USER/" deploy/sudoers >/tmp/tally-sudoers
-   sudo visudo -c -f /tmp/tally-sudoers && sudo install -m 440 /tmp/tally-sudoers /etc/sudoers.d/tally && rm /tmp/tally-sudoers
-   sudo install -m 644 deploy/tally-*.service deploy/tally-*.timer /etc/systemd/system/
-   sudo systemctl daemon-reload
+   sudo install -d -o tally -g tally -m 755 /srv/tally-chat
    ```
 
-4. On your own machine, name the server: copy `.env.example` to `.env` and set `TALLY_HOST` to
-   its entry in `~/.ssh/config`. Then run `bin/tally-remote deploy`.
-5. Copy your `data/` and `secrets/` folders into `/srv/tally` (owned by `tally`, 700 folders
-   and 600 files), and start the timers:
+2. Copy `deploy/compose.yml` and `deploy/crontab` into `/opt/tally`, and give it a `.env`
+   naming the tally user and, if it isn't `America/New_York`, your time zone, which decides
+   when a month starts and when the summary goes out:
 
    ```sh
-   sudo systemctl enable --now tally-summary.timer tally-sync.timer
+   sudo install -d /opt/tally
+   sudo install -m 644 deploy/compose.yml deploy/crontab /opt/tally/
+   printf 'TALLY_USER=%s:%s\nTALLY_TZ=America/New_York\n' "$(id -u tally)" "$(id -g tally)" | sudo tee /opt/tally/.env
    ```
 
-## From your machine
+3. Start the schedule. The chat starts once [Sure](#sure) is set up, since it needs Sure's
+   token:
+
+   ```sh
+   sudo docker compose --project-directory /opt/tally up -d schedule
+   ```
+
+To upgrade, change the image's version in `/opt/tally/compose.yml` and run
+`sudo docker compose --project-directory /opt/tally up -d`. I keep my compose file in a private
+repo instead, and a GitHub Actions runner on the server runs that `up` whenever I push; any way
+of getting the file there works.
+
+## Running a command
+
+Any tally command runs in the schedule's container, as `tally`, with the same version and
+folders:
 
 ```sh
-alias tally=~/path/to/tally/bin/tally-remote
-
-tally sync --dry-run
-tally fava
-tally deploy
+ssh -t server sudo docker exec -it tally-schedule-1 tally sync --dry-run
 ```
 
-- `alias tally=~/path/to/tally/bin/tally-remote`: In your shell's rc file.
-- `tally sync --dry-run`: Any command runs on the server and prints here.
-- `tally fava`: Fava on the server, at http://localhost:5000 here.
-- `tally deploy`: Install the last commit (asks for your sudo password)
+The login commands (`simplefin-login`, `gmail-login`, `sure-login`, `ntfy-setup`) save to
+`secrets/`, which the containers can only read, so they run in a container of their own with it
+writable:
 
-`deploy` first pushes the commit to `origin` and stops if that fails, so your fork always has
-what the server runs. It sends only committed code (`git archive HEAD`). On the server,
-`tally-deploy` unpacks it into `app.new/`, runs the tests there, and only if they pass swaps it
-in. Installing code needs your password, unlike running tally, because new code can read the
-secrets.
+```sh
+sudo docker compose --project-directory /opt/tally run --rm --entrypoint tally \
+  --volume /srv/tally/secrets:/run/secrets-rw --env TALLY_SECRETS_DIR=/run/secrets-rw \
+  schedule simplefin-login
+```
 
-`tally fava` runs Fava on the server for as long as it stays open, on a Unix socket only your
-account, `tally` and root can open, and SSH forwards it to your machine. Fava has no login, so
-it never listens on a network address.
+To edit the ledger in Fava, start it on the server and forward its port to your machine; it
+stops when you press Ctrl-C:
+
+```sh
+ssh -t -L 5000:127.0.0.1:5000 server sudo docker exec -it tally-schedule-1 tally fava
+```
+
+Then open http://localhost:5000. Fava has no login, so it listens only on the server's own
+loopback, and only while that's open.
 
 ## On a schedule
 
-| Timer | Runs | When |
-|---|---|---|
-| `tally-sync.timer` | `tally sync` | Every 2 hours |
-| `tally-summary.timer` | `tally summary --email --sync` | Sundays at 6pm (at boot instead, if the server was off then) |
+| When | Runs |
+|---|---|
+| Every 2 hours, at half past | `tally sync` |
+| Sundays at 6pm | `tally summary --email --sync` |
 
-`systemctl list-timers 'tally-*'` shows the next runs; `journalctl -u tally-sync -u
-tally-summary` shows errors. Their output isn't logged, since it names merchants and amounts.
+A run the server was off for is skipped, and the next one catches up. `sudo docker logs
+tally-schedule-1` shows each run and its errors. Their output isn't logged, since it names
+merchants and amounts.
 
 ## The ledger's own repo
 
@@ -130,8 +145,8 @@ nicer way to look; the ledger stays the record. It runs beside tally as a Docker
 To install it, from your machine:
 
 ```sh
-ssh "$TALLY_HOST" 'mkdir -p /tmp/sure' && scp -r deploy/sure/compose.yml deploy/sure/install deploy/sure/brand "$TALLY_HOST":/tmp/sure/
-ssh -t "$TALLY_HOST" 'sudo sh /tmp/sure/install && rm -r /tmp/sure'
+ssh server 'mkdir -p /tmp/sure' && scp -r deploy/sure/compose.yml deploy/sure/install deploy/sure/brand server:/tmp/sure/
+ssh -t server 'sudo sh /tmp/sure/install && rm -r /tmp/sure'
 ```
 
 [`deploy/sure/install`](../deploy/sure/install) copies the compose file to `/srv/sure`, makes
@@ -143,11 +158,7 @@ phone.
 The `.env` is made once and never replaced: its `SECRET_KEY_BASE` encrypts what Sure stores.
 Open Sure, create your account, and set **Settings > Self-Hosting > Onboarding** to **Closed**
 so no one else can register. Then make an API key in Sure's settings with read and write access,
-and save it for tally:
-
-```sh
-tally sure-login
-```
+and save it for tally with `tally sure-login`, run as in [Running a command](#running-a-command).
 
 To upgrade Sure, change the image tag in `deploy/sure/compose.yml` and run the two install
 commands again. It's branded as tally by the icons in `deploy/sure/brand`.
@@ -155,20 +166,17 @@ commands again. It's branded as tally by the icons in `deploy/sure/brand`.
 ### Sure's chat
 
 Sure's chat can be answered by tally, so it needs no AI API key: Sure's **External** assistant
-posts each conversation to `tally chat`
-([`deploy/tally-chat.service`](../deploy/tally-chat.service)), which asks Claude to reply from
+posts each conversation to `tally chat` (the chat container), which asks Claude to reply from
 the same facts as the monthly review. For single purchases or a merchant, Claude looks things up
 in Sure through `tally lookups`, which passes on only Sure's tools that read, so Claude can't
 change anything. A reply quoting a dollar amount it wasn't shown is refused. Replies take 10 to
 30 seconds.
 
-To set it up, install the service, then run Sure's install again, which adds the tokens and the
-relay between them:
+Sure's install makes the tokens and the relay between them. Once it has run, start the chat:
 
 ```sh
-scp deploy/tally-chat.service "$TALLY_HOST":/tmp/
-ssh -t "$TALLY_HOST" 'sudo install -m 644 /tmp/tally-chat.service /etc/systemd/system/ && rm /tmp/tally-chat.service && sudo systemctl daemon-reload && sudo systemctl enable tally-chat'
+sudo docker compose --project-directory /opt/tally up -d
 ```
 
-Then turn on AI for your user in Sure's settings. `tally deploy` restarts `tally chat` onto the
-new code. [Architecture](architecture.md) has how the pieces connect.
+Then turn on AI for your user in Sure's settings. [Architecture](architecture.md) has how the
+pieces connect.

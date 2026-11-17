@@ -22,6 +22,10 @@ jobs:
           CHAT_TOKEN: check
           MCP_TOKEN: check
           MCP_USER_EMAIL: check@example.com
+      - name: tally's compose file is valid
+        run: docker compose -f deploy/compose.yml config --quiet
+        env:
+          TALLY_USER: "1000:1000"
 
   image:
     # Builds the image on every push and checks it runs. A version tag (v0.2.0), once the

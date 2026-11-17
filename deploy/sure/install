@@ -41,7 +41,7 @@ if ! grep -q '^MCP_USER_EMAIL=' /srv/sure/.env; then
     read -r email
     printf 'MCP_USER_EMAIL=%s\n' "$email" >>/srv/sure/.env
 fi
-# Where tally-chat.service makes its socket: anyone may open it, so it needs the token.
+# Where tally's chat container makes its socket: anyone may open it, so it needs the token.
 install -d -o tally -g tally -m 755 /srv/tally-chat
 
 docker compose --project-directory /srv/sure up -d --wait
@@ -50,7 +50,7 @@ if command -v tailscale >/dev/null; then
 else
     echo "Sure listens on 127.0.0.1:3200; without Tailscale, reach it some other way (an SSH tunnel)."
 fi
-# tally chat starts once its token and folder are there (see docs/server.md).
-if systemctl is-enabled --quiet tally-chat; then
-    systemctl restart tally-chat
+# tally chat reads its token when it starts.
+if [ -n "$(docker ps --quiet --filter name=^tally-chat-1$)" ]; then
+    docker restart tally-chat-1 >/dev/null
 fi
