@@ -35,3 +35,17 @@ sends headlines only, never merchants or amounts:
 
 Each is sent once; one that fails to send is retried on the next run. Anyone with the topic can
 read the notifications, so keep it private. `ntfy_server` in `config.toml` changes the server.
+
+### On your own ntfy server
+
+A self-hosted ntfy can require an account to read or publish, so the topic needn't be secret.
+Give tally an access token that may publish to its topic, through the environment:
+
+| Variable | What |
+| --- | --- |
+| `TALLY_NTFY_SERVER` | The server, `https://` (overrides `ntfy_server`) |
+| `TALLY_NTFY_TOPIC` | The topic, any name such as `tally` (overrides `secrets/ntfy-topic`) |
+| `TALLY_NTFY_TOKEN` | An access token (`tk_…`) that may publish there |
+
+A topic shorter than a random one is refused without a token, so a guessable name never goes to
+a public server unguarded. `tally notify-test` checks the whole setup.

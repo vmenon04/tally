@@ -4,6 +4,11 @@ ntfy topics have no password: anyone who knows a topic's name can read it, and t
 sees every message. So the topic is a long random name kept in secrets/, and messages never
 carry merchants or amounts, only what kind of thing happened and how many.
 
+On a self-hosted ntfy server, an account guards the topic instead: TALLY_NTFY_SERVER,
+TALLY_NTFY_TOPIC and TALLY_NTFY_TOKEN (an access token that may publish to the topic) override
+config.toml's ntfy_server and secrets/ntfy-topic. A topic shorter than a random one is only
+accepted with a token, so a guessable name never goes to a public server unguarded.
+
 Each `tally sync` (every two hours on the server) announces what's new since the last: new
 pending purchases, a bank that needs signing in to again at SimpleFIN, an account whose
 balance differs from the bank's, and a week with nothing new. Each event has a key and is
@@ -19,6 +24,7 @@ import datetime
 import re
 import secrets
 import sqlite3
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, TextIO
@@ -36,6 +42,10 @@ BANK_FAILURE = "bank-failure"
 FAILING_SINCE = "bank-failing-since"
 
 _TOPIC = re.compile(r"[A-Za-z0-9_-]{20,64}")
+# With a token the topic needn't be secret, so any name ntfy accepts.
+_GUARDED_TOPIC = re.compile(r"[A-Za-z0-9_-]{1,64}")
+# ntfy's access tokens: tk_ and 29 lowercase letters or digits.
+_TOKEN = re.compile(r"tk_[a-z0-9]{29}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,15 +96,19 @@ class Sender(Protocol):
 
 
 class NtfySender:
-    def __init__(self, server: str, topic: str) -> None:
+    def __init__(self, server: str, topic: str, token: str | None = None) -> None:
         self._url = f"{server}/{topic}"
+        self._token = token
 
     def send(self, message: str, priority: str) -> None:
+        headers = {"Title": "tally", "Priority": priority}
+        if self._token is not None:
+            headers["Authorization"] = f"Bearer {self._token}"
         try:
             response = requests.post(
                 self._url,
                 data=message.encode("utf-8"),
-                headers={"Title": "tally", "Priority": priority},
+                headers=headers,
                 timeout=15,
             )
         except requests.RequestException as e:
@@ -120,6 +134,28 @@ def load_topic(path: Path) -> str:
 
 def save_topic(path: Path, topic: str) -> None:
     config.write_secret(path, topic + "\n")
+
+
+def sender(server: str, topic_file: Path, env: Mapping[str, str]) -> NtfySender:
+    """The sender for config.toml's server and the saved topic, or what env overrides.
+
+    Never puts the topic or the token in an error.
+    """
+    server = env.get("TALLY_NTFY_SERVER") or server
+    if not server.startswith("https://"):
+        raise NotifyError("TALLY_NTFY_SERVER must be an https:// address")
+    token = env.get("TALLY_NTFY_TOKEN") or None
+    if token is not None and not _TOKEN.fullmatch(token):
+        raise NotifyError("TALLY_NTFY_TOKEN isn't an ntfy access token (tk_ and 29 more)")
+    topic = env.get("TALLY_NTFY_TOPIC") or None
+    if topic is None:
+        topic = load_topic(topic_file)
+    elif not (_TOPIC if token is None else _GUARDED_TOPIC).fullmatch(topic):
+        raise NotifyError(
+            "TALLY_NTFY_TOPIC isn't usable: without TALLY_NTFY_TOKEN it must be a random"
+            " name of 20 to 64 letters, digits, - or _"
+        )
+    return NtfySender(server.rstrip("/"), topic, token)
 
 
 def bank_failed(conn: sqlite3.Connection, now: datetime.datetime) -> list[Event]:
