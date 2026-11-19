@@ -314,9 +314,12 @@ def ntfy_topic_file() -> Path:
 
 
 def _sender() -> notify.NtfySender:
-    """The ntfy sender from config.toml and the saved topic. Raises NotifyError or ConfigError."""
+    """The ntfy sender from config.toml and the saved topic, or the TALLY_NTFY_* overrides.
+
+    Raises NotifyError or ConfigError.
+    """
     settings = config.load(data_dir() / "config.toml")
-    return notify.NtfySender(settings.ntfy_server, notify.load_topic(ntfy_topic_file()))
+    return notify.sender(settings.ntfy_server, ntfy_topic_file(), os.environ)
 
 
 def _notify(done: updating.SyncResult) -> None:

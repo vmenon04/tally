@@ -188,6 +188,82 @@ def dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
+TOKEN = "tk_" + "a1" * 14 + "z"
+
+
+def test_ntfy_sender_sends_its_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    post = FakePost()
+    monkeypatch.setattr(requests, "post", post)
+    notify.NtfySender("https://ntfy.example.com", "tally", TOKEN).send("x", "low")
+    [call] = post.calls
+    assert call["headers"]["Authorization"] == f"Bearer {TOKEN}"
+
+
+def test_ntfy_errors_never_show_the_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    sender = notify.NtfySender("https://ntfy.example.com", "tally", TOKEN)
+    monkeypatch.setattr(requests, "post", FakePost(status=403))
+    with pytest.raises(notify.NotifyError, match="HTTP 403") as refused:
+        sender.send("x", "low")
+    assert TOKEN not in str(refused.value)
+
+
+def test_sender_uses_config_and_saved_topic_by_default(tmp_path: Path) -> None:
+    path = tmp_path / "ntfy-topic"
+    topic = notify.new_topic()
+    notify.save_topic(path, topic)
+    sender = notify.sender("https://ntfy.sh", path, {})
+    assert sender._url == f"https://ntfy.sh/{topic}"
+    assert sender._token is None
+
+
+def test_env_points_at_a_self_hosted_server(tmp_path: Path) -> None:
+    env = {
+        "TALLY_NTFY_SERVER": "https://ntfy.example.com/",
+        "TALLY_NTFY_TOPIC": "tally",
+        "TALLY_NTFY_TOKEN": TOKEN,
+    }
+    # No saved topic needed: the environment names it.
+    sender = notify.sender("https://ntfy.sh", tmp_path / "missing", env)
+    assert sender._url == "https://ntfy.example.com/tally"
+    assert sender._token == TOKEN
+
+
+def test_a_short_topic_needs_a_token(tmp_path: Path) -> None:
+    with pytest.raises(notify.NotifyError, match="without TALLY_NTFY_TOKEN") as short:
+        notify.sender("https://ntfy.sh", tmp_path / "missing", {"TALLY_NTFY_TOPIC": "tally"})
+    assert "tally" not in str(short.value).replace("TALLY", "")
+
+
+@pytest.mark.parametrize(
+    ("env", "complaint"),
+    [
+        ({"TALLY_NTFY_TOKEN": "tk_short"}, "isn't an ntfy access token"),
+        ({"TALLY_NTFY_TOKEN": "not-a-token-at-all-but-long-enough"}, "isn't an ntfy access token"),
+        ({"TALLY_NTFY_SERVER": "http://ntfy.example.com"}, "must be an https:// address"),
+        ({"TALLY_NTFY_TOPIC": "has a space", "TALLY_NTFY_TOKEN": TOKEN}, "isn't usable"),
+    ],
+)
+def test_bad_overrides_are_refused(tmp_path: Path, env: dict[str, str], complaint: str) -> None:
+    with pytest.raises(notify.NotifyError, match=complaint) as bad:
+        notify.sender("https://ntfy.sh", tmp_path / "missing", env)
+    for value in env.values():
+        assert value not in str(bad.value)
+
+
+def test_notify_test_with_a_self_hosted_server(
+    dirs: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("TALLY_NTFY_SERVER", "https://ntfy.example.com")
+    monkeypatch.setenv("TALLY_NTFY_TOPIC", "tally")
+    monkeypatch.setenv("TALLY_NTFY_TOKEN", TOKEN)
+    post = FakePost()
+    monkeypatch.setattr(requests, "post", post)
+    assert main(["notify-test"]) == 0
+    [call] = post.calls
+    assert call["url"] == "https://ntfy.example.com/tally"
+    assert call["headers"]["Authorization"] == f"Bearer {TOKEN}"
+
+
 def test_ntfy_setup_makes_a_topic_once(dirs: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["ntfy-setup"]) == 0
     path = dirs / "secrets" / "ntfy-topic"
