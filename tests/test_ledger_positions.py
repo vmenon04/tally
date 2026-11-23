@@ -11,7 +11,7 @@ from test_ledger_sync import ACCOUNTS, MAIN, RULES
 from tally.cli import main
 from tally.importers import ParseError
 from tally.importers.fidelity import Account, Holding, Snapshot
-from tally.ledger import accounts, book, positions, weekly
+from tally.ledger import accounts, book, parity, positions, weekly
 
 FIDELITY_ACCOUNTS = """
 2026-01-01 open Assets:Fidelity:Roth
@@ -595,3 +595,148 @@ def test_transfers_wait_for_the_fidelity_account_the_bank_names() -> None:
     }
     # Each cash account's old rows take its own clearing account's category.
     assert found.category_of("Assets:Fidelity:Go:Cash") == "Investing"
+
+
+# Scenarios for money moving in and out of Fidelity accounts, each played out to the end and
+# held to the same promises: bean-check is clean, every clearing account is back to zero (or
+# reported if it isn't), Unreconciled holds only what nothing explains, and the Roth IRA total
+# counts each contribution from the bank once.
+
+
+def with_go_clearing(folder: Path) -> None:
+    """Roth and Go each with their own clearing account; any other goes to the catch-all."""
+    accounts_file = folder / "ledger" / "accounts.beancount"
+    accounts_file.write_text(
+        accounts_file.read_text()
+        .replace(
+            '  fidelity-account: "1111"\n',
+            '  fidelity-account: "1111"\n  transfers-from: "Assets:Transfers:Fidelity:Roth"\n',
+        )
+        .replace(
+            '  fidelity-account: "3333"\n',
+            '  fidelity-account: "3333"\n  transfers-from: "Assets:Transfers:Fidelity:Go"\n',
+        )
+        + "2026-01-01 open Assets:Transfers:Fidelity:Roth USD\n"
+        + "2026-01-01 open Assets:Transfers:Fidelity:Go USD\n"
+        + "2026-01-01 open Assets:Transfers:Fidelity USD\n"
+    )
+
+
+def bank_sends(folder: Path, day: str, account: str, amount: str, pending: bool = False) -> None:
+    """A transfer out of the bank, posted (or still pending) on day."""
+    path = folder / "ledger" / ("pending.beancount" if pending else "imported/2026.beancount")
+    flag = "!" if pending else "*"
+    path.write_text(
+        (path.read_text() if path.exists() else "")
+        + f'\n{day} {flag} "FID BKG SVC LLC"\n'
+        + f"  Assets:BofA:Checking  -{amount} USD\n"
+        + f"  {account}  {amount} USD\n"
+    )
+
+
+def both(day: datetime.date, roth_cash: str, go_cash: str) -> Snapshot:
+    """Roth and Go holdings as the sample has them, with this much cash in each."""
+    roth = roth_snapshot(day, roth_cash, []).accounts[0]
+    go = Account(
+        "3333",
+        "FIDELITY GO",
+        Decimal(go_cash),
+        [Holding("FDFIX", Decimal("30"), Decimal("30.00"), Decimal("750.00"))],
+    )
+    return Snapshot(day, [roth, go])
+
+
+def balance_of(folder: Path, account: str) -> Decimal:
+    return sum(
+        (
+            p.units.number or Decimal(0)
+            for e in ledger_entries(folder)
+            if isinstance(e, data.Transaction)
+            for p in e.postings
+            if p.account == account and p.units is not None and p.units.currency == "USD"
+        ),
+        Decimal(0),
+    )
+
+
+def stuck(folder: Path, today: datetime.date) -> list[str]:
+    from tally import rules
+
+    ledger = book.load(folder / "ledger", rules.parse(RULES))
+    return [account for account, _, _ in parity.stuck_transfers(ledger, today)]
+
+
+ROTH_CLEARING = "Assets:Transfers:Fidelity:Roth"
+GO_CLEARING = "Assets:Transfers:Fidelity:Go"
+
+
+def test_scenario_roth_and_go_each_clear_their_own(data_dir: Path) -> None:
+    with_go_clearing(data_dir)
+    assert record(data_dir, both(datetime.date(2026, 3, 20), "12.50", "5.00")) > 0
+    bank_sends(data_dir, "2026-03-23", ROTH_CLEARING, "1000.00")
+    bank_sends(data_dir, "2026-03-23", GO_CLEARING, "200.00")
+    # Fidelity's holdings lag: nothing on 03/24, Go's on 03/25, the Roth's on 03/26.
+    add_snapshot(data_dir, both(datetime.date(2026, 3, 24), "12.50", "5.00"))
+    add_snapshot(data_dir, both(datetime.date(2026, 3, 25), "12.50", "205.00"))
+    add_snapshot(data_dir, both(datetime.date(2026, 3, 26), "1012.50", "205.00"))
+    assert book.check(data_dir / "ledger") == []
+    assert balance_of(data_dir, ROTH_CLEARING) == 0
+    assert balance_of(data_dir, GO_CLEARING) == 0
+    assert balance_of(data_dir, "Income:Fidelity:Unreconciled") == 0
+    found = weekly.build(data_dir / "ledger", datetime.date(2026, 3, 31), Decimal(7500), Decimal(0))
+    assert found.roth_in == Decimal("1500.00")  # 500 from the sample's BofA rows, and 1,000
+    assert stuck(data_dir, datetime.date(2026, 4, 30)) == []
+
+
+def test_scenario_a_gain_while_money_waits_ends_up_unreconciled(data_dir: Path) -> None:
+    with_go_clearing(data_dir)
+    assert record(data_dir, both(datetime.date(2026, 3, 20), "12.50", "5.00")) > 0
+    bank_sends(data_dir, "2026-03-23", ROTH_CLEARING, "1000.00")
+    # 50.00 nobody explains shows up first; the transfer two days later.
+    add_snapshot(data_dir, both(datetime.date(2026, 3, 24), "62.50", "5.00"))
+    add_snapshot(data_dir, both(datetime.date(2026, 3, 26), "1062.50", "5.00"))
+    assert book.check(data_dir / "ledger") == []
+    assert balance_of(data_dir, ROTH_CLEARING) == 0
+    assert balance_of(data_dir, "Income:Fidelity:Unreconciled") == Decimal("-50.00")
+
+
+def test_scenario_a_pending_transfer_is_never_taken_as_arrived(data_dir: Path) -> None:
+    with_go_clearing(data_dir)
+    assert record(data_dir, both(datetime.date(2026, 3, 20), "12.50", "5.00")) > 0
+    bank_sends(data_dir, "2026-03-23", ROTH_CLEARING, "1000.00", pending=True)
+    add_snapshot(data_dir, both(datetime.date(2026, 3, 24), "1012.50", "5.00"))
+    later = roth_entries(data_dir)[-1]
+    assert all(p.account != ROTH_CLEARING for p in later.postings)
+    assert later.flag == "!"
+    assert book.check(data_dir / "ledger") == []
+
+
+def test_scenario_between_two_fidelity_accounts(data_dir: Path) -> None:
+    with_go_clearing(data_dir)
+    assert record(data_dir, both(datetime.date(2026, 3, 20), "12.50", "405.00")) > 0
+    # 400.00 from Go to the Roth, inside Fidelity: no bank row. Both snapshots book it to
+    # Unreconciled, flagged, and the two cancel out.
+    add_snapshot(data_dir, both(datetime.date(2026, 3, 24), "412.50", "5.00"))
+    assert book.check(data_dir / "ledger") == []
+    assert balance_of(data_dir, "Income:Fidelity:Unreconciled") == 0
+    assert all(e.flag == "!" for e in roth_entries(data_dir)[1:])
+
+
+def test_scenario_a_transfer_whose_other_side_never_comes_is_reported(data_dir: Path) -> None:
+    with_go_clearing(data_dir)
+    assert record(data_dir, both(datetime.date(2026, 3, 20), "12.50", "5.00")) > 0
+    bank_sends(data_dir, "2026-03-23", "Assets:Transfers:Fidelity", "300.00")  # unknown account
+    bank_sends(data_dir, "2026-03-23", ROTH_CLEARING, "100.00")  # holdings never show it
+    assert stuck(data_dir, datetime.date(2026, 3, 29)) == []  # not a week yet
+    assert stuck(data_dir, datetime.date(2026, 3, 30)) == [
+        "Assets:Transfers:Fidelity",
+        ROTH_CLEARING,
+    ]
+
+
+def test_scenario_money_sent_before_an_accounts_first_snapshot(data_dir: Path) -> None:
+    with_go_clearing(data_dir)
+    bank_sends(data_dir, "2026-03-18", ROTH_CLEARING, "1000.00")
+    assert record(data_dir, both(datetime.date(2026, 3, 20), "1012.50", "5.00")) > 0
+    assert balance_of(data_dir, ROTH_CLEARING) == 0
+    assert book.check(data_dir / "ledger") == []

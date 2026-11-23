@@ -118,6 +118,10 @@ Each sync compares every linked account's balance at the bank with the ledger's 
 and in the weekly summary. It's a check, not an assertion, so a difference never stops
 bean-check.
 
+Money in an `Assets:Transfers:...` account is waiting for its other side, so each sync also
+names any that hasn't been back to zero for a week: a card payment the card never showed, or
+a transfer to an account tally doesn't know.
+
 For a stricter check, copy balances from statements into `statements.beancount`; bean-check then
 fails when the ledger disagrees:
 

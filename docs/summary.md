@@ -19,7 +19,8 @@ It covers the 7 days up to today (or the `--as-of` day):
   In a month's first days, how the month before ended.
 - **Look out for:** categories over plan or ahead of pace, big purchases, uncategorized
   transactions, an account with nothing posted since last month, and anything wrong with the
-  ledger (a row missing or doubled, a bean-check error, a balance that differs from the bank's).
+  ledger (a row missing or doubled, a bean-check error, a balance that differs from the bank's,
+  a transfer whose other side hasn't shown up in a week).
 - **Coming up:** next month's paychecks and planned spending.
 - **From the ledger:** spending per category this month, the same days last month, and all of
   last month.

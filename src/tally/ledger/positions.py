@@ -14,7 +14,8 @@ transaction (tagged #fidelity-positions) brings the ledger to what the snapshot 
   payroll contributions to the account's `contributions-from:` (a 401(k)'s, say
   Income:Salary:401k). Money from the bank still waiting in the account's
   `transfers-from:` clearing account explains what came in next, up to what's waiting
-  (and money on its way out to the bank, what went out).
+  (and money on its way out to the bank, what went out), the first time too. Only posted
+  bank rows wait there: a pending one can still change.
   What's left goes to Income:Fidelity:Unreconciled: gains on sales, fees, anything the
   source didn't report. A transaction with something left unexplained is flagged `!`.
 
@@ -34,6 +35,7 @@ account number.
 import datetime
 from collections.abc import Sequence
 from decimal import Decimal
+from pathlib import Path
 
 from beancount.core import amount, data, position
 from beancount.core.number import MISSING
@@ -41,6 +43,7 @@ from beancount.core.number import MISSING
 from tally.importers import ParseError
 from tally.importers.fidelity import Account, Holding, Snapshot
 from tally.ledger.accounts import Accounts
+from tally.ledger.book import PENDING
 from tally.ledger.entries import CURRENCY
 
 TAG = "fidelity-positions"
@@ -112,11 +115,11 @@ def entries(
                     postings.append(_posting(DIVIDENDS, -dividends, CURRENCY, None))
                 if contributed and income:
                     postings.append(_posting(income, -contributed, CURRENCY, None))
-                clearing = found.transfers_from.get(account.label)
-                if clearing is not None:
-                    postings += _arrived(clearing, _cash(existing, clearing, day), postings, held)
-                if _explained(postings, held):
-                    flag = "*"
+            clearing = found.transfers_from.get(account.label)
+            if clearing is not None:
+                postings += _arrived(clearing, _waiting(existing, clearing, day), postings, held)
+            if not first and _explained(postings, held):
+                flag = "*"
             postings.append(
                 data.Posting(OPENING if first else UNRECONCILED, None, None, None, None, None)
             )
@@ -305,6 +308,13 @@ def _held(
             units, cost = held.get(p.units.currency, (Decimal(0), Decimal(0)))
             held[p.units.currency] = (units + number, cost + number * per)
     return {k: v for k, v in held.items() if v[0]}
+
+
+def _waiting(existing: Sequence[data.Directive], clearing: str, day: datetime.date) -> Decimal:
+    """What waits in the clearing account at the end of day, counting only posted entries:
+    a pending one can still change or vanish, and must not be taken as arrived."""
+    posted = [e for e in existing if Path(str((e.meta or {}).get("filename", ""))).name != PENDING]
+    return _cash(posted, clearing, day)
 
 
 def _cash(existing: Sequence[data.Directive], account: str, day: datetime.date) -> Decimal:

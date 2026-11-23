@@ -494,7 +494,8 @@ def _ledger_report(today: datetime.date, settings: config.Config) -> tuple[str, 
 
 
 def _ledger_problems(db_path: Path) -> list[str]:
-    """For the weekly summary: rows the ledger lacks or doubles, and bean-check's errors."""
+    """For the weekly summary: rows the ledger lacks or doubles, bean-check's errors, and
+    transfers still waiting for their other side."""
     conn = store.connect(db_path)
     try:
         found = updating.check(data_dir(), conn)
