@@ -436,3 +436,68 @@ def test_contributions_without_contributions_from_are_unreconciled(
         Decimal("1660.00"),
     )
     assert book.check(data_dir / "ledger") == []
+
+
+def waiting_in_transfers(folder: Path, day: str, amount: str) -> None:
+    """The Roth takes money from Assets:Transfers:Fidelity, and the bank sent some on day."""
+    accounts_file = folder / "ledger" / "accounts.beancount"
+    accounts_file.write_text(
+        accounts_file.read_text().replace(
+            '  fidelity-account: "1111"\n',
+            '  fidelity-account: "1111"\n  transfers-from: "Assets:Transfers:Fidelity"\n',
+        )
+        + "2026-01-01 open Assets:Transfers:Fidelity USD\n"
+        + f'{day} * "FID BKG SVC LLC"\n'
+        + f"  Assets:Transfers:Fidelity  {amount} USD\n"
+        + "  Equity:Opening-Balances\n"
+    )
+
+
+def test_money_from_the_bank_waits_until_fidelity_has_it(
+    data_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert record(data_dir, snapshot()) > 0  # Roth cash 12.50 on 03/20
+    waiting_in_transfers(data_dir, "2026-03-23", "1000.00")
+    # The bank sent it on 03/23, but Fidelity doesn't have it on 03/24: nothing to record,
+    # and the cash balance still holds.
+    add_snapshot(data_dir, roth_snapshot(datetime.date(2026, 3, 24), "12.50", []))
+    assert len(roth_entries(data_dir)) == 1
+    assert book.check(data_dir / "ledger") == []
+    # On 03/26 it has: the cash comes from the clearing account, which is back to zero.
+    add_snapshot(data_dir, roth_snapshot(datetime.date(2026, 3, 26), "1012.50", []))
+    later = roth_entries(data_dir)[-1]
+    sides = {
+        p.account: p.units.number for p in later.postings if p.units and p.units.currency == "USD"
+    }
+    assert sides["Assets:Transfers:Fidelity"] == Decimal("-1000.00")
+    assert later.flag == "*"
+    assert book.check(data_dir / "ledger") == []
+
+
+def test_money_from_the_bank_spent_the_day_it_arrives(
+    data_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert record(data_dir, snapshot()) > 0
+    waiting_in_transfers(data_dir, "2026-03-23", "1000.00")
+    # It arrived and 600.00 of it bought 3 more FXAIX; and only part of a second transfer
+    # shows yet, so the rest keeps waiting.
+    accounts_file = data_dir / "ledger" / "accounts.beancount"
+    accounts_file.write_text(
+        accounts_file.read_text()
+        + '2026-03-25 * "FID BKG SVC LLC"\n'
+        + "  Assets:Transfers:Fidelity  500.00 USD\n"
+        + "  Equity:Opening-Balances\n"
+    )
+    snap = roth_snapshot(datetime.date(2026, 3, 26), "512.50", [])
+    holdings = [
+        Holding("FXAIX", Decimal("13.5"), Decimal("200.00"), Decimal("2600.00")),
+        *snap.accounts[0].holdings[1:],
+    ]
+    add_snapshot(data_dir, Snapshot(snap.date, [replace(snap.accounts[0], holdings=holdings)]))
+    later = roth_entries(data_dir)[-1]
+    sides = {
+        p.account: p.units.number for p in later.postings if p.units and p.units.currency == "USD"
+    }
+    assert sides["Assets:Transfers:Fidelity"] == Decimal("-1100.00")
+    assert later.flag == "*"
+    assert book.check(data_dir / "ledger") == []

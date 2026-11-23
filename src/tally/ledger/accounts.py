@@ -21,12 +21,20 @@ names accounts and bean-check sees every account tally writes to:
       fidelity-account: "5678"
       contributions-from: "Income:Salary:401k"  # its payroll contributions come from here
 
+    2026-09-01 open Assets:Fidelity:Roth
+      fidelity-account: "8765"
+      transfers-from: "Assets:Transfers:Fidelity"  # money from the bank waits here
+
     2026-09-01 open Assets:BofA:Savings USD
       category: "Savings transfer"
       merchant-contains: "KEEP THE CHANGE|SAV 1234"  # only merchants containing one of these
 
 A category whose account has `fixed: TRUE` is a bill that comes once a month (rent,
 utilities): the pace by today counts it in full instead of a little each day.
+
+transfers-from is for a Fidelity account you pay into from the bank: the bank's side posts
+to that clearing account (give it the category), and a positions snapshot moves the money on
+once Fidelity shows it, since Fidelity often has it days after the bank says it left.
 
 interest-from is for a savings account whose deposits tally already sees from the other side
 (transfers out of checking): of its SimpleFIN rows, sync adds only the interest. It needs
@@ -77,6 +85,8 @@ class Accounts:
     # last four -> ledger account, for every account linked to SimpleFIN
     bank_accounts: dict[str, str] = field(default_factory=dict)
     interest_from: dict[str, str] = field(default_factory=dict)  # last four -> income account
+    # last four -> the clearing account money from the bank waits in until Fidelity has it
+    transfers_from: dict[str, str] = field(default_factory=dict)
 
     def fidelity(self, label: str) -> str:
         try:
@@ -129,6 +139,7 @@ def from_entries(entries: Iterable[data.Directive]) -> Accounts:
     simplefin: dict[str, str] = {}
     bank_accounts: dict[str, str] = {}
     interest: dict[str, str] = {}
+    transfers: dict[str, str] = {}
     for entry in entries:
         if not isinstance(entry, data.Open):
             continue
@@ -175,6 +186,12 @@ def from_entries(entries: Iterable[data.Directive]) -> Accounts:
             if label is None:
                 raise AccountsError(f"{entry.account}: contributions-from needs fidelity-account")
             contributions[label] = source
+        clearing = meta.get("transfers-from")
+        if clearing is not None:
+            _text(entry, "transfers-from", clearing)
+            if label is None:
+                raise AccountsError(f"{entry.account}: transfers-from needs fidelity-account")
+            transfers[label] = clearing
         if contains is not None and category is None:
             raise AccountsError(f"{entry.account}: merchant-contains needs a category")
         if category is not None:
@@ -198,6 +215,7 @@ def from_entries(entries: Iterable[data.Directive]) -> Accounts:
         simplefin,
         bank_accounts,
         interest,
+        transfers,
     )
 
 

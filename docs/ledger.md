@@ -172,6 +172,22 @@ they come from, and open that income account:
 A 401(k)'s fund comes with no purchase price, so new units count as bought at that day's price,
 and its cost basis is your contributions.
 
+**Money from your bank:** the bank says a transfer left days before Fidelity has it, and in
+between the cash balance asserted from Fidelity would fail. Post the bank's side to a clearing
+account instead, and name it on the Fidelity account:
+
+```beancount
+2026-01-01 open Assets:Transfers:Fidelity USD
+  category: "Investing"
+2026-01-01 open Assets:Fidelity:Roth
+  fidelity-account: "1234"
+  transfers-from: "Assets:Transfers:Fidelity"
+```
+
+Once a snapshot shows the money in the account, it comes out of the clearing account (up to
+what's waiting there), so the clearing account is back to zero. The weekly Roth IRA total
+counts what went into either.
+
 ## Showing it in Sure
 
 [Sure](server.md#sure) can show the ledger as a web and phone app; the ledger stays the record.

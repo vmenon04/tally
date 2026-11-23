@@ -196,3 +196,18 @@ def test_investments_show_worth_paid_and_gain() -> None:
     assert (found.roth.put_in, found.roth.left) == (Decimal("640.00"), Decimal("6860.00"))
     assert found.roth.deadline == datetime.date(2027, 4, 15)
     assert build_with(INVESTING).roth is None  # without a limit
+
+
+def test_roth_contributions_count_from_the_clearing_account() -> None:
+    clearing = (
+        INVESTING.replace(
+            '  fidelity-account: "1111"\n',
+            '  fidelity-account: "1111"\n  transfers-from: "Assets:Transfers:Fidelity"\n',
+        )
+        + "2025-01-01 open Assets:Transfers:Fidelity USD\n"
+        + '2026-02-20 * "To the Roth IRA, not there yet"\n'
+        + "  Assets:Transfers:Fidelity  300.00 USD\n"
+        + "  Assets:Checking\n"
+    )
+    found = build_with(clearing, roth_limit=Decimal("7500"))
+    assert found.roth is not None and found.roth.put_in == Decimal("800.00")

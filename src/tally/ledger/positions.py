@@ -12,20 +12,22 @@ transaction (tagged #fidelity-positions) brings the ledger to what the snapshot 
   before the ledger). After that, what the source reports (SimpleFIN does) explains it:
   dividends go to Income:Fidelity:Dividends, once the ledger opens that account, and
   payroll contributions to the account's `contributions-from:` (a 401(k)'s, say
-  Income:Salary:401k). What's left goes to Income:Fidelity:Unreconciled: gains on sales,
-  fees, anything the source didn't report. A transaction with something left unexplained
-  is flagged `!`.
+  Income:Salary:401k). Money from the bank still waiting in the account's
+  `transfers-from:` clearing account explains what came in next, up to what's waiting.
+  What's left goes to Income:Fidelity:Unreconciled: gains on sales, fees, anything the
+  source didn't report. A transaction with something left unexplained is flagged `!`.
 
 Where the source gives no cost basis and the money paid in (contributions and dividends)
 all bought more of one holding, those units cost what was paid in, so the cost basis is
 what you put in.
 
-Money moved between cash and holdings balances itself, so contributions from BofA (already
-in `:Cash`) aren't counted twice. It also adds each holding's price, and balance
-assertions for the day after, so a later snapshot or a hand edit that disagrees fails
-bean-check. Only the first snapshot of a day is recorded, since a second would contradict
-those assertions; the next day's picks up whatever changed. Accounts are matched by
-`fidelity-account:` metadata, the last four characters of the account number.
+Money moved between cash and holdings balances itself, so contributions from BofA posted
+straight to `:Cash` (an account without transfers-from) aren't counted twice. It also
+adds each holding's price, and balance assertions for the day after, so a later snapshot or
+a hand edit that disagrees fails bean-check. Only the first snapshot of a day is recorded,
+since a second would contradict those assertions; the next day's picks up whatever changed.
+Accounts are matched by `fidelity-account:` metadata, the last four characters of the
+account number.
 """
 
 import datetime
@@ -109,6 +111,12 @@ def entries(
                     postings.append(_posting(DIVIDENDS, -dividends, CURRENCY, None))
                 if contributed and income:
                     postings.append(_posting(income, -contributed, CURRENCY, None))
+                clearing = found.transfers_from.get(account.label)
+                if clearing is not None:
+                    waiting = _cash(existing, clearing, day)
+                    arrived = min(waiting, _net(postings, held))
+                    if arrived > 0:
+                        postings.append(_posting(clearing, -arrived, CURRENCY, None))
                 if _explained(postings, held):
                     flag = "*"
             postings.append(
@@ -215,6 +223,12 @@ def _is_open(existing: Sequence[data.Directive], account: str) -> bool:
 
 def _explained(postings: list[data.Posting], held: dict[str, tuple[Decimal, Decimal]]) -> bool:
     """Whether these postings balance to within a cent without the Unreconciled one."""
+    return abs(_net(postings, held)) < _CENT
+
+
+def _net(postings: list[data.Posting], held: dict[str, tuple[Decimal, Decimal]]) -> Decimal:
+    """What these postings add up to, holdings at cost: what came into the account that
+    nothing in them explains yet."""
     total = Decimal(0)
     for p in postings:
         if p.units is None or p.units.number is None:
@@ -229,7 +243,7 @@ def _explained(postings: list[data.Posting], held: dict[str, tuple[Decimal, Deci
         else:  # closing a whole holding: what it cost
             units, cost = held.get(p.units.currency, (Decimal(0), Decimal(0)))
             total -= cost if units else Decimal(0)
-    return abs(total) < _CENT
+    return total
 
 
 # `{}`: whatever lots there are. Beancount's types don't admit its own MISSING marker.

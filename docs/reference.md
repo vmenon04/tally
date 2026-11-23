@@ -71,6 +71,7 @@ These go on `open` lines in `accounts.beancount` ([The ledger](ledger.md)).
 | `fixed: TRUE` | A bill that comes once a month: the summary counts it in full, not a little each day |
 | `fidelity-account: "1234"` | Record this Fidelity account's holdings ([investments](ledger.md#investment-holdings)) |
 | `contributions-from: "Income:Salary:401k"` | Where a 401(k)'s payroll contributions come from |
+| `transfers-from: "Assets:Transfers:Fidelity"` | Where money from your bank waits until Fidelity has it ([investments](ledger.md#investment-holdings)) |
 | `sure-account: "Checking"` | The Sure account this one fills |
 
 And in `plan.beancount`:

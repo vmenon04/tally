@@ -22,8 +22,9 @@ all.
 
 An investment's gain is what it's worth less what was paid for what it holds (its cost
 basis, cash at face value): what the market did with your money. Roth IRA contributions
-are the money that came into the Roth's cash from your bank this year, plus what you made
-where tally can't see (roth_elsewhere in config.toml).
+are the money that came into the Roth's cash, or its transfers-from clearing account, from
+your bank this year, plus what you made where tally can't see (roth_elsewhere in
+config.toml).
 """
 
 import calendar
@@ -43,7 +44,8 @@ MONTHS = 6
 TOP_MERCHANTS = 8
 USUAL_MONTHS = 3  # whole months the suggestions go by
 FIRST_SHARE = Decimal("0.7")  # of what's left, for a "months" goal that's still short
-ROTH_CASH = "Assets:Fidelity:Roth:Cash"
+ROTH_ACCOUNT = "Assets:Fidelity:Roth"
+ROTH_CASH = f"{ROTH_ACCOUNT}:Cash"
 _ZERO = Decimal(0)
 
 
@@ -231,6 +233,11 @@ def build(
     category_account: dict[str, str] = {}
     merchants: dict[str, Decimal] = defaultdict(Decimal)
     roth_in = roth_elsewhere
+    roth_from = {ROTH_CASH} | {
+        found.transfers_from[label]
+        for label, account in found.fidelity_accounts.items()
+        if account == ROTH_ACCOUNT and label in found.transfers_from
+    }
     for e in loaded:
         if not isinstance(e, data.Transaction) or e.date > today + datetime.timedelta(days=31):
             continue
@@ -242,7 +249,7 @@ def build(
             if e.date <= today:
                 balances[p.account] += number
                 if (
-                    p.account == ROTH_CASH
+                    p.account in roth_from
                     and number > 0
                     and positions.TAG not in e.tags
                     and bought.year == today.year
