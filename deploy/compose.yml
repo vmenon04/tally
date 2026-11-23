@@ -6,7 +6,7 @@
 name: tally
 
 x-tally: &tally
-  image: ghcr.io/vmenon04/tally:0.1.2
+  image: ghcr.io/vmenon04/tally:0.2.1
   restart: unless-stopped
   # The tally user's uid:gid on the server (`id -u tally`:`id -g tally`), which owns /srv/tally.
   user: "${TALLY_USER:?set TALLY_USER to tally's uid:gid in .env}"
