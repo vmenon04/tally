@@ -38,14 +38,14 @@ from pathlib import Path
 from beancount.core import data, position, prices
 
 from tally.ledger import accounts, entries, positions
-from tally.plan import ROTH, Goal, Targets
+from tally.plan import ROTH as ROTH_PLAN
+from tally.plan import Goal, Targets
 
 MONTHS = 6
 TOP_MERCHANTS = 8
 USUAL_MONTHS = 3  # whole months the suggestions go by
 FIRST_SHARE = Decimal("0.7")  # of what's left, for a "months" goal that's still short
-ROTH_ACCOUNT = "Assets:Fidelity:Roth"
-ROTH_CASH = f"{ROTH_ACCOUNT}:Cash"
+ROTH = "Assets:Fidelity:Roth"
 _ZERO = Decimal(0)
 
 
@@ -233,11 +233,7 @@ def build(
     category_account: dict[str, str] = {}
     merchants: dict[str, Decimal] = defaultdict(Decimal)
     roth_in = roth_elsewhere
-    roth_from = {ROTH_CASH} | {
-        found.transfers_from[label]
-        for label, account in found.fidelity_accounts.items()
-        if account == ROTH_ACCOUNT and label in found.transfers_from
-    }
+    roth_from = found.roth_from(ROTH)
     for e in loaded:
         if not isinstance(e, data.Transaction) or e.date > today + datetime.timedelta(days=31):
             continue
@@ -292,7 +288,7 @@ def _spare(months: list[Month], targets: Targets, today: datetime.date) -> Spare
     if not whole:
         return None
     n = len(whole)
-    roth = targets.for_month(ROTH, today.year, today.month) or _ZERO
+    roth = targets.for_month(ROTH_PLAN, today.year, today.month) or _ZERO
     return Spare(
         n,
         (sum((m.take_home for m in whole), _ZERO) / n).quantize(Decimal("0.01")),

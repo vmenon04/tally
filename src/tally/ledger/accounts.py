@@ -115,11 +115,27 @@ class Accounts:
         raise AccountsError(f'no open directive has category: "{category}" for {merchant!r}')
 
     def category_of(self, account: str) -> str | None:
-        """The category whose rows post their other side to this account, if any."""
+        """The category whose rows post their other side to this account, if any.
+
+        A Fidelity account's `:Cash` takes its transfers-from account's category: rows from
+        before the clearing account posted straight to the cash, and keep their category.
+        """
         for category, choices in self.categories.items():
             if any(c.account == account for c in choices):
                 return category
+        for label, clearing in self.transfers_from.items():
+            if account == f"{self.fidelity_accounts[label]}:Cash":
+                return self.category_of(clearing)
         return None
+
+    def roth_from(self, roth: str) -> set[str]:
+        """Where money from the bank into this Roth IRA posts: its cash, and its
+        transfers-from clearing account if it has one."""
+        found = {f"{roth}:Cash"}
+        for label, account in self.fidelity_accounts.items():
+            if account == roth and label in self.transfers_from:
+                found.add(self.transfers_from[label])
+        return found
 
     def check(self, spending: Iterable[str]) -> None:
         """Every category tally can produce must have a catch-all account."""

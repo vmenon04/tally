@@ -501,3 +501,30 @@ def test_money_from_the_bank_spent_the_day_it_arrives(
     assert sides["Assets:Transfers:Fidelity"] == Decimal("-1100.00")
     assert later.flag == "*"
     assert book.check(data_dir / "ledger") == []
+
+
+def test_roth_contributions_count_what_waits_in_the_clearing_account(data_dir: Path) -> None:
+    waiting_in_transfers(data_dir, "2026-03-23", "1000.00")
+    found = weekly.build(data_dir / "ledger", datetime.date(2026, 3, 31), Decimal(7500), Decimal(0))
+    assert found.roth_in == Decimal("1500.00")  # the 500 straight to cash on 03/10, and this
+
+
+def test_rows_from_before_the_clearing_account_keep_their_category() -> None:
+    from beancount import loader
+
+    loaded, errors, _ = loader.load_string(
+        "2026-01-01 open Assets:Fidelity:Roth\n"
+        '  fidelity-account: "1111"\n'
+        '  transfers-from: "Assets:Transfers:Fidelity"\n'
+        "2026-01-01 open Assets:Fidelity:Roth:Cash USD\n"
+        "2026-01-01 open Assets:Fidelity:Go\n"
+        '  fidelity-account: "3333"\n'
+        "2026-01-01 open Assets:Fidelity:Go:Cash USD\n"
+        "2026-01-01 open Assets:Transfers:Fidelity USD\n"
+        '  category: "Investing"\n'
+    )
+    assert errors == []
+    found = accounts.from_entries(loaded)
+    assert found.category_of("Assets:Fidelity:Roth:Cash") == "Investing"
+    assert found.category_of("Assets:Fidelity:Go:Cash") is None
+    assert found.counter("Investing", "FID BKG SVC LLC") == "Assets:Transfers:Fidelity"

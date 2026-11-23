@@ -19,7 +19,7 @@ import beanquery
 from beancount import loader
 
 from tally.ledger import accounts, book, positions
-from tally.ledger.picture import ROTH_CASH
+from tally.ledger.picture import ROTH
 
 # The day a purchase happened: `purchased` when the entry has it, else the entry's date.
 _DAY = "coalesce(date(entry_meta('purchased')), date)"
@@ -98,9 +98,10 @@ def build(
         f"SELECT id WHERE flag = '!' AND account ~ '^Expenses:' "
         f"AND {_DAY} >= {first} AND {_DAY} <= {today}"
     )
+    roth_from = " OR ".join(f"account = '{a}'" for a in sorted(found.roth_from(ROTH)))
     roth = query(
         # Money in from your bank, not the cash a Fidelity snapshot moves into holdings.
-        f"SELECT sum(number) WHERE account = '{ROTH_CASH}' AND number > 0 "
+        f"SELECT sum(number) WHERE ({roth_from}) AND number > 0 "
         f"AND NOT ('{positions.TAG}' IN tags) "
         f"AND year({_DAY}) = {today.year} AND {_DAY} <= {today}"
     )
