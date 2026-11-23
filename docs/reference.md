@@ -67,11 +67,11 @@ These go on `open` lines in `accounts.beancount` ([The ledger](ledger.md)).
 | `simplefin-account: "1234"` | It's SimpleFIN's account ending 1234: its rows come in (with `tally-account`) and its balance is checked |
 | `interest-from: "Income:Interest"` | For an account with `simplefin-account` and no `tally-account`: bring in its interest only |
 | `category: "Groceries"` | Transactions in this category post their other side here |
-| `merchant-contains: "A\|B"` | With `category`: only merchants containing one of these |
+| `merchant-contains: "A\|B"` | With `category`: only rows whose merchant or description contains one of these |
 | `fixed: TRUE` | A bill that comes once a month: the summary counts it in full, not a little each day |
 | `fidelity-account: "1234"` | Record this Fidelity account's holdings ([investments](ledger.md#investment-holdings)) |
 | `contributions-from: "Income:Salary:401k"` | Where a 401(k)'s payroll contributions come from |
-| `transfers-from: "Assets:Transfers:Fidelity"` | Where money from your bank waits until Fidelity has it ([investments](ledger.md#investment-holdings)) |
+| `transfers-from: "Assets:Transfers:Fidelity:Roth"` | Where money from your bank waits until Fidelity has it ([investments](ledger.md#investment-holdings)) |
 | `sure-account: "Checking"` | The Sure account this one fills |
 
 And in `plan.beancount`:

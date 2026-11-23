@@ -41,7 +41,7 @@ def transaction(
     if t.date != date:
         entry_meta[PURCHASED_KEY] = t.date
     units = amount.Amount(t.amount, CURRENCY)
-    counter = accounts.counter(rules.categorize(t), t.merchant)
+    counter = accounts.counter(rules.categorize(t), t.merchant, t.description)
     return data.Transaction(
         meta=entry_meta,
         date=date,

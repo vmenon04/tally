@@ -439,16 +439,16 @@ def test_contributions_without_contributions_from_are_unreconciled(
 
 
 def waiting_in_transfers(folder: Path, day: str, amount: str) -> None:
-    """The Roth takes money from Assets:Transfers:Fidelity, and the bank sent some on day."""
+    """The Roth takes money from Assets:Transfers:Fidelity:Roth, and the bank sent some on day."""
     accounts_file = folder / "ledger" / "accounts.beancount"
     accounts_file.write_text(
         accounts_file.read_text().replace(
             '  fidelity-account: "1111"\n',
-            '  fidelity-account: "1111"\n  transfers-from: "Assets:Transfers:Fidelity"\n',
+            '  fidelity-account: "1111"\n  transfers-from: "Assets:Transfers:Fidelity:Roth"\n',
         )
-        + "2026-01-01 open Assets:Transfers:Fidelity USD\n"
+        + "2026-01-01 open Assets:Transfers:Fidelity:Roth USD\n"
         + f'{day} * "FID BKG SVC LLC"\n'
-        + f"  Assets:Transfers:Fidelity  {amount} USD\n"
+        + f"  Assets:Transfers:Fidelity:Roth  {amount} USD\n"
         + "  Equity:Opening-Balances\n"
     )
 
@@ -469,7 +469,7 @@ def test_money_from_the_bank_waits_until_fidelity_has_it(
     sides = {
         p.account: p.units.number for p in later.postings if p.units and p.units.currency == "USD"
     }
-    assert sides["Assets:Transfers:Fidelity"] == Decimal("-1000.00")
+    assert sides["Assets:Transfers:Fidelity:Roth"] == Decimal("-1000.00")
     assert later.flag == "*"
     assert book.check(data_dir / "ledger") == []
 
@@ -485,7 +485,7 @@ def test_money_from_the_bank_spent_the_day_it_arrives(
     accounts_file.write_text(
         accounts_file.read_text()
         + '2026-03-25 * "FID BKG SVC LLC"\n'
-        + "  Assets:Transfers:Fidelity  500.00 USD\n"
+        + "  Assets:Transfers:Fidelity:Roth  500.00 USD\n"
         + "  Equity:Opening-Balances\n"
     )
     snap = roth_snapshot(datetime.date(2026, 3, 26), "512.50", [])
@@ -498,7 +498,7 @@ def test_money_from_the_bank_spent_the_day_it_arrives(
     sides = {
         p.account: p.units.number for p in later.postings if p.units and p.units.currency == "USD"
     }
-    assert sides["Assets:Transfers:Fidelity"] == Decimal("-1100.00")
+    assert sides["Assets:Transfers:Fidelity:Roth"] == Decimal("-1100.00")
     assert later.flag == "*"
     assert book.check(data_dir / "ledger") == []
 
@@ -515,19 +515,19 @@ def test_rows_from_before_the_clearing_account_keep_their_category() -> None:
     loaded, errors, _ = loader.load_string(
         "2026-01-01 open Assets:Fidelity:Roth\n"
         '  fidelity-account: "1111"\n'
-        '  transfers-from: "Assets:Transfers:Fidelity"\n'
+        '  transfers-from: "Assets:Transfers:Fidelity:Roth"\n'
         "2026-01-01 open Assets:Fidelity:Roth:Cash USD\n"
         "2026-01-01 open Assets:Fidelity:Go\n"
         '  fidelity-account: "3333"\n'
         "2026-01-01 open Assets:Fidelity:Go:Cash USD\n"
-        "2026-01-01 open Assets:Transfers:Fidelity USD\n"
+        "2026-01-01 open Assets:Transfers:Fidelity:Roth USD\n"
         '  category: "Investing"\n'
     )
     assert errors == []
     found = accounts.from_entries(loaded)
     assert found.category_of("Assets:Fidelity:Roth:Cash") == "Investing"
     assert found.category_of("Assets:Fidelity:Go:Cash") is None
-    assert found.counter("Investing", "FID BKG SVC LLC") == "Assets:Transfers:Fidelity"
+    assert found.counter("Investing", "FID BKG SVC LLC") == "Assets:Transfers:Fidelity:Roth"
 
 
 def test_money_to_the_bank_leaves_when_fidelity_shows_it_gone(
@@ -541,7 +541,7 @@ def test_money_to_the_bank_leaves_when_fidelity_shows_it_gone(
     accounts_file.write_text(
         accounts_file.read_text()
         + '2026-03-30 * "FID BKG SVC LLC"\n'
-        + "  Assets:Transfers:Fidelity  -200.00 USD\n"
+        + "  Assets:Transfers:Fidelity:Roth  -200.00 USD\n"
         + "  Equity:Opening-Balances\n"
     )
     # Fidelity's holdings still show it on 03/31, and it's gone on 04/02.
@@ -551,6 +551,47 @@ def test_money_to_the_bank_leaves_when_fidelity_shows_it_gone(
     sides = {
         p.account: p.units.number for p in later.postings if p.units and p.units.currency == "USD"
     }
-    assert sides["Assets:Transfers:Fidelity"] == Decimal("200.00")
+    assert sides["Assets:Transfers:Fidelity:Roth"] == Decimal("200.00")
     assert later.flag == "*"
     assert book.check(data_dir / "ledger") == []
+
+
+def test_transfers_wait_for_the_fidelity_account_the_bank_names() -> None:
+    from beancount import loader
+
+    loaded, errors, _ = loader.load_string(
+        "2026-01-01 open Assets:Fidelity:Roth\n"
+        '  fidelity-account: "1111"\n'
+        '  transfers-from: "Assets:Transfers:Fidelity:Roth"\n'
+        "2026-01-01 open Assets:Fidelity:Roth:Cash USD\n"
+        "2026-01-01 open Assets:Fidelity:Go\n"
+        '  fidelity-account: "3333"\n'
+        '  transfers-from: "Assets:Transfers:Fidelity:Go"\n'
+        "2026-01-01 open Assets:Fidelity:Go:Cash USD\n"
+        "2026-01-01 open Assets:Transfers:Fidelity:Roth USD\n"
+        '  category: "Investing"\n'
+        '  merchant-contains: "1111"\n'
+        "2026-01-01 open Assets:Transfers:Fidelity:Go USD\n"
+        '  category: "Investing"\n'
+        '  merchant-contains: "3333"\n'
+        "2026-01-01 open Assets:Transfers:Fidelity USD\n"
+        '  category: "Investing"\n'
+    )
+    assert errors == []
+    found = accounts.from_entries(loaded)
+    bank = "FID BKG SVC LLC DES:MONEYLINE ID:XXXXX{} K56FX INDN:A PERSON CO ID:XXXXX4600 PPD"
+    merchant = "FID BKG SVC LLC"
+    assert found.counter("Investing", merchant, bank.format("1111")) == (
+        "Assets:Transfers:Fidelity:Roth"
+    )
+    assert found.counter("Investing", merchant, bank.format("3333")) == (
+        "Assets:Transfers:Fidelity:Go"
+    )
+    # An account tally doesn't know waits where nothing clears it, and nothing counts it.
+    assert found.counter("Investing", merchant, bank.format("9999")) == "Assets:Transfers:Fidelity"
+    assert found.roth_from("Assets:Fidelity:Roth") == {
+        "Assets:Fidelity:Roth:Cash",
+        "Assets:Transfers:Fidelity:Roth",
+    }
+    # Each cash account's old rows take its own clearing account's category.
+    assert found.category_of("Assets:Fidelity:Go:Cash") == "Investing"

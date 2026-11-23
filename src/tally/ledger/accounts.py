@@ -23,7 +23,7 @@ names accounts and bean-check sees every account tally writes to:
 
     2026-09-01 open Assets:Fidelity:Roth
       fidelity-account: "8765"
-      transfers-from: "Assets:Transfers:Fidelity"  # money from the bank waits here
+      transfers-from: "Assets:Transfers:Fidelity:Roth"  # money from the bank waits here
 
     2026-09-01 open Assets:BofA:Savings USD
       category: "Savings transfer"
@@ -41,7 +41,8 @@ interest-from is for a savings account whose deposits tally already sees from th
 simplefin-account, and can't go with tally-account, whose rows would bring the interest in
 already.
 
-merchant-contains matches any case, and | separates alternatives. A category can have
+merchant-contains matches the merchant or the bank's whole description (where an account
+number shows, say), in any case, and | separates alternatives. A category can have
 several accounts told apart by merchant-contains, plus at most one without it, which takes
 every other merchant.
 """
@@ -63,14 +64,15 @@ class _Choice:
     account: str
     merchant_contains: str | None
 
-    def takes(self, merchant: str) -> bool:
+    def takes(self, merchant: str, description: str) -> bool:
         if self.merchant_contains is None:
             return False
-        folded = merchant.casefold()
+        folded = (merchant.casefold(), description.casefold())
         return any(
-            part.strip().casefold() in folded
+            part.strip().casefold() in text
             for part in self.merchant_contains.split("|")
             if part.strip()
+            for text in folded
         )
 
 
@@ -103,11 +105,11 @@ class Accounts:
         except KeyError:
             raise AccountsError(f'no open directive has tally-account: "{tally_account}"') from None
 
-    def counter(self, category: str, merchant: str) -> str:
+    def counter(self, category: str, merchant: str, description: str = "") -> str:
         """The account a row's other side posts to."""
         choices = self.categories.get(category, ())
         for choice in choices:
-            if choice.takes(merchant):
+            if choice.takes(merchant, description):
                 return choice.account
         for choice in choices:
             if choice.merchant_contains is None:

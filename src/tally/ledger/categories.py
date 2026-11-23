@@ -60,7 +60,7 @@ def plan(ledger: book.Ledger, rows: Sequence[Transaction], rules: Rules) -> list
         category = only_rules.categorize(t)
         if category == UNCATEGORIZED:
             continue
-        expected = ledger.accounts.counter(category, t.merchant)
+        expected = ledger.accounts.counter(category, t.merchant, t.description)
         changes.append(
             Change(path, int(other.meta["lineno"]), other.account, expected, entry.payee or "")
         )

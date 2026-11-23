@@ -61,7 +61,7 @@ overwrites it.
   category: "Groceries"                  ; the other side of rows in this category
 2026-01-01 open Assets:Bank:Savings USD
   category: "Savings transfer"
-  merchant-contains: "TRANSFER TO SAV"   ; only merchants containing one of these (| between)
+  merchant-contains: "TRANSFER TO SAV"   ; only rows whose merchant or description has one (| between)
 ```
 
 Every category in `rules.toml`, the built-in ones (Income, Card payment, Savings transfer,
@@ -172,21 +172,26 @@ they come from, and open that income account:
 A 401(k)'s fund comes with no purchase price, so new units count as bought at that day's price,
 and its cost basis is your contributions.
 
-**Money from your bank:** the bank says a transfer left days before Fidelity has it, and in
-between the cash balance asserted from Fidelity would fail. Post the bank's side to a clearing
-account instead, and name it on the Fidelity account:
+**Money from your bank:** Fidelity's holdings can show a transfer days after the bank says it
+left, and in between the cash balance asserted from them would fail. Post the bank's side to a
+clearing account instead, one per Fidelity account, told apart by the account number in the
+bank's description, and name it on the Fidelity account:
 
 ```beancount
-2026-01-01 open Assets:Transfers:Fidelity USD
+2026-01-01 open Assets:Transfers:Fidelity:Roth USD
   category: "Investing"
+  merchant-contains: "1234"
 2026-01-01 open Assets:Fidelity:Roth
   fidelity-account: "1234"
-  transfers-from: "Assets:Transfers:Fidelity"
+  transfers-from: "Assets:Transfers:Fidelity:Roth"
+2026-01-01 open Assets:Transfers:Fidelity USD     ; any other: nothing clears it
+  category: "Investing"
 ```
 
 Once a snapshot shows the money in the account, it comes out of the clearing account (up to
-what's waiting there), so the clearing account is back to zero. The weekly Roth IRA total
-counts what went into either.
+what's waiting there), so the clearing account is back to zero; money back to the bank works
+the same way. A balance left in one means a transfer the holdings never showed. The weekly Roth
+IRA total counts what went into the Roth's cash or its clearing account.
 
 ## Showing it in Sure
 
