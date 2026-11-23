@@ -13,7 +13,8 @@ transaction (tagged #fidelity-positions) brings the ledger to what the snapshot 
   dividends go to Income:Fidelity:Dividends, once the ledger opens that account, and
   payroll contributions to the account's `contributions-from:` (a 401(k)'s, say
   Income:Salary:401k). Money from the bank still waiting in the account's
-  `transfers-from:` clearing account explains what came in next, up to what's waiting.
+  `transfers-from:` clearing account explains what came in next, up to what's waiting
+  (and money on its way out to the bank, what went out).
   What's left goes to Income:Fidelity:Unreconciled: gains on sales, fees, anything the
   source didn't report. A transaction with something left unexplained is flagged `!`.
 
@@ -113,10 +114,7 @@ def entries(
                     postings.append(_posting(income, -contributed, CURRENCY, None))
                 clearing = found.transfers_from.get(account.label)
                 if clearing is not None:
-                    waiting = _cash(existing, clearing, day)
-                    arrived = min(waiting, _net(postings, held))
-                    if arrived > 0:
-                        postings.append(_posting(clearing, -arrived, CURRENCY, None))
+                    postings += _arrived(clearing, _cash(existing, clearing, day), postings, held)
                 if _explained(postings, held):
                     flag = "*"
             postings.append(
@@ -215,6 +213,25 @@ def _without_cost_basis(
             )
         )
     return postings
+
+
+def _arrived(
+    clearing: str,
+    waiting: Decimal,
+    postings: list[data.Posting],
+    held: dict[str, tuple[Decimal, Decimal]],
+) -> list[data.Posting]:
+    """Of the money waiting in the clearing account, what the snapshot shows has arrived:
+    up to what came in that nothing else explains. Waiting money is negative when it's
+    going the other way (out of the account to the bank), and so is what left."""
+    net = _net(postings, held)
+    if waiting > 0 and net > 0:
+        moved = min(waiting, net)
+    elif waiting < 0 and net < 0:
+        moved = max(waiting, net)
+    else:
+        return []
+    return [_posting(clearing, -moved, CURRENCY, None)]
 
 
 def _is_open(existing: Sequence[data.Directive], account: str) -> bool:

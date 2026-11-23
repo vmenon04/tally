@@ -528,3 +528,29 @@ def test_rows_from_before_the_clearing_account_keep_their_category() -> None:
     assert found.category_of("Assets:Fidelity:Roth:Cash") == "Investing"
     assert found.category_of("Assets:Fidelity:Go:Cash") is None
     assert found.counter("Investing", "FID BKG SVC LLC") == "Assets:Transfers:Fidelity"
+
+
+def test_money_to_the_bank_leaves_when_fidelity_shows_it_gone(
+    data_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert record(data_dir, snapshot()) > 0  # Roth cash 12.50 on 03/20
+    # 500.00 went to the Roth on 03/23; 200.00 came back to the bank on 03/30.
+    waiting_in_transfers(data_dir, "2026-03-23", "500.00")
+    add_snapshot(data_dir, roth_snapshot(datetime.date(2026, 3, 24), "512.50", []))
+    accounts_file = data_dir / "ledger" / "accounts.beancount"
+    accounts_file.write_text(
+        accounts_file.read_text()
+        + '2026-03-30 * "FID BKG SVC LLC"\n'
+        + "  Assets:Transfers:Fidelity  -200.00 USD\n"
+        + "  Equity:Opening-Balances\n"
+    )
+    # Fidelity's holdings still show it on 03/31, and it's gone on 04/02.
+    add_snapshot(data_dir, roth_snapshot(datetime.date(2026, 3, 31), "512.50", []))
+    add_snapshot(data_dir, roth_snapshot(datetime.date(2026, 4, 2), "312.50", []))
+    later = roth_entries(data_dir)[-1]
+    sides = {
+        p.account: p.units.number for p in later.postings if p.units and p.units.currency == "USD"
+    }
+    assert sides["Assets:Transfers:Fidelity"] == Decimal("200.00")
+    assert later.flag == "*"
+    assert book.check(data_dir / "ledger") == []
